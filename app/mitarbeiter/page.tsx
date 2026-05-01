@@ -204,16 +204,20 @@ const [unreadChatCount, setUnreadChatCount] = useState(0);
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
-        await fetch("/api/push/subscribe", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            employeeName,
-            subscription,
-          }),
-        });
+        const token = await getAccessToken();
+
+        if (token) {
+          await fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              subscription,
+            }),
+          });
+        }
 
         localStorage.setItem("cleantrack_push_asked", "true");
         setShowPushPrompt(false);
@@ -233,6 +237,11 @@ const [unreadChatCount, setUnreadChatCount] = useState(0);
 useEffect(() => {
   checkExistingSession();
 }, []);
+
+async function getAccessToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || "";
+}
 useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   const tab = params.get("tab");
@@ -1018,13 +1027,20 @@ async function enablePushNotifications() {
 
     setProfileMessage("Push-Abo wird gespeichert...");
 
+    const token = await getAccessToken();
+
+    if (!token) {
+      setProfileMessage("Sitzung fehlt. Bitte neu einloggen.");
+      return;
+    }
+
     const response = await fetch("/api/push/subscribe", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        employeeName,
         subscription,
       }),
     });

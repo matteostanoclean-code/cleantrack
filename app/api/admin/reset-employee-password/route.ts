@@ -1,24 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-function normalizePhone(phone: string) {
-  let cleaned = phone.replace(/\s/g, "").replace(/-/g, "");
-
-  if (cleaned.startsWith("00")) {
-    cleaned = "+" + cleaned.slice(2);
-  }
-
-  if (cleaned.startsWith("0")) {
-    cleaned = "+49" + cleaned.slice(1);
-  }
-
-  return cleaned;
-}
-
-function createToken() {
-  return crypto.randomUUID() + "-" + Math.random().toString(36).slice(2);
-}
-
 function getEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -83,7 +65,7 @@ async function requireAdmin(request: Request) {
   if (profileError || profile?.role !== "admin") {
     return {
       error: NextResponse.json(
-        { error: "Kein Zugriff. Nur Admins dürfen Mitarbeiter einladen." },
+        { error: "Kein Zugriff. Nur Admins dürfen Passwörter zurücksetzen." },
         { status: 403 }
       ),
       supabaseAdmin: null,
@@ -108,63 +90,80 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    const name = String(body.name || "").trim();
-    const email = String(body.email || "").trim().toLowerCase();
-    const phoneRaw = String(body.phone || "").trim();
+    const authUserId = String(body.authUserId || "").trim();
+    const password = String(body.password || "").trim();
 
-    if (!name || !email) {
+    if (!authUserId) {
       return NextResponse.json(
-        { error: "Name und E-Mail sind Pflicht." },
+        { error: "Mitarbeiter-ID fehlt." },
         { status: 400 }
       );
     }
 
-    if (!email.includes("@")) {
+    if (password.length < 6) {
       return NextResponse.json(
-        { error: "Bitte eine gültige E-Mail eintragen." },
+        { error: "Das Passwort muss mindestens 6 Zeichen haben." },
         { status: 400 }
       );
     }
 
-    const token = createToken();
-    const phone = phoneRaw ? normalizePhone(phoneRaw) : null;
+    const { data: targetProfile, error: targetProfileError } =
+      await supabaseAdmin
+        .from("employee_profiles")
+        .select("id, role")
+        .eq("auth_user_id", authUserId)
+        .single();
 
-    const { error } = await supabaseAdmin.from("employee_invites").insert([
-      {
-        name,
-        email,
-        phone,
-        token,
-        used: false,
-      },
-    ]);
-
-    if (error) {
+    if (targetProfileError || !targetProfile) {
       return NextResponse.json(
-        { error: error.message || "Einladung konnte nicht erstellt werden." },
+        { error: "Mitarbeiterprofil wurde nicht gefunden." },
+        { status: 404 }
+      );
+    }
+
+    if (targetProfile.role === "admin") {
+      return NextResponse.json(
+        { error: "Admin-Passwörter dürfen hier nicht zurückgesetzt werden." },
+        { status: 403 }
+      );
+    }
+
+    const { error: updateUserError } =
+      await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+        password,
+      });
+
+    if (updateUserError) {
+      return NextResponse.json(
+        {
+          error:
+            updateUserError.message ||
+            "Passwort konnte in Supabase Auth nicht geändert werden.",
+        },
         { status: 500 }
       );
     }
 
-    const baseUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      request.headers.get("origin") ||
-      "http://localhost:3000";
+    const { error: profileError } = await supabaseAdmin
+      .from("employee_profiles")
+      .update({ must_change_password: true })
+      .eq("auth_user_id", authUserId);
 
-    const inviteLink = `${baseUrl}/mitarbeiter/aktivieren?token=${encodeURIComponent(
-      token
-    )}`;
+    if (profileError) {
+      return NextResponse.json(
+        {
+          error:
+            profileError.message ||
+            "Passwort wurde geändert, aber Passwortwechsel-Pflicht konnte nicht gespeichert werden.",
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      inviteLink,
-      email,
-      phone,
-      whatsappLink: phone
-        ? `https://wa.me/${phone.replace("+", "")}?text=${encodeURIComponent(
-            `Hallo ${name}, hier ist dein Aktivierungslink für CleanTrack: ${inviteLink}`
-          )}`
-        : "",
+      message:
+        "Passwort wurde geändert. Mitarbeiter muss beim nächsten Login ein neues Passwort erstellen.",
     });
   } catch (error) {
     return NextResponse.json(
@@ -172,7 +171,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Serverfehler beim Erstellen der Einladung.",
+            : "Unbekannter Serverfehler beim Passwort-Reset.",
       },
       { status: 500 }
     );

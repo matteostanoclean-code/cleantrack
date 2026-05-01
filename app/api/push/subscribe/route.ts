@@ -1,19 +1,100 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+function getEnv() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL fehlt.");
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY fehlt.");
+  }
+
+  return { supabaseUrl, serviceRoleKey };
+}
+
+function getBearerToken(request: Request) {
+  const authHeader = request.headers.get("authorization") || "";
+
+  if (!authHeader.startsWith("Bearer ")) {
+    return "";
+  }
+
+  return authHeader.replace("Bearer ", "").trim();
+}
+
+async function requireAuthenticatedUser(request: Request) {
+  const { supabaseUrl, serviceRoleKey } = getEnv();
+
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return {
+      error: NextResponse.json(
+        { error: "Nicht angemeldet. Token fehlt." },
+        { status: 401 }
+      ),
+      supabaseAdmin: null,
+      profile: null,
+    };
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+
+  const { data: userData, error: userError } =
+    await supabaseAdmin.auth.getUser(token);
+
+  if (userError || !userData.user) {
+    return {
+      error: NextResponse.json(
+        { error: "Sitzung ungültig. Bitte neu einloggen." },
+        { status: 401 }
+      ),
+      supabaseAdmin: null,
+      profile: null,
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("employee_profiles")
+    .select("id, name, role")
+    .eq("auth_user_id", userData.user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return {
+      error: NextResponse.json(
+        { error: "Mitarbeiterprofil wurde nicht gefunden." },
+        { status: 404 }
+      ),
+      supabaseAdmin: null,
+      profile: null,
+    };
+  }
+
+  return {
+    error: null,
+    supabaseAdmin,
+    profile,
+  };
+}
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const authCheck = await requireAuthenticatedUser(request);
 
-    const employeeName = String(body.employeeName || "").trim();
-    const subscription = body.subscription;
-
-    if (!employeeName) {
-      return NextResponse.json(
-        { error: "Mitarbeitername fehlt." },
-        { status: 400 }
-      );
+    if (authCheck.error || !authCheck.supabaseAdmin || !authCheck.profile) {
+      return authCheck.error;
     }
+
+    const supabaseAdmin = authCheck.supabaseAdmin;
+    const profile = authCheck.profile;
+
+    const body = await request.json();
+    const subscription = body.subscription;
 
     if (!subscription?.endpoint) {
       return NextResponse.json(
@@ -32,28 +113,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      return NextResponse.json(
-        { error: "NEXT_PUBLIC_SUPABASE_URL fehlt." },
-        { status: 500 }
-      );
-    }
-
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { error: "SUPABASE_SERVICE_ROLE_KEY fehlt." },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-
     const { error } = await supabaseAdmin.from("push_subscriptions").upsert(
       {
-        employee_name: employeeName,
+        employee_name: profile.name,
         endpoint: subscription.endpoint,
         p256dh,
         auth,

@@ -22,6 +22,8 @@ type Task = {
   start_time: string | null;
   end_time: string | null;
   max_minutes: number | null;
+  planned_minutes: number | null;
+  work_site_id: string | null;
 };
 
 type AdminNotification = {
@@ -43,6 +45,8 @@ type WorkSite = {
   latitude: number | null;
   longitude: number | null;
   allowed_radius_m: number | null;
+  address: string | null;
+  notes: string | null;
 };
 
 type EmployeeProfile = {
@@ -100,7 +104,26 @@ export default function AdminPage() {
   const [newSiteLat, setNewSiteLat] = useState("");
   const [newSiteLng, setNewSiteLng] = useState("");
   const [newSiteRadius, setNewSiteRadius] = useState("100");
+  const [newSiteAddress, setNewSiteAddress] = useState("");
+  const [newSiteNotes, setNewSiteNotes] = useState("");
   const [siteMessage, setSiteMessage] = useState("");
+
+  const [editingSiteId, setEditingSiteId] = useState("");
+  const [editSiteName, setEditSiteName] = useState("");
+  const [editSiteLat, setEditSiteLat] = useState("");
+  const [editSiteLng, setEditSiteLng] = useState("");
+  const [editSiteRadius, setEditSiteRadius] = useState("100");
+  const [editSiteAddress, setEditSiteAddress] = useState("");
+  const [editSiteNotes, setEditSiteNotes] = useState("");
+
+  const [editingTaskId, setEditingTaskId] = useState("");
+  const [editTaskTitle, setEditTaskTitle] = useState("");
+  const [editTaskSite, setEditTaskSite] = useState("");
+  const [editTaskEmployee, setEditTaskEmployee] = useState("");
+  const [editTaskDate, setEditTaskDate] = useState("");
+  const [editTaskStartTime, setEditTaskStartTime] = useState("");
+  const [editTaskEndTime, setEditTaskEndTime] = useState("");
+  const [editTaskMaxMinutes, setEditTaskMaxMinutes] = useState("60");
 
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -122,6 +145,39 @@ const [chatError, setChatError] = useState("");
   useEffect(() => {
     checkAdmin();
   }, []);
+
+  async function getAccessToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || "";
+  }
+
+  async function sendPushToEmployee(employeeName: string, title: string, message: string, url = "/mitarbeiter") {
+    const token = await getAccessToken();
+
+    if (!token || !employeeName.trim()) {
+      return { ok: false, error: "Token oder Mitarbeiter fehlt." };
+    }
+
+    const response = await fetch("/api/push/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ employeeName, title, message, url }),
+    });
+
+    let result: { error?: string; sent?: number; failed?: number; failedMessages?: string[] } = {};
+
+    try {
+      result = await response.json();
+    } catch {
+      result = { error: `Push API antwortet nicht als JSON. Status: ${response.status}` };
+    }
+
+    return { ok: response.ok, result, error: result.error };
+  }
+
 
   useEffect(() => {
   const interval = setInterval(() => {
@@ -194,6 +250,8 @@ useEffect(() => {
   }
 
   async function decideOvertime(id: string, decision: "approved" | "rejected") {
+    const note = notifications.find((item) => item.id === id);
+
     await supabase
       .from("admin_notifications")
       .update({
@@ -207,6 +265,17 @@ useEffect(() => {
         item.id === id ? { ...item, status: decision, read: true } : item
       )
     );
+
+    if (note?.employee_name) {
+      await sendPushToEmployee(
+        note.employee_name,
+        decision === "approved" ? "Überstunden genehmigt" : "Überstunden abgelehnt",
+        decision === "approved"
+          ? "Deine Überstunden wurden genehmigt."
+          : "Deine Überstunden wurden abgelehnt.",
+        "/mitarbeiter?tab=profile"
+      );
+    }
   }
 
   async function loadEntries() {
@@ -222,7 +291,7 @@ useEffect(() => {
   async function loadTasks() {
     const { data } = await supabase
       .from("tasks")
-      .select("id, title, site, employee_name, task_date, done, start_time, end_time, max_minutes")
+      .select("id, title, site, employee_name, task_date, done, start_time, end_time, max_minutes, planned_minutes, work_site_id")
       .order("task_date", { ascending: true });
 
     setTasks(data || []);
@@ -231,7 +300,7 @@ useEffect(() => {
   async function loadWorkSites() {
     const { data } = await supabase
       .from("work_sites")
-      .select("id, name, latitude, longitude, allowed_radius_m")
+      .select("id, name, latitude, longitude, allowed_radius_m, address, notes")
       .order("name");
 
     setWorkSites(data || []);
@@ -351,6 +420,9 @@ useEffect(() => {
       return;
     }
 
+    const selectedWorkSite = workSites.find((item) => item.name === site.trim());
+    const plannedMinutes = Number(maxMinutes);
+
     const rows = cleanTasks.map((task) => ({
       title: task.trim(),
       site: site.trim(),
@@ -359,11 +431,24 @@ useEffect(() => {
       done: false,
       start_time: startTime,
       end_time: endTime,
-      max_minutes: Number(maxMinutes),
-      planned_minutes: Number(maxMinutes),
+      max_minutes: plannedMinutes,
+      planned_minutes: plannedMinutes,
+      work_site_id: selectedWorkSite?.id || null,
     }));
 
-    await supabase.from("tasks").insert(rows);
+    const { error } = await supabase.from("tasks").insert(rows);
+
+    if (error) {
+      alert(error.message || "Einsatz konnte nicht gespeichert werden.");
+      return;
+    }
+
+    await sendPushToEmployee(
+      employee.trim(),
+      "Neuer Einsatz geplant",
+      `${selectedISO}: ${site.trim()} von ${startTime} bis ${endTime}`,
+      "/mitarbeiter?tab=schedule"
+    );
 
     setTaskTitles([""]);
     await loadTasks();
@@ -402,11 +487,13 @@ useEffect(() => {
         latitude,
         longitude,
         allowed_radius_m: allowedRadius,
+        address: newSiteAddress.trim() || null,
+        notes: newSiteNotes.trim() || null,
       },
     ]);
 
     if (error) {
-      setSiteMessage("Objekt konnte nicht gespeichert werden.");
+      setSiteMessage(error.message || "Objekt konnte nicht gespeichert werden.");
       return;
     }
 
@@ -414,7 +501,79 @@ useEffect(() => {
     setNewSiteLat("");
     setNewSiteLng("");
     setNewSiteRadius("100");
+    setNewSiteAddress("");
+    setNewSiteNotes("");
     setSiteMessage("Objekt wurde gespeichert.");
+    await loadWorkSites();
+  }
+
+  function startEditWorkSite(item: WorkSite) {
+    setEditingSiteId(item.id);
+    setEditSiteName(item.name || "");
+    setEditSiteLat(item.latitude === null ? "" : String(item.latitude));
+    setEditSiteLng(item.longitude === null ? "" : String(item.longitude));
+    setEditSiteRadius(String(item.allowed_radius_m || 100));
+    setEditSiteAddress(item.address || "");
+    setEditSiteNotes(item.notes || "");
+    setSiteMessage("");
+  }
+
+  function cancelEditWorkSite() {
+    setEditingSiteId("");
+    setEditSiteName("");
+    setEditSiteLat("");
+    setEditSiteLng("");
+    setEditSiteRadius("100");
+    setEditSiteAddress("");
+    setEditSiteNotes("");
+  }
+
+  async function saveWorkSite() {
+    if (!editingSiteId) return;
+
+    if (!editSiteName.trim()) {
+      setSiteMessage("Bitte Objektname eintragen.");
+      return;
+    }
+
+    const latitude = editSiteLat.trim() ? Number(editSiteLat) : null;
+    const longitude = editSiteLng.trim() ? Number(editSiteLng) : null;
+    const allowedRadius = editSiteRadius.trim() ? Number(editSiteRadius) : 100;
+
+    if (editSiteLat.trim() && Number.isNaN(latitude)) {
+      setSiteMessage("Breitengrad ist ungültig.");
+      return;
+    }
+
+    if (editSiteLng.trim() && Number.isNaN(longitude)) {
+      setSiteMessage("Längengrad ist ungültig.");
+      return;
+    }
+
+    if (Number.isNaN(allowedRadius) || allowedRadius <= 0) {
+      setSiteMessage("Radius muss größer als 0 sein.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("work_sites")
+      .update({
+        name: editSiteName.trim(),
+        latitude,
+        longitude,
+        allowed_radius_m: allowedRadius,
+        address: editSiteAddress.trim() || null,
+        notes: editSiteNotes.trim() || null,
+      })
+      .eq("id", editingSiteId);
+
+    if (error) {
+      setSiteMessage(error.message || "Objekt konnte nicht aktualisiert werden.");
+      return;
+    }
+
+    setSiteMessage("Objekt wurde aktualisiert.");
+    cancelEditWorkSite();
     await loadWorkSites();
   }
 
@@ -446,10 +605,19 @@ useEffect(() => {
   setInviteLoading(true);
 
   try {
+    const token = await getAccessToken();
+
+    if (!token) {
+      setInviteMessage("Admin-Sitzung fehlt. Bitte neu einloggen.");
+      setInviteLoading(false);
+      return;
+    }
+
     const response = await fetch("/api/admin/create-employee-invite", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         name: inviteName.trim(),
@@ -503,10 +671,19 @@ async function resetEmployeePassword() {
   setResetLoading(true);
 
   try {
+    const token = await getAccessToken();
+
+    if (!token) {
+      setResetMessage("Admin-Sitzung fehlt. Bitte neu einloggen.");
+      setResetLoading(false);
+      return;
+    }
+
     const response = await fetch("/api/admin/reset-employee-password", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         authUserId: employeeProfile.auth_user_id,
@@ -554,7 +731,6 @@ async function resetEmployeePassword() {
 
   setResetLoading(false);
 }
-
   async function loadAdminChatMessages(employeeName?: string) {
   const selectedName = employeeName || selectedChatEmployee;
 
@@ -611,17 +787,26 @@ async function sendChatMessage() {
   return;
 }
 
+const token = await getAccessToken();
+
+if (!token) {
+  setChatError("Admin-Sitzung fehlt. Bitte neu einloggen.");
+  setChatText(text);
+  return;
+}
+
 const pushResponse = await fetch("/api/push/send", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
   },
   body: JSON.stringify({
-  employeeName: selectedChatEmployee,
-  title: "Neue Nachricht von Matteo",
-  message: text,
-  url: "/mitarbeiter?tab=chat",
-}),
+    employeeName: selectedChatEmployee,
+    title: "Neue Nachricht von Matteo",
+    message: text,
+    url: "/mitarbeiter?tab=chat",
+  }),
 });
 
 const pushText = await pushResponse.text();
@@ -662,6 +847,98 @@ if (!pushResponse.ok) {
 
 await loadAdminChatMessages(selectedChatEmployee);
 }
+  function startEditTask(task: Task) {
+    setEditingTaskId(task.id);
+    setEditTaskTitle(task.title || "");
+    setEditTaskSite(task.site || "");
+    setEditTaskEmployee(task.employee_name || "");
+    setEditTaskDate(task.task_date || selectedISO);
+    setEditTaskStartTime(task.start_time || "17:00");
+    setEditTaskEndTime(task.end_time || "18:00");
+    setEditTaskMaxMinutes(String(task.planned_minutes || task.max_minutes || 60));
+  }
+
+  function cancelEditTask() {
+    setEditingTaskId("");
+    setEditTaskTitle("");
+    setEditTaskSite("");
+    setEditTaskEmployee("");
+    setEditTaskDate("");
+    setEditTaskStartTime("");
+    setEditTaskEndTime("");
+    setEditTaskMaxMinutes("60");
+  }
+
+  async function saveTask() {
+    if (!editingTaskId) return;
+
+    if (!editTaskTitle.trim() || !editTaskSite.trim() || !editTaskEmployee.trim()) {
+      alert("Bitte Aufgabe, Objekt und Mitarbeiter eintragen.");
+      return;
+    }
+
+    const selectedWorkSite = workSites.find((item) => item.name === editTaskSite.trim());
+    const minutes = Number(editTaskMaxMinutes);
+
+    if (Number.isNaN(minutes) || minutes <= 0) {
+      alert("Minuten müssen größer als 0 sein.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        title: editTaskTitle.trim(),
+        site: editTaskSite.trim(),
+        employee_name: editTaskEmployee.trim(),
+        task_date: editTaskDate,
+        start_time: editTaskStartTime,
+        end_time: editTaskEndTime,
+        max_minutes: minutes,
+        planned_minutes: minutes,
+        work_site_id: selectedWorkSite?.id || null,
+      })
+      .eq("id", editingTaskId);
+
+    if (error) {
+      alert(error.message || "Einsatz konnte nicht geändert werden.");
+      return;
+    }
+
+    await sendPushToEmployee(
+      editTaskEmployee.trim(),
+      "Einsatz wurde geändert",
+      `${editTaskDate}: ${editTaskSite.trim()} von ${editTaskStartTime} bis ${editTaskEndTime}`,
+      "/mitarbeiter?tab=schedule"
+    );
+
+    cancelEditTask();
+    await loadTasks();
+  }
+
+  async function deleteTask(task: Task) {
+    const ok = window.confirm("Einsatz wirklich löschen?");
+    if (!ok) return;
+
+    const { error } = await supabase.from("tasks").delete().eq("id", task.id);
+
+    if (error) {
+      alert(error.message || "Einsatz konnte nicht gelöscht werden.");
+      return;
+    }
+
+    if (task.employee_name) {
+      await sendPushToEmployee(
+        task.employee_name,
+        "Einsatz wurde gelöscht",
+        `${task.task_date}: ${task.site || "Einsatz"} wurde gelöscht.`,
+        "/mitarbeiter?tab=schedule"
+      );
+    }
+
+    await loadTasks();
+  }
+
   function calculateEmployeeWorkedMinutes(employeeName: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -901,7 +1178,7 @@ await loadAdminChatMessages(selectedChatEmployee);
                                 </div>
                               ))}
                             </div>
-                          </button>
+                                                    </button>
                         );
                       })}
                     </div>
@@ -1148,26 +1425,104 @@ await loadAdminChatMessages(selectedChatEmployee);
                                 : "rounded-xl p-3 bg-white border-2 border-blue-500 shadow-sm"
                             }
                           >
-                            <p className="font-bold text-sm">
-                              {task.start_time} - {task.end_time}
-                            </p>
+                            {editingTaskId === task.id ? (
+                              <div className="space-y-2">
+                                <input
+                                  value={editTaskTitle}
+                                  onChange={(e) => setEditTaskTitle(e.target.value)}
+                                  placeholder="Aufgabe"
+                                  className="w-full p-2 rounded-xl bg-gray-100 outline-none text-sm"
+                                />
 
-                            <p className="text-sm font-semibold">
-                              {task.site || "Kein Objekt"}
-                            </p>
+                                <select
+                                  value={editTaskSite}
+                                  onChange={(e) => setEditTaskSite(e.target.value)}
+                                  className="w-full p-2 rounded-xl bg-gray-100 outline-none text-sm"
+                                >
+                                  <option value="">Objekt auswählen</option>
+                                  {workSites.map((item) => (
+                                    <option key={item.id} value={item.name}>
+                                      {item.name}
+                                    </option>
+                                  ))}
+                                </select>
 
-                            <p className="text-sm text-gray-600">{task.title}</p>
+                                <select
+                                  value={editTaskEmployee}
+                                  onChange={(e) => setEditTaskEmployee(e.target.value)}
+                                  className="w-full p-2 rounded-xl bg-gray-100 outline-none text-sm"
+                                >
+                                  <option value="">Mitarbeiter auswählen</option>
+                                  {employeeProfiles.map((profile) => (
+                                    <option key={profile.id} value={profile.name}>
+                                      {profile.name}
+                                    </option>
+                                  ))}
+                                </select>
 
-                            <div className="mt-3 h-1 bg-gray-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-blue-500 w-1/2" />
-                            </div>
+                                <input
+                                  type="date"
+                                  value={editTaskDate}
+                                  onChange={(e) => setEditTaskDate(e.target.value)}
+                                  className="w-full p-2 rounded-xl bg-gray-100 outline-none text-sm"
+                                />
 
-                            <div className="flex justify-between mt-1 text-xs text-gray-500">
-                              <span>{task.employee_name || "Kein Mitarbeiter"}</span>
-                              <span>0/{task.max_minutes || 0}</span>
-                            </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <input type="time" value={editTaskStartTime} onChange={(e) => setEditTaskStartTime(e.target.value)} className="p-2 rounded-xl bg-gray-100 outline-none text-sm" />
+                                  <input type="time" value={editTaskEndTime} onChange={(e) => setEditTaskEndTime(e.target.value)} className="p-2 rounded-xl bg-gray-100 outline-none text-sm" />
+                                  <input type="number" value={editTaskMaxMinutes} onChange={(e) => setEditTaskMaxMinutes(e.target.value)} className="p-2 rounded-xl bg-gray-100 outline-none text-sm" />
+                                </div>
+
+                                <div className="flex gap-2">
+                                  <button type="button" onClick={saveTask} className="px-3 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold">
+                                    Speichern
+                                  </button>
+                                  <button type="button" onClick={cancelEditTask} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-bold">
+                                    Abbrechen
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="font-bold text-sm">
+                                  {task.start_time} - {task.end_time}
+                                </p>
+
+                                <p className="text-sm font-semibold">
+                                  {task.site || "Kein Objekt"}
+                                </p>
+
+                                <p className="text-sm text-gray-600">{task.title}</p>
+
+                                <div className="mt-3 h-1 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className="h-full bg-blue-500 w-1/2" />
+                                </div>
+
+                                <div className="flex justify-between mt-1 text-xs text-gray-500">
+                                  <span>{task.employee_name || "Kein Mitarbeiter"}</span>
+                                  <span>0/{task.max_minutes || 0}</span>
+                                </div>
+
+                                <div className="flex gap-2 mt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditTask(task)}
+                                    className="px-3 py-2 rounded-xl bg-blue-100 text-blue-600 text-xs font-bold"
+                                  >
+                                    Bearbeiten
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteTask(task)}
+                                    className="px-3 py-2 rounded-xl bg-red-100 text-red-600 text-xs font-bold"
+                                  >
+                                    Löschen
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
-                        ))}
+                                                ))}
                       </div>
                     ))}
                   </div>
@@ -1183,7 +1538,7 @@ await loadAdminChatMessages(selectedChatEmployee);
                     Hier legst du Reinigungsobjekte an. GPS-Daten sind optional, werden aber für die Standortprüfung der Stempeluhr genutzt.
                   </p>
 
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
                     <input
                       value={newSiteName}
                       onChange={(e) => setNewSiteName(e.target.value)}
@@ -1210,6 +1565,20 @@ await loadAdminChatMessages(selectedChatEmployee);
                       onChange={(e) => setNewSiteRadius(e.target.value)}
                       placeholder="Radius Meter"
                       type="number"
+                      className="p-4 rounded-2xl bg-gray-100 outline-none"
+                    />
+
+                    <input
+                      value={newSiteAddress}
+                      onChange={(e) => setNewSiteAddress(e.target.value)}
+                      placeholder="Adresse optional"
+                      className="p-4 rounded-2xl bg-gray-100 outline-none"
+                    />
+
+                    <input
+                      value={newSiteNotes}
+                      onChange={(e) => setNewSiteNotes(e.target.value)}
+                      placeholder="Notizen optional"
                       className="p-4 rounded-2xl bg-gray-100 outline-none"
                     />
 
@@ -1245,26 +1614,63 @@ await loadAdminChatMessages(selectedChatEmployee);
                     )}
 
                     {workSites.map((item) => (
-                      <div key={item.id} className="bg-gray-100 rounded-2xl p-4 flex justify-between gap-4">
-                        <div>
-                          <p className="font-bold">{item.name}</p>
-                          <p className="text-sm text-gray-500">
-                            GPS: {item.latitude ?? "fehlt"}, {item.longitude ?? "fehlt"}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            Radius: {item.allowed_radius_m ?? 100} m
-                          </p>
-                        </div>
+                      <div key={item.id} className="bg-gray-100 rounded-2xl p-4">
+                        {editingSiteId === item.id ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <input value={editSiteName} onChange={(e) => setEditSiteName(e.target.value)} placeholder="Objektname" className="p-3 rounded-2xl bg-white outline-none" />
+                              <input value={editSiteLat} onChange={(e) => setEditSiteLat(e.target.value)} placeholder="Breitengrad" className="p-3 rounded-2xl bg-white outline-none" />
+                              <input value={editSiteLng} onChange={(e) => setEditSiteLng(e.target.value)} placeholder="Längengrad" className="p-3 rounded-2xl bg-white outline-none" />
+                              <input value={editSiteRadius} onChange={(e) => setEditSiteRadius(e.target.value)} placeholder="Radius Meter" type="number" className="p-3 rounded-2xl bg-white outline-none" />
+                              <input value={editSiteAddress} onChange={(e) => setEditSiteAddress(e.target.value)} placeholder="Adresse" className="p-3 rounded-2xl bg-white outline-none" />
+                              <input value={editSiteNotes} onChange={(e) => setEditSiteNotes(e.target.value)} placeholder="Notizen" className="p-3 rounded-2xl bg-white outline-none" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button type="button" onClick={saveWorkSite} className="px-4 py-2 rounded-2xl bg-blue-500 text-white font-bold">Speichern</button>
+                              <button type="button" onClick={cancelEditWorkSite} className="px-4 py-2 rounded-2xl bg-white text-gray-600 font-bold">Abbrechen</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between gap-4">
+                            <div>
+                              <p className="font-bold">{item.name}</p>
+                              <p className="text-sm text-gray-500">
+                                GPS: {item.latitude ?? "fehlt"}, {item.longitude ?? "fehlt"}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                Radius: {item.allowed_radius_m ?? 100} m
+                              </p>
+                              {item.address && (
+                                <p className="text-sm text-gray-500">
+                                  Adresse: {item.address}
+                                </p>
+                              )}
+                              {item.notes && (
+                                <p className="text-sm text-gray-500">
+                                  Notiz: {item.notes}
+                                </p>
+                              )}
+                            </div>
 
-                        <button
-                          onClick={() => deleteWorkSite(item.id)}
-                          className="h-fit px-4 py-2 rounded-2xl bg-red-100 text-red-600 font-bold"
-                        >
-                          Löschen
-                        </button>
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => startEditWorkSite(item)}
+                                className="h-fit px-4 py-2 rounded-2xl bg-blue-100 text-blue-600 font-bold"
+                              >
+                                Bearbeiten
+                              </button>
+
+                              <button
+                                onClick={() => deleteWorkSite(item.id)}
+                                className="h-fit px-4 py-2 rounded-2xl bg-red-100 text-red-600 font-bold"
+                              >
+                                Löschen
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    ))}                  </div>
                 </div>
               </div>
             )}
@@ -1444,6 +1850,23 @@ await loadAdminChatMessages(selectedChatEmployee);
                       <p className="text-xs text-gray-400">
                         {new Date(task.task_date).toLocaleDateString("de-DE")}
                       </p>
+
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={() => startEditTask(task)}
+                          className="px-3 py-2 rounded-xl bg-blue-100 text-blue-600 text-xs font-bold"
+                        >
+                          Bearbeiten
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteTask(task)}
+                          className="px-3 py-2 rounded-xl bg-red-100 text-red-600 text-xs font-bold"
+                        >
+                          Löschen
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1686,11 +2109,11 @@ await loadAdminChatMessages(selectedChatEmployee);
                 {profile.email && (
                   <p className="text-xs opacity-70">{profile.email}</p>
                 )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+                                        </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
       <div>
         {!selectedChatEmployee ? (
