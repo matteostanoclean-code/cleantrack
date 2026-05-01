@@ -145,6 +145,7 @@ const [changePasswordLoading, setChangePasswordLoading] = useState(false);
 
   const [chatText, setChatText] = useState("");
 const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+const [chatError, setChatError] = useState("");
 
   const todayISO = new Date().toISOString().split("T")[0];
 
@@ -732,29 +733,37 @@ setLoggedIn(true);
   }
 
   async function sendChatMessage() {
-    if (!chatText.trim()) return;
+  setChatError("");
 
-    const text = chatText.trim();
-    setChatText("");
+  if (!chatText.trim()) return;
 
-    const { error } = await supabase.from("chat_messages").insert([
-      {
-        employee_name: employeeName,
-        sender_role: "employee",
-        sender_name: employeeName,
-        message: text,
-        read_by_admin: false,
-        read_by_employee: true,
-      },
-    ]);
-
-    if (error) {
-      setMessage("Nachricht konnte nicht gesendet werden.");
-      return;
-    }
-
-    await loadChatMessages();
+  if (!employeeName) {
+    setChatError("Mitarbeiter konnte nicht erkannt werden.");
+    return;
   }
+
+  const text = chatText.trim();
+  setChatText("");
+
+  const { error } = await supabase.from("chat_messages").insert([
+    {
+      employee_name: employeeName,
+      sender_role: "employee",
+      sender_name: employeeName,
+      message: text,
+      read_by_admin: false,
+      read_by_employee: true,
+    },
+  ]);
+
+  if (error) {
+    setChatError(error.message || "Nachricht konnte nicht gesendet werden.");
+    setChatText(text);
+    return;
+  }
+
+  await loadChatMessages();
+}
 
   function formatMinutes(minutes: number) {
     const h = Math.floor(minutes / 60);
@@ -1457,22 +1466,36 @@ if (mustChangePassword) {
         ))}
       </div>
 
-      <div className="flex gap-2">
-        <input
-          value={chatText}
-          onChange={(e) => setChatText(e.target.value)}
-          placeholder="Nachricht schreiben..."
-          className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
+      <div>
+  <div className="flex gap-2">
+    <input
+      value={chatText}
+      onChange={(e) => setChatText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendChatMessage();
+        }
+      }}
+      placeholder="Nachricht schreiben..."
+      className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
+    />
 
-        <button
-          type="button"
-          onClick={sendChatMessage}
-          className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
-        >
-          Senden
-        </button>
-      </div>
+    <button
+      type="button"
+      onClick={sendChatMessage}
+      className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
+    >
+      Senden
+    </button>
+  </div>
+
+  {chatError && (
+    <p className="mt-3 text-sm font-bold text-red-500">
+      {chatError}
+    </p>
+  )}
+</div>
     </div>
   </section>
 )}

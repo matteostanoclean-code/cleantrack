@@ -117,6 +117,7 @@ const [resetLoading, setResetLoading] = useState(false);
   const [chatText, setChatText] = useState("");
 const [chatMessages, setChatMessages] = useState<ChatMessageDb[]>([]);
 const [selectedChatEmployee, setSelectedChatEmployee] = useState("");
+const [chatError, setChatError] = useState("");
 
   useEffect(() => {
     checkAdmin();
@@ -581,7 +582,14 @@ async function resetEmployeePassword() {
 }
 
 async function sendChatMessage() {
-  if (!chatText.trim() || !selectedChatEmployee) return;
+  setChatError("");
+
+  if (!chatText.trim()) return;
+
+  if (!selectedChatEmployee) {
+    setChatError("Bitte zuerst einen Mitarbeiter auswählen.");
+    return;
+  }
 
   const text = chatText.trim();
   setChatText("");
@@ -597,7 +605,11 @@ async function sendChatMessage() {
     },
   ]);
 
-  if (error) return;
+  if (error) {
+    setChatError(error.message || "Nachricht konnte nicht gesendet werden.");
+    setChatText(text);
+    return;
+  }
 
   await loadAdminChatMessages(selectedChatEmployee);
 }
@@ -1676,22 +1688,36 @@ async function sendChatMessage() {
               ))}
             </div>
 
-            <div className="flex gap-2">
-              <input
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                placeholder="Nachricht schreiben..."
-                className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
-              />
+           <div>
+  <div className="flex gap-2">
+    <input
+      value={chatText}
+      onChange={(e) => setChatText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendChatMessage();
+        }
+      }}
+      placeholder="Nachricht schreiben..."
+      className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
+    />
 
-              <button
-                type="button"
-                onClick={sendChatMessage}
-                className="px-6 rounded-2xl bg-blue-500 text-white font-bold"
-              >
-                Senden
-              </button>
-            </div>
+    <button
+      type="button"
+      onClick={sendChatMessage}
+      className="px-6 rounded-2xl bg-blue-500 text-white font-bold"
+    >
+      Senden
+    </button>
+  </div>
+
+  {chatError && (
+    <p className="mt-3 text-sm font-bold text-red-500">
+      {chatError}
+    </p>
+  )}
+</div>
           </>
         )}
       </div>
