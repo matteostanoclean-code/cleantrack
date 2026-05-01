@@ -49,6 +49,7 @@ type EmployeeProfile = {
   id: string;
   auth_user_id: string | null;
   name: string;
+  email: string | null;
   role: string | null;
   phone: string | null;
 };
@@ -93,6 +94,7 @@ export default function AdminPage() {
   const [siteMessage, setSiteMessage] = useState("");
 
   const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
   const [inviteLink, setInviteLink] = useState("");
   const [inviteWhatsappLink, setInviteWhatsappLink] = useState("");
@@ -228,7 +230,7 @@ const [resetLoading, setResetLoading] = useState(false);
   async function loadEmployeeProfiles() {
     const { data } = await supabase
       .from("employee_profiles")
-.select("id, auth_user_id, name, role, phone")
+.select("id, auth_user_id, name, email, role, phone")
       .eq("role", "employee")
       .order("name");
 
@@ -422,48 +424,55 @@ const [resetLoading, setResetLoading] = useState(false);
   }
 
   async function createEmployeeInvite() {
-    setInviteMessage("");
-    setInviteLink("");
-    setInviteWhatsappLink("");
+  setInviteMessage("");
+  setInviteLink("");
+  setInviteWhatsappLink("");
 
-    if (!inviteName.trim() || !invitePhone.trim()) {
-      setInviteMessage("Bitte Name und Handynummer eintragen.");
+  if (!inviteName.trim() || !inviteEmail.trim()) {
+    setInviteMessage("Bitte Name und E-Mail eintragen.");
+    return;
+  }
+
+  setInviteLoading(true);
+
+  try {
+    const response = await fetch("/api/admin/create-employee-invite", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: inviteName.trim(),
+        email: inviteEmail.trim(),
+        phone: invitePhone.trim(),
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setInviteMessage(result.error || "Einladung konnte nicht erstellt werden.");
+      setInviteLoading(false);
       return;
     }
 
-    setInviteLoading(true);
+    setInviteLink(result.inviteLink || "");
+    setInviteWhatsappLink(result.whatsappLink || "");
+    setInviteMessage("Einladung wurde erstellt. Du kannst den Link jetzt versenden.");
 
-    try {
-      const response = await fetch("/api/admin/create-employee-invite", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: inviteName.trim(),
-          phone: invitePhone.trim(),
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setInviteMessage(result.error || "Einladung konnte nicht erstellt werden.");
-        setInviteLoading(false);
-        return;
-      }
-
-      setInviteLink(result.inviteLink || "");
-      setInviteWhatsappLink(result.whatsappLink || "");
-      setInviteMessage("Einladung wurde erstellt. Du kannst den Link jetzt versenden.");
-      setInviteName("");
-      setInvitePhone("");
-    } catch {
-      setInviteMessage("Einladung konnte nicht erstellt werden. Bitte Internet prüfen.");
-    }
-
-    setInviteLoading(false);
+    setInviteName("");
+    setInviteEmail("");
+    setInvitePhone("");
+  } catch (error) {
+    setInviteMessage(
+      error instanceof Error
+        ? error.message
+        : "Einladung konnte nicht erstellt werden. Bitte Internet prüfen."
+    );
   }
+
+  setInviteLoading(false);
+}
 async function resetEmployeePassword() {
   setResetMessage("");
 
@@ -1170,30 +1179,36 @@ async function resetEmployeePassword() {
                     Hier erstellst du einen Aktivierungslink. Den Link kannst du danach per WhatsApp oder SMS an den Mitarbeiter senden.
                   </p>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input
-                      value={inviteName}
-                      onChange={(e) => setInviteName(e.target.value)}
-                      placeholder="Name des Mitarbeiters"
-                      className="p-4 rounded-2xl bg-gray-100 outline-none"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+  <input
+    value={inviteName}
+    onChange={(e) => setInviteName(e.target.value)}
+    placeholder="Name des Mitarbeiters"
+    className="p-4 rounded-2xl bg-gray-100 outline-none"
+  />
 
-                    <input
-                      value={invitePhone}
-                      onChange={(e) => setInvitePhone(e.target.value)}
-                      placeholder="Handynummer, z.B. 0176..."
-                      className="p-4 rounded-2xl bg-gray-100 outline-none"
-                    />
+  <input
+    value={inviteEmail}
+    onChange={(e) => setInviteEmail(e.target.value)}
+    placeholder="E-Mail des Mitarbeiters"
+    className="p-4 rounded-2xl bg-gray-100 outline-none"
+  />
 
-                    <button
-                      onClick={createEmployeeInvite}
-                      disabled={inviteLoading}
-                      className="p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
-                    >
-                      {inviteLoading ? "Wird erstellt..." : "Einladung erstellen"}
-                    </button>
-                  </div>
+  <input
+    value={invitePhone}
+    onChange={(e) => setInvitePhone(e.target.value)}
+    placeholder="Handynummer optional"
+    className="p-4 rounded-2xl bg-gray-100 outline-none"
+  />
 
+  <button
+    onClick={createEmployeeInvite}
+    disabled={inviteLoading}
+    className="p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
+  >
+    {inviteLoading ? "Wird erstellt..." : "Einladung erstellen"}
+  </button>
+</div>
                   {inviteMessage && (
                     <p className="mt-4 text-sm font-bold text-blue-600">
                       {inviteMessage}

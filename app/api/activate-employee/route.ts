@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
     const { data: invite, error: inviteError } = await supabaseAdmin
       .from("employee_invites")
-      .select("id, name, phone, used")
+      .select("id, name, email, phone, used")
       .eq("token", token)
       .single();
 
@@ -61,13 +61,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!invite.email) {
+      return NextResponse.json(
+        { error: "Bei dieser Einladung fehlt die E-Mail." },
+        { status: 400 }
+      );
+    }
+
     const { data: createdUser, error: userError } =
       await supabaseAdmin.auth.admin.createUser({
-        phone: invite.phone,
+        email: invite.email,
         password,
-        phone_confirm: true,
+        email_confirm: true,
         user_metadata: {
           name: invite.name,
+          phone: invite.phone,
           role: "employee",
         },
       });
@@ -89,8 +97,10 @@ export async function POST(request: Request) {
         {
           auth_user_id: createdUser.user.id,
           name: invite.name,
-          phone: invite.phone,
+          email: invite.email,
+          phone: invite.phone || null,
           role: "employee",
+          must_change_password: false,
         },
       ]);
 

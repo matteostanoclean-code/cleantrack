@@ -284,15 +284,12 @@ const [changePasswordLoading, setChangePasswordLoading] = useState(false);
   }
 
   try {
-    const loginValue = email.trim();
+    const loginValue = email.trim().toLowerCase();
 
-    const loginCredentials = loginValue.includes("@")
-      ? { email: loginValue, password: password.trim() }
-      : { phone: normalizePhone(loginValue), password: password.trim() };
-
-    const { data, error } = await supabase.auth.signInWithPassword(
-      loginCredentials
-    );
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: loginValue,
+  password: password.trim(),
+});
 
     if (error || !data.user) {
       setMessage("Login-Daten sind falsch.");
@@ -783,7 +780,7 @@ async function changeOwnPassword() {
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-placeholder="E-Mail oder Handynummer"
+placeholder="E-Mail"
             className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
           />
 
