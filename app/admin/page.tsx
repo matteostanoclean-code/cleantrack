@@ -54,13 +54,14 @@ type EmployeeProfile = {
 type AdminTab =
   | "dashboard"
   | "planung"
+  | "objekte"
+  | "einladen"
   | "aufgaben"
   | "mitarbeiter"
   | "stempelungen"
   | "kosten"
   | "chat"
-  | "meldungen"
-  | "objekte";
+  | "meldungen";
 
 export default function AdminPage() {
   const [allowed, setAllowed] = useState(false);
@@ -88,6 +89,13 @@ export default function AdminPage() {
   const [newSiteLng, setNewSiteLng] = useState("");
   const [newSiteRadius, setNewSiteRadius] = useState("100");
   const [siteMessage, setSiteMessage] = useState("");
+
+  const [inviteName, setInviteName] = useState("");
+  const [invitePhone, setInvitePhone] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteWhatsappLink, setInviteWhatsappLink] = useState("");
+  const [inviteMessage, setInviteMessage] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   const [chatText, setChatText] = useState("");
   const [chatMessages, setChatMessages] = useState([
@@ -407,6 +415,50 @@ export default function AdminPage() {
     await loadWorkSites();
   }
 
+  async function createEmployeeInvite() {
+    setInviteMessage("");
+    setInviteLink("");
+    setInviteWhatsappLink("");
+
+    if (!inviteName.trim() || !invitePhone.trim()) {
+      setInviteMessage("Bitte Name und Handynummer eintragen.");
+      return;
+    }
+
+    setInviteLoading(true);
+
+    try {
+      const response = await fetch("/api/admin/create-employee-invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: inviteName.trim(),
+          phone: invitePhone.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setInviteMessage(result.error || "Einladung konnte nicht erstellt werden.");
+        setInviteLoading(false);
+        return;
+      }
+
+      setInviteLink(result.inviteLink || "");
+      setInviteWhatsappLink(result.whatsappLink || "");
+      setInviteMessage("Einladung wurde erstellt. Du kannst den Link jetzt versenden.");
+      setInviteName("");
+      setInvitePhone("");
+    } catch {
+      setInviteMessage("Einladung konnte nicht erstellt werden. Bitte Internet prüfen.");
+    }
+
+    setInviteLoading(false);
+  }
+
   function sendChatMessage() {
     if (!chatText.trim()) return;
 
@@ -513,6 +565,7 @@ export default function AdminPage() {
               ["dashboard", "Übersicht"],
               ["planung", "Planung"],
               ["objekte", "Objekte"],
+              ["einladen", "Mitarbeiter einladen"],
               ["aufgaben", "Aufgaben"],
               ["mitarbeiter", "Mitarbeiter"],
               ["stempelungen", "Stempelungen"],
@@ -573,12 +626,15 @@ export default function AdminPage() {
               <>
                 <h1 className="text-2xl font-bold mb-6">Dashboard Übersicht</h1>
 
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                  <div className="bg-white rounded-[28px] p-6 shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+                  <button
+                    onClick={() => setActiveTab("einladen")}
+                    className="bg-white rounded-[28px] p-6 shadow-sm text-left"
+                  >
                     <p className="text-gray-400 text-sm">Mitarbeiter</p>
-                    <p className="text-3xl font-bold">{employees.length}</p>
-                    <p className="text-green-600 text-sm">Aktiv</p>
-                  </div>
+                    <p className="text-3xl font-bold">{employeeProfiles.length}</p>
+                    <p className="text-green-600 text-sm">Einladen</p>
+                  </button>
 
                   <button
                     onClick={() => setActiveTab("objekte")}
@@ -1022,6 +1078,101 @@ export default function AdminPage() {
                         >
                           Löschen
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "einladen" && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-[28px] p-6 shadow-sm">
+                  <h1 className="text-2xl font-bold mb-2">Mitarbeiter einladen</h1>
+                  <p className="text-gray-500 mb-6">
+                    Hier erstellst du einen Aktivierungslink. Den Link kannst du danach per WhatsApp oder SMS an den Mitarbeiter senden.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <input
+                      value={inviteName}
+                      onChange={(e) => setInviteName(e.target.value)}
+                      placeholder="Name des Mitarbeiters"
+                      className="p-4 rounded-2xl bg-gray-100 outline-none"
+                    />
+
+                    <input
+                      value={invitePhone}
+                      onChange={(e) => setInvitePhone(e.target.value)}
+                      placeholder="Handynummer, z.B. 0176..."
+                      className="p-4 rounded-2xl bg-gray-100 outline-none"
+                    />
+
+                    <button
+                      onClick={createEmployeeInvite}
+                      disabled={inviteLoading}
+                      className="p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
+                    >
+                      {inviteLoading ? "Wird erstellt..." : "Einladung erstellen"}
+                    </button>
+                  </div>
+
+                  {inviteMessage && (
+                    <p className="mt-4 text-sm font-bold text-blue-600">
+                      {inviteMessage}
+                    </p>
+                  )}
+                </div>
+
+                {inviteLink && (
+                  <div className="bg-white rounded-[28px] p-6 shadow-sm">
+                    <h2 className="text-xl font-bold mb-4">Aktivierungslink</h2>
+
+                    <div className="bg-gray-100 rounded-2xl p-4 break-all text-sm mb-4">
+                      {inviteLink}
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(inviteLink)}
+                        className="px-5 py-3 rounded-2xl bg-gray-100 text-gray-700 font-bold"
+                      >
+                        Link kopieren
+                      </button>
+
+                      {inviteWhatsappLink && (
+                        <a
+                          href={inviteWhatsappLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-5 py-3 rounded-2xl bg-green-500 text-white font-bold"
+                        >
+                          Per WhatsApp senden
+                        </a>
+                      )}
+                    </div>
+
+                    <p className="text-sm text-gray-500 mt-4">
+                      Der Mitarbeiter öffnet den Link, vergibt sein Passwort und kann sich danach mit seiner Handynummer einloggen.
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-white rounded-[28px] p-6 shadow-sm">
+                  <h2 className="text-xl font-bold mb-4">Aktuelle Mitarbeiter</h2>
+
+                  <div className="space-y-3">
+                    {employeeProfiles.length === 0 && (
+                      <p className="text-gray-400">Noch keine Mitarbeiterprofile vorhanden.</p>
+                    )}
+
+                    {employeeProfiles.map((profile) => (
+                      <div key={profile.id} className="bg-gray-100 rounded-2xl p-4">
+                        <p className="font-bold">{profile.name}</p>
+                        <p className="text-sm text-gray-500">
+                          Rolle: {profile.role || "employee"}
+                        </p>
                       </div>
                     ))}
                   </div>

@@ -78,7 +78,19 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) 
 
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
+function normalizePhone(phone: string) {
+  let cleaned = phone.replace(/\s/g, "").replace(/-/g, "");
 
+  if (cleaned.startsWith("00")) {
+    cleaned = "+" + cleaned.slice(2);
+  }
+
+  if (cleaned.startsWith("0")) {
+    cleaned = "+49" + cleaned.slice(1);
+  }
+
+  return cleaned;
+}
 export default function MitarbeiterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -257,47 +269,52 @@ export default function MitarbeiterPage() {
   }, [loggedIn, employeeName, overtimeBlocked]);
 
   async function login() {
-    setMessage("");
-    setLoginLoading(true);
+  setMessage("");
+  setLoginLoading(true);
 
-    if (!email.trim() || !password.trim()) {
-      setMessage("Bitte E-Mail und Passwort eingeben.");
+  if (!email.trim() || !password.trim()) {
+    setMessage("Bitte E-Mail oder Handynummer und Passwort eingeben.");
+    setLoginLoading(false);
+    return;
+  }
+
+  try {
+    const loginValue = email.trim();
+
+    const loginCredentials = loginValue.includes("@")
+      ? { email: loginValue, password: password.trim() }
+      : { phone: normalizePhone(loginValue), password: password.trim() };
+
+    const { data, error } = await supabase.auth.signInWithPassword(
+      loginCredentials
+    );
+
+    if (error || !data.user) {
+      setMessage("Login-Daten sind falsch.");
       setLoginLoading(false);
       return;
     }
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password.trim(),
-      });
+    const { data: profile } = await supabase
+      .from("employee_profiles")
+      .select("id, name, role")
+      .eq("auth_user_id", data.user.id)
+      .single();
 
-      if (error || !data.user) {
-        setMessage("E-Mail oder Passwort ist falsch.");
-        setLoginLoading(false);
-        return;
-      }
+    const name = profile?.name || loginValue;
 
-      const { data: profile } = await supabase
-        .from("employee_profiles")
-        .select("id, name, role")
-        .eq("auth_user_id", data.user.id)
-        .single();
+    setEmployeeName(name);
+    setEmployeeId(profile?.id || data.user.id);
+    setRole(profile?.role || "employee");
+    setLoggedIn(true);
 
-      const name = profile?.name || email;
-
-      setEmployeeName(name);
-      setEmployeeId(profile?.id || data.user.id);
-      setRole(profile?.role || "employee");
-      setLoggedIn(true);
-
-      await loadAllData(name);
-    } catch {
-      setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
-    }
-
-    setLoginLoading(false);
+    await loadAllData(name);
+  } catch {
+    setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
   }
+
+  setLoginLoading(false);
+}
 
   async function loadAllData(name: string) {
     await loadWorkSites();
@@ -712,7 +729,7 @@ export default function MitarbeiterPage() {
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="E-Mail"
+placeholder="E-Mail oder Handynummer"
             className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
           />
 
