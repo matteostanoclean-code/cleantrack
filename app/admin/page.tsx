@@ -606,12 +606,25 @@ async function sendChatMessage() {
   ]);
 
   if (error) {
-    setChatError(error.message || "Nachricht konnte nicht gesendet werden.");
-    setChatText(text);
-    return;
-  }
+  setChatError(error.message || "Nachricht konnte nicht gesendet werden.");
+  setChatText(text);
+  return;
+}
 
-  await loadAdminChatMessages(selectedChatEmployee);
+await fetch("/api/push/send", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    employeeName: selectedChatEmployee,
+    title: "Neue Nachricht vom Admin",
+    message: text,
+    url: "/mitarbeiter",
+  }),
+});
+
+await loadAdminChatMessages(selectedChatEmployee);
 }
 
   function calculateEmployeeWorkedMinutes(employeeName: string) {
