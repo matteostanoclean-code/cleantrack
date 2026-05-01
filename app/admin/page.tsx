@@ -472,7 +472,7 @@ async function resetEmployeePassword() {
   );
 
   if (!employeeProfile?.auth_user_id) {
-    setResetMessage("Bitte Mitarbeiter auswählen.");
+    setResetMessage("Bitte Mitarbeiter auswählen. Auth-ID fehlt.");
     return;
   }
 
@@ -504,13 +504,20 @@ async function resetEmployeePassword() {
     }
 
     setResetPassword("");
-    setResetMessage("Passwort wurde geändert. Der Mitarbeiter kann sich jetzt einloggen.");
-  } catch {
-    setResetMessage("Passwort konnte nicht geändert werden. Bitte Internet prüfen.");
+    setResetMessage(
+      "Passwort wurde geändert. Der Mitarbeiter muss beim nächsten Login ein neues Passwort erstellen."
+    );
+  } catch (error) {
+    setResetMessage(
+      error instanceof Error
+        ? error.message
+        : "Passwort konnte nicht geändert werden. Bitte Internet prüfen."
+    );
   }
 
   setResetLoading(false);
 }
+
   function sendChatMessage() {
     if (!chatText.trim()) return;
 
