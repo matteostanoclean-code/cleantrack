@@ -53,6 +53,7 @@ type AdminNotification = {
   overtime_minutes: number | null;
   created_at: string;
 };
+
 type TimeEntry = {
   id: string;
   employee_name: string;
@@ -61,6 +62,7 @@ type TimeEntry = {
   created_at: string;
   auto_clock_out: boolean | null;
 };
+
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000;
   const toRad = (v: number) => (v * Math.PI) / 180;
@@ -94,7 +96,8 @@ export default function MitarbeiterPage() {
   const [workSites, setWorkSites] = useState<WorkSite[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedSite, setSelectedSite] = useState<WorkSite | null>(null);
-const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
+  const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
+
   const [status, setStatus] = useState<Status>("none");
   const [message, setMessage] = useState("");
 
@@ -138,35 +141,45 @@ const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const plannedMinutes =
     selectedTask?.planned_minutes || selectedTask?.max_minutes || 0;
 
+  const totalPlannedMinutes = todayTasks.reduce(
+    (sum, task) => sum + (task.planned_minutes || task.max_minutes || 0),
+    0
+  );
+
+  const overtimeMinutes =
+    totalPlannedMinutes > 0 && workedMinutes > totalPlannedMinutes
+      ? workedMinutes - totalPlannedMinutes
+      : 0;
+
   useEffect(() => {
     if (!loggedIn) return;
 
     const timer = setInterval(() => {
-      if (status === "working" && startTime) {
-        const diff = (new Date().getTime() - startTime.getTime()) / 1000 / 60;
-        const total = Math.max(0, Math.floor(diff - pauseMinutes));
+      const total = calculateWorkedMinutes(todayEntries);
+      const pauses = calculatePauseMinutes(todayEntries);
 
-        setWorkedMinutes(total);
+      setWorkedMinutes(total);
+      setPauseMinutes(pauses);
 
-        if (
-          plannedMinutes > 0 &&
-          total > plannedMinutes + 5 &&
-          !overtimeWarningSent
-        ) {
-          setOvertimeWarningSent(true);
-          setOvertimeBlocked(true);
-          setOvertimeRequestSent(true);
+      if (
+        status === "working" &&
+        plannedMinutes > 0 &&
+        total > plannedMinutes + 5 &&
+        !overtimeWarningSent
+      ) {
+        setOvertimeWarningSent(true);
+        setOvertimeBlocked(true);
+        setOvertimeRequestSent(true);
 
-          setMessage(
-            "Planzeit überschritten. Die Zeituhr wurde gestoppt. Bitte warte auf Freigabe vom Admin."
-          );
+        setMessage(
+          "Planzeit überschritten. Die Zeituhr wurde gestoppt. Bitte warte auf Freigabe vom Admin."
+        );
 
-          createEntry("end", false);
-          notifyAdminOvertime(total - plannedMinutes);
+        createEntry("end", false);
+        notifyAdminOvertime(total - plannedMinutes);
 
-          setStatus("none");
-          setStartTime(null);
-        }
+        setStatus("none");
+        setStartTime(null);
       }
     }, 1000);
 
@@ -174,10 +187,9 @@ const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   }, [
     loggedIn,
     status,
-    startTime,
-    pauseMinutes,
     plannedMinutes,
     overtimeWarningSent,
+    todayEntries,
   ]);
 
   useEffect(() => {
@@ -279,15 +291,19 @@ const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
       setRole(profile?.role || "employee");
       setLoggedIn(true);
 
-      await loadWorkSites();
-      await loadTasks(name);
-      await loadNotifications(name);
-      await loadTodayEntries(name);
+      await loadAllData(name);
     } catch {
       setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
     }
 
     setLoginLoading(false);
+  }
+
+  async function loadAllData(name: string) {
+    await loadWorkSites();
+    await loadTasks(name);
+    await loadNotifications(name);
+    await loadTodayEntries(name);
   }
 
   async function resetPassword() {
@@ -344,75 +360,104 @@ const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
 
     setNotifications(data || []);
   }
-async function loadTodayEntries(name: string) {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
 
-  const { data } = await supabase
-    .from("time_entries")
-    .select("id, employee_name, work_site_name, action, created_at, auto_clock_out")
-    .eq("employee_name", name)
-    .gte("created_at", startOfDay.toISOString())
-    .order("created_at", { ascending: true });
+  async function loadTodayEntries(name: string) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-  const entries = (data || []) as TimeEntry[];
+    const { data } = await supabase
+      .from("time_entries")
+      .select("id, employee_name, work_site_name, action, created_at, auto_clock_out")
+      .eq("employee_name", name)
+      .gte("created_at", startOfDay.toISOString())
+      .order("created_at", { ascending: true });
 
-  setTodayEntries(entries);
-  restoreShiftFromEntries(entries);
-  setWorkedMinutes(calculateWorkedMinutes(entries));
-}
+    const entries = (data || []) as TimeEntry[];
 
-function restoreShiftFromEntries(entries: TimeEntry[]) {
-  if (entries.length === 0) {
-    setStatus("none");
-    return;
+    setTodayEntries(entries);
+    restoreShiftFromEntries(entries);
+    setWorkedMinutes(calculateWorkedMinutes(entries));
+    setPauseMinutes(calculatePauseMinutes(entries));
   }
 
-  const lastEntry = entries[entries.length - 1];
-
-  if (lastEntry.action === "start" || lastEntry.action === "break_end") {
-    setStatus("working");
-    setStartTime(new Date(lastEntry.created_at));
-    setBreakStart(null);
-    return;
-  }
-
-  if (lastEntry.action === "break_start") {
-    setStatus("break");
-    setBreakStart(new Date(lastEntry.created_at));
-    return;
-  }
-
-  if (lastEntry.action === "end") {
-    setStatus("none");
-    setStartTime(null);
-    setBreakStart(null);
-  }
-}
-
-function calculateWorkedMinutes(entries: TimeEntry[]) {
-  let total = 0;
-  let lastStart: Date | null = null;
-
-  entries.forEach((entry) => {
-    const time = new Date(entry.created_at);
-
-    if (entry.action === "start" || entry.action === "break_end") {
-      lastStart = time;
+  function restoreShiftFromEntries(entries: TimeEntry[]) {
+    if (entries.length === 0) {
+      setStatus("none");
+      setStartTime(null);
+      setBreakStart(null);
+      return;
     }
 
-    if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
-      total += (time.getTime() - lastStart.getTime()) / 1000 / 60;
-      lastStart = null;
+    const lastEntry = entries[entries.length - 1];
+
+    if (lastEntry.action === "start" || lastEntry.action === "break_end") {
+      setStatus("working");
+      setStartTime(new Date(lastEntry.created_at));
+      setBreakStart(null);
+      return;
     }
-  });
 
- if (lastStart) {
-  total += (new Date().getTime() - (lastStart as Date).getTime()) / 1000 / 60;
-}
+    if (lastEntry.action === "break_start") {
+      setStatus("break");
+      setBreakStart(new Date(lastEntry.created_at));
+      return;
+    }
 
-  return Math.max(0, Math.floor(total));
-}
+    if (lastEntry.action === "end") {
+      setStatus("none");
+      setStartTime(null);
+      setBreakStart(null);
+    }
+  }
+
+  function calculateWorkedMinutes(entries: TimeEntry[]) {
+    let total = 0;
+    let lastStart: Date | null = null;
+
+    entries.forEach((entry) => {
+      const time = new Date(entry.created_at);
+
+      if (entry.action === "start" || entry.action === "break_end") {
+        lastStart = time;
+      }
+
+      if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
+        total += (time.getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+        lastStart = null;
+      }
+    });
+
+    if (lastStart) {
+      total += (new Date().getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+    }
+
+    return Math.max(0, Math.floor(total));
+  }
+
+  function calculatePauseMinutes(entries: TimeEntry[]) {
+    let total = 0;
+    let pauseStart: Date | null = null;
+
+    entries.forEach((entry) => {
+      const time = new Date(entry.created_at);
+
+      if (entry.action === "break_start") {
+        pauseStart = time;
+      }
+
+      if (entry.action === "break_end" && pauseStart) {
+        total += (time.getTime() - (pauseStart as Date).getTime()) / 1000 / 60;
+        pauseStart = null;
+      }
+    });
+
+    if (pauseStart) {
+      total += (new Date().getTime() - (pauseStart as Date).getTime()) / 1000 / 60;
+    }
+
+    return Math.max(0, Math.floor(total));
+  }
+
   async function checkOvertimeApproval(name: string) {
     const { data } = await supabase
       .from("admin_notifications")
@@ -523,7 +568,7 @@ function calculateWorkedMinutes(entries: TimeEntry[]) {
       return;
     }
 
-    const overtimeMinutes =
+    const overtimeNow =
       plannedMinutes > 0 && workedMinutes > plannedMinutes
         ? workedMinutes - plannedMinutes
         : 0;
@@ -540,24 +585,22 @@ function calculateWorkedMinutes(entries: TimeEntry[]) {
         longitude: geo.longitude,
         distance_m: geo.distance,
         planned_minutes: plannedMinutes,
-        overtime_minutes: overtimeMinutes,
+        overtime_minutes: overtimeNow,
         auto_clock_out: autoClockOut,
         created_at: new Date().toISOString(),
       },
     ]);
 
     if (error) {
-  setMessage("Stempelung konnte nicht gespeichert werden.");
-  return;
-}
+      setMessage("Stempelung konnte nicht gespeichert werden.");
+      return;
+    }
 
-await loadTodayEntries(employeeName);
+    await loadTodayEntries(employeeName);
 
     if (action === "start") {
       setStatus("working");
       setStartTime(new Date());
-      setWorkedMinutes(0);
-      setPauseMinutes(0);
       setOvertimeWarningSent(false);
       setOvertimeBlocked(false);
       setOvertimeRequestSent(false);
@@ -571,13 +614,6 @@ await loadTodayEntries(employeeName);
     }
 
     if (action === "break_end") {
-      if (breakStart) {
-        const pauseDiff =
-          (new Date().getTime() - breakStart.getTime()) / 1000 / 60;
-
-        setPauseMinutes((old) => old + Math.floor(pauseDiff));
-      }
-
       setBreakStart(null);
       setStatus("working");
       setMessage("Pause beendet.");
@@ -732,14 +768,13 @@ await loadTodayEntries(employeeName);
                 </div>
               </div>
 
-              <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-                  🔔
-                </div>
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center">
-                  {openTasks}
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={() => loadAllData(employeeName)}
+                className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-600 font-bold"
+              >
+                Aktualisieren
+              </button>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -770,6 +805,38 @@ await loadTodayEntries(employeeName);
                 <p className="text-sm font-medium">Planung</p>
               </button>
             </div>
+          </section>
+
+          <section className="mt-4 px-5">
+            <h2 className="text-lg font-bold mb-3">Heute</h2>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-[24px] p-4 shadow-sm">
+                <p className="text-xs text-gray-400">Arbeitszeit</p>
+                <p className="font-bold text-lg">{formatMinutes(workedMinutes)}</p>
+              </div>
+
+              <div className="bg-white rounded-[24px] p-4 shadow-sm">
+                <p className="text-xs text-gray-400">Pause</p>
+                <p className="font-bold text-lg">{formatMinutes(pauseMinutes)}</p>
+              </div>
+
+              <div className="bg-white rounded-[24px] p-4 shadow-sm">
+                <p className="text-xs text-gray-400">Planzeit</p>
+                <p className="font-bold text-lg">{formatMinutes(totalPlannedMinutes)}</p>
+              </div>
+            </div>
+
+            {overtimeMinutes > 0 && (
+              <div className="mt-3 bg-red-50 border border-red-100 rounded-[24px] p-4">
+                <p className="font-bold text-red-600">
+                  Überzeit: {formatMinutes(overtimeMinutes)}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Bitte mit dem Admin abstimmen.
+                </p>
+              </div>
+            )}
           </section>
 
           <section className="mt-4 px-5">
@@ -820,19 +887,13 @@ await loadTodayEntries(employeeName);
               onClick={() => setActiveTab("tasks")}
               className="w-full bg-white rounded-[28px] p-5 shadow-sm flex items-center justify-between"
             >
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-purple-100 text-purple-500 flex items-center justify-center text-2xl">
-                  ✅
-                </div>
-
-                <div className="text-left">
-                  <p className="font-bold text-lg">
-                    {openTasks} Aufgaben warten auf dich
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {doneTasks} erledigt · {openTasks} offen
-                  </p>
-                </div>
+              <div className="text-left">
+                <p className="font-bold text-lg">
+                  {openTasks} Aufgaben warten auf dich
+                </p>
+                <p className="text-sm text-gray-500">
+                  {doneTasks} erledigt · {openTasks} offen
+                </p>
               </div>
 
               <span className="px-5 py-2 rounded-full bg-blue-50 text-blue-500 font-bold">
@@ -857,12 +918,29 @@ await loadTodayEntries(employeeName);
                 </button>
 
                 <div className="flex-1 bg-white rounded-full px-6 py-4 shadow-sm flex justify-between items-center">
-                  <span className="text-gray-500">Arbeitsstunden heute</span>
+                  <span className="text-gray-500">Arbeitszeit heute</span>
                   <strong className="text-xl">{formatMinutes(workedMinutes)}</strong>
                 </div>
               </div>
 
-              <div className="mt-16 mx-auto w-5 h-5 rounded-full bg-blue-500 ring-8 ring-blue-200" />
+              <div className="mt-10 grid grid-cols-3 gap-3">
+                <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-xs text-gray-400">Pause</p>
+                  <p className="font-bold">{formatMinutes(pauseMinutes)}</p>
+                </div>
+
+                <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-xs text-gray-400">Planzeit</p>
+                  <p className="font-bold">{formatMinutes(plannedMinutes)}</p>
+                </div>
+
+                <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-xs text-gray-400">Überzeit</p>
+                  <p className={overtimeMinutes > 0 ? "font-bold text-red-500" : "font-bold"}>
+                    {formatMinutes(overtimeMinutes)}
+                  </p>
+                </div>
+              </div>
 
               {selectedSite && (
                 <div className="mt-6 text-center">
@@ -901,28 +979,6 @@ await loadTodayEntries(employeeName);
                     </option>
                   ))}
                 </select>
-
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                  <div className="bg-gray-100 rounded-2xl p-4">
-                    <p className="text-gray-400 text-sm">Planzeit</p>
-                    <p className="font-bold">
-                      {plannedMinutes > 0
-                        ? `${plannedMinutes} Min.`
-                        : "Nicht gesetzt"}
-                    </p>
-                  </div>
-
-                  <div className="bg-gray-100 rounded-2xl p-4">
-                    <p className="text-gray-400 text-sm">Status</p>
-                    <p className="font-bold">
-                      {status === "working"
-                        ? "Schicht läuft"
-                        : status === "break"
-                        ? "Pause"
-                        : "Nicht gestartet"}
-                    </p>
-                  </div>
-                </div>
               </>
             )}
 
@@ -1016,7 +1072,6 @@ await loadTodayEntries(employeeName);
       {activeTab === "tasks" && (
         <section className="p-5">
           <BackButton />
-
           <h1 className="text-2xl font-bold mb-1">Aufgaben</h1>
           <p className="text-gray-500 mb-5">
             {doneTasks} erledigt · {openTasks} offen
@@ -1070,7 +1125,6 @@ await loadTodayEntries(employeeName);
       {activeTab === "schedule" && (
         <section className="p-5">
           <BackButton />
-
           <h1 className="text-2xl font-bold mb-5">Planung</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
@@ -1098,7 +1152,6 @@ await loadTodayEntries(employeeName);
       {activeTab === "search" && (
         <section className="p-5">
           <BackButton />
-
           <h1 className="text-2xl font-bold mb-5">Suche</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
@@ -1113,7 +1166,6 @@ await loadTodayEntries(employeeName);
       {activeTab === "chat" && (
         <section className="p-5">
           <BackButton />
-
           <h1 className="text-2xl font-bold mb-5">Chat</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
@@ -1159,7 +1211,6 @@ await loadTodayEntries(employeeName);
       {activeTab === "profile" && (
         <section className="p-5">
           <BackButton />
-
           <h1 className="text-2xl font-bold mb-5">Profil</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm space-y-3">
@@ -1169,6 +1220,18 @@ await loadTodayEntries(employeeName);
             <p>
               <strong>Rolle:</strong> {role}
             </p>
+
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <div className="bg-gray-100 rounded-2xl p-4">
+                <p className="text-gray-400 text-sm">Arbeitszeit</p>
+                <p className="font-bold">{formatMinutes(workedMinutes)}</p>
+              </div>
+
+              <div className="bg-gray-100 rounded-2xl p-4">
+                <p className="text-gray-400 text-sm">Pause</p>
+                <p className="font-bold">{formatMinutes(pauseMinutes)}</p>
+              </div>
+            </div>
 
             <div className="mt-5">
               <h2 className="font-bold mb-3">Meine Meldungen</h2>
@@ -1219,7 +1282,6 @@ await loadTodayEntries(employeeName);
       {activeTab === "admin" && (
         <section className="p-5">
           <BackButton />
-
           <h1 className="text-2xl font-bold mb-5">Administrator</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
