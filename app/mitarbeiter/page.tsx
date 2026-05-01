@@ -881,7 +881,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 async function enablePushNotifications() {
-  setProfileMessage("");
+  setProfileMessage("Push wird geprüft...");
 
   try {
     if (!("serviceWorker" in navigator)) {
@@ -890,7 +890,12 @@ async function enablePushNotifications() {
     }
 
     if (!("Notification" in window)) {
-      setProfileMessage("Benachrichtigungen werden nicht unterstützt.");
+      setProfileMessage("Benachrichtigungen werden von diesem Gerät nicht unterstützt.");
+      return;
+    }
+
+    if (!("PushManager" in window)) {
+      setProfileMessage("PushManager wird von diesem Browser nicht unterstützt.");
       return;
     }
 
@@ -900,6 +905,8 @@ async function enablePushNotifications() {
       setProfileMessage("VAPID Public Key fehlt. Bitte Vercel ENV prüfen.");
       return;
     }
+
+    setProfileMessage("Browser fragt nach Erlaubnis...");
 
     const permission = await Notification.requestPermission();
 
@@ -911,7 +918,13 @@ async function enablePushNotifications() {
       return;
     }
 
+    setProfileMessage("Service Worker wird registriert...");
+
     const registration = await navigator.serviceWorker.register("/sw.js");
+
+    await navigator.serviceWorker.ready;
+
+    setProfileMessage("Push-Abo wird erstellt...");
 
     let subscription = await registration.pushManager.getSubscription();
 
@@ -921,6 +934,8 @@ async function enablePushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
       });
     }
+
+    setProfileMessage("Push-Abo wird gespeichert...");
 
     const response = await fetch("/api/push/subscribe", {
       method: "POST",
@@ -933,7 +948,21 @@ async function enablePushNotifications() {
       }),
     });
 
-    const result = await response.json();
+    const text = await response.text();
+
+    let result: { error?: string; message?: string; success?: boolean } = {};
+
+    try {
+      result = JSON.parse(text);
+    } catch {
+      setProfileMessage(
+        `Push API antwortet nicht als JSON. Status: ${response.status}. Antwort: ${text.slice(
+          0,
+          120
+        )}`
+      );
+      return;
+    }
 
     if (!response.ok) {
       setProfileMessage(result.error || "Push konnte nicht aktiviert werden.");
