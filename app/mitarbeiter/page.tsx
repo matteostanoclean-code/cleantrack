@@ -233,7 +233,14 @@ const [unreadChatCount, setUnreadChatCount] = useState(0);
 useEffect(() => {
   checkExistingSession();
 }, []);
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get("tab");
 
+  if (tab === "chat") {
+    setActiveTab("chat");
+  }
+}, []);
 async function checkExistingSession() {
   const { data } = await supabase.auth.getSession();
 
@@ -265,9 +272,13 @@ async function checkExistingSession() {
 useEffect(() => {
   if (activeTab !== "chat") return;
 
-  chatEndRef.current?.scrollIntoView({
-    behavior: "smooth",
-  });
+  const timer = setTimeout(() => {
+    chatEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, 150);
+
+  return () => clearTimeout(timer);
 }, [chatMessages, activeTab]);
   useEffect(() => {
     if (!loggedIn) return;

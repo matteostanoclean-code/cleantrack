@@ -617,11 +617,11 @@ const pushResponse = await fetch("/api/push/send", {
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    employeeName: selectedChatEmployee,
-    title: "Neue Nachricht vom Admin",
-    message: text,
-    url: "/mitarbeiter",
-  }),
+  employeeName: selectedChatEmployee,
+  title: "Neue Nachricht von Matteo",
+  message: text,
+  url: "/mitarbeiter?tab=chat",
+}),
 });
 
 const pushText = await pushResponse.text();
