@@ -4,7 +4,16 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
-type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "admin";
+
+type Tab =
+  | "home"
+  | "tasks"
+  | "clock"
+  | "schedule"
+  | "search"
+  | "chat"
+  | "profile"
+  | "admin";
 
 type WorkSite = {
   id: string;
@@ -34,6 +43,7 @@ type ChatMessage = {
   text: string;
   time: string;
 };
+
 type AdminNotification = {
   id: string;
   title: string;
@@ -43,6 +53,7 @@ type AdminNotification = {
   overtime_minutes: number | null;
   created_at: string;
 };
+
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000;
   const toRad = (v: number) => (v * Math.PI) / 180;
@@ -62,9 +73,10 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) 
 export default function MitarbeiterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
 
+  const [loginLoading, setLoginLoading] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+
   const [employeeName, setEmployeeName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [role, setRole] = useState<string | null>(null);
@@ -78,20 +90,21 @@ export default function MitarbeiterPage() {
 
   const [status, setStatus] = useState<Status>("none");
   const [message, setMessage] = useState("");
-  const [appReady, setAppReady] = useState(false);
-useEffect(() => {
-  setAppReady(true);
-}, []);
+
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [breakStart, setBreakStart] = useState<Date | null>(null);
   const [workedMinutes, setWorkedMinutes] = useState(0);
   const [pauseMinutes, setPauseMinutes] = useState(0);
+
   const [currentDistance, setCurrentDistance] = useState<number | null>(null);
   const [outsideObject, setOutsideObject] = useState(false);
+
   const [overtimeWarningSent, setOvertimeWarningSent] = useState(false);
-    const [overtimeBlocked, setOvertimeBlocked] = useState(false);
-const [overtimeRequestSent, setOvertimeRequestSent] = useState(false);
-const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [overtimeBlocked, setOvertimeBlocked] = useState(false);
+  const [overtimeRequestSent, setOvertimeRequestSent] = useState(false);
+
+  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+
   const [chatText, setChatText] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -125,38 +138,46 @@ const [notifications, setNotifications] = useState<AdminNotification[]>([]);
       if (status === "working" && startTime) {
         const diff = (new Date().getTime() - startTime.getTime()) / 1000 / 60;
         const total = Math.max(0, Math.floor(diff - pauseMinutes));
+
         setWorkedMinutes(total);
 
         if (
-  plannedMinutes > 0 &&
-  total > plannedMinutes + 5 &&
-  !overtimeWarningSent
-) {
-  setOvertimeWarningSent(true);
-  setOvertimeBlocked(true);
-  setOvertimeRequestSent(true);
+          plannedMinutes > 0 &&
+          total > plannedMinutes + 5 &&
+          !overtimeWarningSent
+        ) {
+          setOvertimeWarningSent(true);
+          setOvertimeBlocked(true);
+          setOvertimeRequestSent(true);
 
-  setMessage(
-    "Planzeit überschritten. Die Zeituhr wurde gestoppt. Bitte warte auf Freigabe vom Admin."
-  );
+          setMessage(
+            "Planzeit überschritten. Die Zeituhr wurde gestoppt. Bitte warte auf Freigabe vom Admin."
+          );
 
-  createEntry("end", false);
-notifyAdminOvertime(total - plannedMinutes);
+          createEntry("end", false);
+          notifyAdminOvertime(total - plannedMinutes);
 
-  setStatus("none");
-  setStartTime(null);
-}
+          setStatus("none");
+          setStartTime(null);
+        }
       }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [loggedIn, status, startTime, pauseMinutes, plannedMinutes, overtimeWarningSent]);
+  }, [
+    loggedIn,
+    status,
+    startTime,
+    pauseMinutes,
+    plannedMinutes,
+    overtimeWarningSent,
+  ]);
 
   useEffect(() => {
     if (!loggedIn || status === "none" || !selectedSite) return;
 
     const watchId = navigator.geolocation.watchPosition(
-      async (position) => {
+      (position) => {
         if (
           selectedSite.latitude === null ||
           selectedSite.longitude === null ||
@@ -177,10 +198,10 @@ notifyAdminOvertime(total - plannedMinutes);
         const outside = distance > selectedSite.allowed_radius_m;
         setOutsideObject(outside);
 
-if (outside && status === "working") {
-  createEntry("end", true);
-  setMessage("Automatisch ausgestempelt: Du hast das Objekt verlassen.");
-}
+        if (outside && status === "working") {
+          createEntry("end", true);
+          setMessage("Automatisch ausgestempelt: Du hast das Objekt verlassen.");
+        }
       },
       () => {
         setMessage("Standort konnte nicht geprüft werden.");
@@ -195,65 +216,87 @@ if (outside && status === "working") {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [loggedIn, status, selectedSite]);
 
+  useEffect(() => {
+    if (!selectedTask || workSites.length === 0) return;
+
+    const foundSite =
+      workSites.find((item) => item.id === selectedTask.work_site_id) ||
+      workSites.find((item) => item.name === selectedTask.site) ||
+      null;
+
+    setSelectedSite(foundSite);
+  }, [selectedTask, workSites]);
+
+  useEffect(() => {
+    if (!loggedIn || !employeeName || !overtimeBlocked) return;
+
+    const timer = setInterval(() => {
+      checkOvertimeApproval(employeeName);
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [loggedIn, employeeName, overtimeBlocked]);
+
   async function login() {
-  setMessage("");
-  setLoginLoading(true);
+    setMessage("");
+    setLoginLoading(true);
 
-  if (!email.trim() || !password.trim()) {
-    setMessage("Bitte E-Mail und Passwort eingeben.");
-    setLoginLoading(false);
-    return;
-  }
-
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password: password.trim(),
-    });
-
-    if (error || !data.user) {
-      setMessage("E-Mail oder Passwort ist falsch.");
+    if (!email.trim() || !password.trim()) {
+      setMessage("Bitte E-Mail und Passwort eingeben.");
       setLoginLoading(false);
       return;
     }
 
-    const { data: profile } = await supabase
-      .from("employee_profiles")
-      .select("id, name, role")
-      .eq("auth_user_id", data.user.id)
-      .single();
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim(),
+      });
 
-    const name = profile?.name || email;
+      if (error || !data.user) {
+        setMessage("E-Mail oder Passwort ist falsch.");
+        setLoginLoading(false);
+        return;
+      }
 
-    setEmployeeName(name);
-    setEmployeeId(profile?.id || data.user.id);
-    setRole(profile?.role || "employee");
-    setLoggedIn(true);
+      const { data: profile } = await supabase
+        .from("employee_profiles")
+        .select("id, name, role")
+        .eq("auth_user_id", data.user.id)
+        .single();
 
-    await loadWorkSites();
-    await loadTasks(name);
-    await loadNotifications(name);
-  } catch {
-    setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
+      const name = profile?.name || email;
+
+      setEmployeeName(name);
+      setEmployeeId(profile?.id || data.user.id);
+      setRole(profile?.role || "employee");
+      setLoggedIn(true);
+
+      await loadWorkSites();
+      await loadTasks(name);
+      await loadNotifications(name);
+    } catch {
+      setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
+    }
+
+    setLoginLoading(false);
   }
 
-  setLoginLoading(false);
-}
-async function resetPassword() {
-  if (!email.trim()) {
-    setMessage("Bitte zuerst deine E-Mail eingeben.");
-    return;
+  async function resetPassword() {
+    if (!email.trim()) {
+      setMessage("Bitte zuerst deine E-Mail eingeben.");
+      return;
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+
+    if (error) {
+      setMessage("Passwort-Link konnte nicht gesendet werden.");
+      return;
+    }
+
+    setMessage("Passwort-Link wurde gesendet. Bitte E-Mail prüfen.");
   }
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
-
-  if (error) {
-    setMessage("Passwort-Link konnte nicht gesendet werden.");
-    return;
-  }
-
-  setMessage("Passwort-Link wurde gesendet. Bitte E-Mail prüfen.");
-}
 
   async function loadWorkSites() {
     const { data } = await supabase
@@ -280,26 +323,44 @@ async function resetPassword() {
       setSelectedTask(data[0]);
     }
   }
-async function loadNotifications(name: string) {
-  const { data } = await supabase
-    .from("admin_notifications")
-    .select("id, title, message, status, notification_type, overtime_minutes, created_at")
-    .eq("employee_name", name)
-    .order("created_at", { ascending: false })
-    .limit(10);
 
-  setNotifications(data || []);
-}
-  useEffect(() => {
-    if (!selectedTask || workSites.length === 0) return;
+  async function loadNotifications(name: string) {
+    const { data } = await supabase
+      .from("admin_notifications")
+      .select(
+        "id, title, message, status, notification_type, overtime_minutes, created_at"
+      )
+      .eq("employee_name", name)
+      .order("created_at", { ascending: false })
+      .limit(10);
 
-    const foundSite =
-      workSites.find((item) => item.id === selectedTask.work_site_id) ||
-      workSites.find((item) => item.name === selectedTask.site) ||
-      null;
+    setNotifications(data || []);
+  }
 
-    setSelectedSite(foundSite);
-  }, [selectedTask, workSites]);
+  async function checkOvertimeApproval(name: string) {
+    const { data } = await supabase
+      .from("admin_notifications")
+      .select("id, status, notification_type")
+      .eq("employee_name", name)
+      .eq("notification_type", "overtime")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const latest = data?.[0];
+
+    if (latest?.status === "approved") {
+      setOvertimeBlocked(false);
+      setOvertimeWarningSent(false);
+      setOvertimeRequestSent(false);
+      setMessage("Überstunden wurden genehmigt. Du kannst weiterarbeiten.");
+      await loadNotifications(name);
+    }
+
+    if (latest?.status === "rejected") {
+      setMessage("Überstunden wurden abgelehnt. Bitte Schicht beendet lassen.");
+      await loadNotifications(name);
+    }
+  }
 
   async function getPosition(): Promise<GeolocationPosition> {
     return new Promise((resolve, reject) => {
@@ -343,20 +404,22 @@ async function loadNotifications(name: string) {
       distance,
     };
   }
-function isInsidePlannedWindow(task: Task | null) {
-  if (!task?.start_time || !task?.end_time) return true;
 
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  function isInsidePlannedWindow(task: Task | null) {
+    if (!task?.start_time || !task?.end_time) return true;
 
-  const [startHour, startMinute] = task.start_time.split(":").map(Number);
-  const [endHour, endMinute] = task.end_time.split(":").map(Number);
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-  const startMinutes = startHour * 60 + startMinute;
-  const endMinutes = endHour * 60 + endMinute;
+    const [startHour, startMinute] = task.start_time.split(":").map(Number);
+    const [endHour, endMinute] = task.end_time.split(":").map(Number);
 
-  return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-}
+    const startMinutes = startHour * 60 + startMinute;
+    const endMinutes = endHour * 60 + endMinute;
+
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  }
+
   async function createEntry(
     action: "start" | "break_start" | "break_end" | "end",
     autoClockOut = false
@@ -366,17 +429,19 @@ function isInsidePlannedWindow(task: Task | null) {
       return;
     }
 
+    if (action === "start" && overtimeBlocked) {
+      setMessage("Du wartest noch auf Freigabe für Überstunden.");
+      return;
+    }
+
+    if (action === "start" && !isInsidePlannedWindow(selectedTask)) {
+      setMessage("Du bist außerhalb deines geplanten Zeitfensters.");
+      return;
+    }
+
     const geo = await checkInsideObject();
     if (!geo) return;
-if (action === "start" && overtimeBlocked) {
-  setMessage("Du wartest noch auf Freigabe für Überstunden.");
-  return;
-}
 
-if (action === "start" && !isInsidePlannedWindow(selectedTask)) {
-  setMessage("Du bist außerhalb deines geplanten Zeitfensters.");
-  return;
-}
     if (action === "start" && !geo.inside) {
       setMessage("Du bist zu weit vom Objekt entfernt. Einstempeln nicht möglich.");
       return;
@@ -417,7 +482,7 @@ if (action === "start" && !isInsidePlannedWindow(selectedTask)) {
       setPauseMinutes(0);
       setOvertimeWarningSent(false);
       setOvertimeBlocked(false);
-setOvertimeRequestSent(false);
+      setOvertimeRequestSent(false);
       setMessage("Schicht gestartet.");
     }
 
@@ -429,7 +494,9 @@ setOvertimeRequestSent(false);
 
     if (action === "break_end") {
       if (breakStart) {
-        const pauseDiff = (new Date().getTime() - breakStart.getTime()) / 1000 / 60;
+        const pauseDiff =
+          (new Date().getTime() - breakStart.getTime()) / 1000 / 60;
+
         setPauseMinutes((old) => old + Math.floor(pauseDiff));
       }
 
@@ -447,19 +514,21 @@ setOvertimeRequestSent(false);
   }
 
   async function notifyAdminOvertime(minutes: number) {
-  await supabase.from("admin_notifications").insert([
-    {
-      title: "Überstunden-Freigabe nötig",
-      message: `${employeeName} ist ${minutes} Minuten über der geplanten Zeit bei ${selectedSite?.name}.`,
-      employee_name: employeeName,
-      work_site_name: selectedSite?.name || null,
-      status: "open",
-      notification_type: "overtime",
-      overtime_minutes: minutes,
-      read: false,
-    },
-  ]);
-}
+    await supabase.from("admin_notifications").insert([
+      {
+        title: "Überstunden-Freigabe nötig",
+        message: `${employeeName} ist ${minutes} Minuten über der geplanten Zeit bei ${selectedSite?.name}.`,
+        employee_name: employeeName,
+        work_site_name: selectedSite?.name || null,
+        status: "open",
+        notification_type: "overtime",
+        overtime_minutes: minutes,
+        read: false,
+      },
+    ]);
+
+    await loadNotifications(employeeName);
+  }
 
   async function toggleTask(taskId: string) {
     const task = tasks.find((item) => item.id === taskId);
@@ -507,90 +576,72 @@ setOvertimeRequestSent(false);
     return `${h}:${String(m).padStart(2, "0")}`;
   }
 
+  function BackButton() {
+    return (
+      <button
+        type="button"
+        onClick={() => setActiveTab("home")}
+        className="mb-5 px-5 py-3 rounded-2xl bg-white shadow-sm font-bold"
+      >
+        ← Zurück
+      </button>
+    );
+  }
+
   if (!loggedIn) {
-  return (
-    <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
-        <h1 className="text-2xl font-bold mb-2">Mitarbeiter Login</h1>
+    return (
+      <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
+          <h1 className="text-2xl font-bold mb-2">Mitarbeiter Login</h1>
+          <p className="text-gray-500 mb-6">Bitte einloggen.</p>
 
-        <p className="text-sm mb-4 font-bold text-green-600">
-          {appReady ? "App ist bereit" : "App lädt..."}
-        </p>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="E-Mail"
+            className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
+          />
 
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="E-Mail"
-          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            placeholder="Passwort"
+            className="w-full mb-4 p-4 rounded-2xl bg-gray-100 outline-none"
+          />
 
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          type="password"
-          placeholder="Passwort"
-          className="w-full mb-4 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
+          <button
+            type="button"
+            disabled={loginLoading}
+            onClick={login}
+            className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
+          >
+            {loginLoading ? "Login wird geprüft..." : "Login"}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setMessage("Login Button wurde gedrückt");
-            login();
-          }}
-          className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold"
-        >
-          Login
-        </button>
+          <button
+            type="button"
+            onClick={resetPassword}
+            className="w-full mt-3 p-4 rounded-2xl bg-gray-100 text-gray-600 font-bold"
+          >
+            Passwort vergessen?
+          </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setMessage("Passwort vergessen wurde gedrückt");
-            resetPassword();
-          }}
-          className="w-full mt-3 p-4 rounded-2xl bg-gray-100 text-gray-600 font-bold"
-        >
-          Passwort vergessen?
-        </button>
-{overtimeBlocked && (
-  <div className="mt-6 bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
-    <p className="font-bold text-red-600">Überstunden-Freigabe nötig</p>
-    <p className="text-sm text-gray-600 mt-1">
-      Deine Zeituhr wurde gestoppt. Bitte kontaktiere deinen Vorgesetzten.
-    </p>
+          {message && (
+            <p className="mt-4 text-center text-red-500 font-medium">
+              {message}
+            </p>
+          )}
+        </div>
+      </main>
+    );
+  }
 
-    {overtimeRequestSent && (
-      <p className="text-sm text-green-600 mt-2 font-bold">
-        Anfrage wurde an den Admin gesendet.
-      </p>
-    )}
-  </div>
-)}
-        {message && (
-          <p className="mt-4 text-center text-red-500 font-bold">
-            {message}
-          </p>
-        )}
-      </div>
-    </main>
-  );
-}
-function BackButton() {
-  return (
-    <button
-      onClick={() => setActiveTab("home")}
-      className="mb-5 px-5 py-3 rounded-2xl bg-white shadow-sm font-bold"
-    >
-      ← Zurück
-    </button>
-  );
-}
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900 pb-24">
       {activeTab === "home" && (
         <>
-          <section className="bg-white p-5 shadow-sm">
+          <section className="bg-white p-5 shadow-sm rounded-b-[32px]">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-orange-400 text-white flex items-center justify-center font-bold">
@@ -603,154 +654,113 @@ function BackButton() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
-                  🔊
+              <div className="relative">
+                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+                  🔔
                 </div>
-
-                <div className="relative">
-                  <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
-                    🔔
-                  </div>
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center">
-                    {openTasks}
-                  </span>
-                </div>
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center">
+                  {openTasks}
+                </span>
               </div>
             </div>
-<section className="mt-3 px-5">
-  <h2 className="text-lg font-bold mb-3">Heutige Objekte</h2>
 
-  <div className="grid grid-cols-1 gap-3">
-    {todayTasks.length === 0 && (
-      <div className="bg-white rounded-[28px] p-5 shadow-sm text-gray-400">
-        Heute keine Objekte geplant.
-      </div>
-    )}
-
-    {Array.from(new Set(todayTasks.map((task) => task.site || "Kein Objekt"))).map(
-      (siteName) => {
-        const siteTasks = todayTasks.filter(
-          (task) => (task.site || "Kein Objekt") === siteName
-        );
-
-        return (
-          <button
-            key={siteName}
-            onClick={() => setActiveTab("schedule")}
-            className="bg-white rounded-[28px] p-5 shadow-sm text-left flex justify-between items-center"
-          >
-            <div>
-              <p className="font-bold text-lg">{siteName}</p>
-              <p className="text-sm text-gray-500">
-                {siteTasks[0]?.start_time || "--:--"} -{" "}
-                {siteTasks[0]?.end_time || "--:--"} · {siteTasks.length} Aufgabe(n)
-              </p>
-            </div>
-
-            <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-500 flex items-center justify-center text-xl">
-              📍
-            </div>
-          </button>
-        );
-      }
-    )}
-  </div>
-</section>
             <div className="grid grid-cols-3 gap-3">
               <button
+                type="button"
                 onClick={() => setActiveTab("tasks")}
-                className="bg-cyan-50 rounded-[24px] p-4 text-center"
+                className="bg-cyan-50 rounded-[24px] p-4 text-center shadow-sm"
               >
                 <div className="text-3xl mb-2">☑️</div>
-                <p className="text-sm">Aufgaben</p>
+                <p className="text-sm font-medium">Aufgaben</p>
               </button>
 
               <button
+                type="button"
                 onClick={() => setActiveTab("clock")}
-                className="bg-indigo-50 rounded-[24px] p-4 text-center"
+                className="bg-indigo-50 rounded-[24px] p-4 text-center shadow-sm"
               >
                 <div className="text-3xl mb-2">⏱️</div>
-                <p className="text-sm">Stempeluhr</p>
+                <p className="text-sm font-medium">Stempeluhr</p>
               </button>
 
               <button
+                type="button"
                 onClick={() => setActiveTab("schedule")}
-                className="bg-orange-50 rounded-[24px] p-4 text-center"
+                className="bg-orange-50 rounded-[24px] p-4 text-center shadow-sm"
               >
                 <div className="text-3xl mb-2">📅</div>
-                <p className="text-sm">Schedule</p>
+                <p className="text-sm font-medium">Planung</p>
               </button>
             </div>
           </section>
 
-          <section className="mt-3 px-5">
-  <button
-    onClick={() => setActiveTab("tasks")}
-    className="w-full bg-white rounded-[28px] p-5 shadow-sm flex items-center justify-between"
-  >
-    <div className="flex items-center gap-4">
-      <div className="w-14 h-14 rounded-2xl bg-purple-100 text-purple-500 flex items-center justify-center text-2xl">
-        ✅
-      </div>
+          <section className="mt-4 px-5">
+            <h2 className="text-lg font-bold mb-3">Heutige Objekte</h2>
 
-      <div className="text-left">
-        <p className="font-bold text-lg">
-          {openTasks} Aufgaben warten auf dich
-        </p>
-        <p className="text-sm text-gray-500">
-          {doneTasks} erledigt · {openTasks} offen
-        </p>
-      </div>
-    </div>
-
-    <span className="px-5 py-2 rounded-full bg-blue-50 text-blue-500 font-bold">
-      Öffnen
-    </span>
-  </button>
-</section>
-
-          <section className="mt-3 bg-white p-5">
-            <h2 className="text-xl font-bold mb-1">Lerne, wie es funktioniert!</h2>
-            <p className="text-gray-500 mb-5">
-              Deine wichtigsten Schritte für heute.
-            </p>
-
-            <div className="space-y-3">
-              <button
-                onClick={() => setActiveTab("clock")}
-                className="w-full p-4 rounded-2xl border flex justify-between items-center"
-              >
-                <span>⏱️ Einstempeln über die Stempeluhr</span>
-                <span>›</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("schedule")}
-                className="w-full p-4 rounded-2xl border flex justify-between items-center"
-              >
-                <span>📅 Zugriff auf den Jobplaner</span>
-                <span>›</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("chat")}
-                className="w-full p-4 rounded-2xl border flex justify-between items-center"
-              >
-                <span>💬 Nachricht im Chat senden</span>
-                <span>›</span>
-              </button>
-
-              {role === "admin" && (
-                <button
-                  onClick={() => setActiveTab("admin")}
-                  className="w-full p-4 rounded-2xl border flex justify-between items-center"
-                >
-                  <span>👑 Administrator-Tab erkunden</span>
-                  <span>›</span>
-                </button>
+            <div className="grid grid-cols-1 gap-3">
+              {todayTasks.length === 0 && (
+                <div className="bg-white rounded-[28px] p-5 shadow-sm text-gray-400">
+                  Heute keine Objekte geplant.
+                </div>
               )}
+
+              {Array.from(
+                new Set(todayTasks.map((task) => task.site || "Kein Objekt"))
+              ).map((siteName) => {
+                const siteTasks = todayTasks.filter(
+                  (task) => (task.site || "Kein Objekt") === siteName
+                );
+
+                return (
+                  <button
+                    type="button"
+                    key={siteName}
+                    onClick={() => setActiveTab("schedule")}
+                    className="bg-white rounded-[28px] p-5 shadow-sm text-left flex justify-between items-center"
+                  >
+                    <div>
+                      <p className="font-bold text-lg">{siteName}</p>
+                      <p className="text-sm text-gray-500">
+                        {siteTasks[0]?.start_time || "--:--"} -{" "}
+                        {siteTasks[0]?.end_time || "--:--"} ·{" "}
+                        {siteTasks.length} Aufgabe(n)
+                      </p>
+                    </div>
+
+                    <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-500 flex items-center justify-center text-xl">
+                      📍
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+          </section>
+
+          <section className="mt-4 px-5">
+            <button
+              type="button"
+              onClick={() => setActiveTab("tasks")}
+              className="w-full bg-white rounded-[28px] p-5 shadow-sm flex items-center justify-between"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-purple-100 text-purple-500 flex items-center justify-center text-2xl">
+                  ✅
+                </div>
+
+                <div className="text-left">
+                  <p className="font-bold text-lg">
+                    {openTasks} Aufgaben warten auf dich
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {doneTasks} erledigt · {openTasks} offen
+                  </p>
+                </div>
+              </div>
+
+              <span className="px-5 py-2 rounded-full bg-blue-50 text-blue-500 font-bold">
+                Öffnen
+              </span>
+            </button>
           </section>
         </>
       )}
@@ -758,15 +768,10 @@ function BackButton() {
       {activeTab === "clock" && (
         <>
           <section className="relative min-h-[42vh] bg-gradient-to-br from-slate-200 to-slate-100 overflow-hidden">
-            <div className="absolute inset-0 opacity-60">
-              <div className="absolute top-16 left-10 w-72 h-20 bg-white/60 rounded-full rotate-12" />
-              <div className="absolute top-32 right-10 w-96 h-24 bg-white/50 rounded-full -rotate-12" />
-              <div className="absolute bottom-20 left-24 w-80 h-20 bg-white/50 rounded-full rotate-6" />
-            </div>
-
             <div className="relative p-5">
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={() => setActiveTab("home")}
                   className="w-14 h-14 rounded-full bg-gray-700 text-white text-3xl"
                 >
@@ -774,7 +779,7 @@ function BackButton() {
                 </button>
 
                 <div className="flex-1 bg-white rounded-full px-6 py-4 shadow-sm flex justify-between items-center">
-                  <span className="text-gray-500">Arbeitsstunden heute gesamt</span>
+                  <span className="text-gray-500">Arbeitsstunden heute</span>
                   <strong className="text-xl">{formatMinutes(workedMinutes)}</strong>
                 </div>
               </div>
@@ -801,9 +806,7 @@ function BackButton() {
               </p>
             ) : (
               <>
-                <p className="text-center text-gray-400 mb-4">
-                  Heutiger Einsatz
-                </p>
+                <p className="text-center text-gray-400 mb-4">Heutiger Einsatz</p>
 
                 <select
                   value={selectedTask?.id || ""}
@@ -815,7 +818,8 @@ function BackButton() {
                 >
                   {tasks.map((task) => (
                     <option key={task.id} value={task.id}>
-                      {task.start_time} - {task.end_time} · {task.site} · {task.title}
+                      {task.start_time} - {task.end_time} · {task.site} ·{" "}
+                      {task.title}
                     </option>
                   ))}
                 </select>
@@ -824,7 +828,9 @@ function BackButton() {
                   <div className="bg-gray-100 rounded-2xl p-4">
                     <p className="text-gray-400 text-sm">Planzeit</p>
                     <p className="font-bold">
-                      {plannedMinutes > 0 ? `${plannedMinutes} Min.` : "Nicht gesetzt"}
+                      {plannedMinutes > 0
+                        ? `${plannedMinutes} Min.`
+                        : "Nicht gesetzt"}
                     </p>
                   </div>
 
@@ -844,8 +850,15 @@ function BackButton() {
 
             <div className="flex justify-center mt-8">
               <button
+                type="button"
                 disabled={status !== "none" || tasks.length === 0}
-                onClick={() => createEntry("start")}
+                onClick={() => {
+                  if (overtimeBlocked) {
+                    setMessage("Du musst erst mit dem Admin sprechen.");
+                    return;
+                  }
+                  createEntry("start");
+                }}
                 className={
                   status === "none"
                     ? "w-56 h-56 rounded-full border border-gray-300 bg-white text-gray-500 flex flex-col items-center justify-center text-2xl font-bold shadow-sm disabled:opacity-40"
@@ -864,6 +877,7 @@ function BackButton() {
             <div className="mt-8 flex justify-center gap-3">
               {status === "working" && (
                 <button
+                  type="button"
                   onClick={() => createEntry("break_start")}
                   className="px-6 py-3 rounded-full border text-purple-500 font-bold"
                 >
@@ -873,6 +887,7 @@ function BackButton() {
 
               {status === "break" && (
                 <button
+                  type="button"
                   onClick={() => createEntry("break_end")}
                   className="px-6 py-3 rounded-full border text-purple-500 font-bold"
                 >
@@ -882,6 +897,7 @@ function BackButton() {
 
               {status !== "none" && (
                 <button
+                  type="button"
                   onClick={() => createEntry("end")}
                   className="px-6 py-3 rounded-full bg-red-100 text-red-600 font-bold"
                 >
@@ -890,8 +906,28 @@ function BackButton() {
               )}
             </div>
 
+            {overtimeBlocked && (
+              <div className="mt-6 p-4 bg-red-100 text-red-700 rounded-2xl text-center font-bold">
+                <p>⚠️ Überstunden erreicht – bitte Admin kontaktieren</p>
+
+                {overtimeRequestSent && (
+                  <p className="text-sm text-green-700 mt-2">
+                    Anfrage wurde an den Admin gesendet.
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => checkOvertimeApproval(employeeName)}
+                  className="mt-3 px-5 py-3 rounded-2xl bg-white text-red-600 font-bold"
+                >
+                  Freigabe prüfen
+                </button>
+              </div>
+            )}
+
             {message && (
-              <p className="mt-6 text-center font-medium text-gray-700">
+              <p className="mt-4 text-center font-medium text-gray-700">
                 {message}
               </p>
             )}
@@ -902,6 +938,7 @@ function BackButton() {
       {activeTab === "tasks" && (
         <section className="p-5">
           <BackButton />
+
           <h1 className="text-2xl font-bold mb-1">Aufgaben</h1>
           <p className="text-gray-500 mb-5">
             {doneTasks} erledigt · {openTasks} offen
@@ -916,16 +953,24 @@ function BackButton() {
 
             {todayTasks.map((task) => (
               <button
+                type="button"
                 key={task.id}
                 onClick={() => toggleTask(task.id)}
                 className="w-full bg-white rounded-[24px] p-4 shadow-sm flex justify-between items-center text-left"
               >
                 <div>
-                  <p className={task.done ? "font-bold line-through text-gray-400" : "font-bold"}>
+                  <p
+                    className={
+                      task.done
+                        ? "font-bold line-through text-gray-400"
+                        : "font-bold"
+                    }
+                  >
                     {task.title}
                   </p>
                   <p className="text-sm text-gray-500">
-                    {task.site || "Kein Objekt"} · {task.start_time} - {task.end_time}
+                    {task.site || "Kein Objekt"} · {task.start_time} -{" "}
+                    {task.end_time}
                   </p>
                 </div>
 
@@ -947,7 +992,8 @@ function BackButton() {
       {activeTab === "schedule" && (
         <section className="p-5">
           <BackButton />
-          <h1 className="text-2xl font-bold mb-5">Schedule</h1>
+
+          <h1 className="text-2xl font-bold mb-5">Planung</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
             <p className="font-bold mb-4">Heute</p>
@@ -974,7 +1020,9 @@ function BackButton() {
       {activeTab === "search" && (
         <section className="p-5">
           <BackButton />
+
           <h1 className="text-2xl font-bold mb-5">Suche</h1>
+
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
             <input
               placeholder="Aufgaben, Objekte oder Nachrichten suchen..."
@@ -987,6 +1035,7 @@ function BackButton() {
       {activeTab === "chat" && (
         <section className="p-5">
           <BackButton />
+
           <h1 className="text-2xl font-bold mb-5">Chat</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
@@ -1018,6 +1067,7 @@ function BackButton() {
               />
 
               <button
+                type="button"
                 onClick={sendChatMessage}
                 className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
               >
@@ -1031,6 +1081,7 @@ function BackButton() {
       {activeTab === "profile" && (
         <section className="p-5">
           <BackButton />
+
           <h1 className="text-2xl font-bold mb-5">Profil</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm space-y-3">
@@ -1040,41 +1091,44 @@ function BackButton() {
             <p>
               <strong>Rolle:</strong> {role}
             </p>
-<div className="mt-5">
-  <h2 className="font-bold mb-3">Meine Meldungen</h2>
 
-  <div className="space-y-3">
-    {notifications.length === 0 && (
-      <p className="text-gray-400">Keine Meldungen vorhanden.</p>
-    )}
+            <div className="mt-5">
+              <h2 className="font-bold mb-3">Meine Meldungen</h2>
 
-    {notifications.map((note) => (
-      <div key={note.id} className="bg-gray-100 rounded-2xl p-4">
-        <p className="font-bold">{note.title}</p>
-        <p className="text-sm text-gray-600">{note.message}</p>
+              <div className="space-y-3">
+                {notifications.length === 0 && (
+                  <p className="text-gray-400">Keine Meldungen vorhanden.</p>
+                )}
 
-        {note.status === "approved" && (
-          <p className="mt-2 text-green-600 font-bold">
-            Überstunden genehmigt
-          </p>
-        )}
+                {notifications.map((note) => (
+                  <div key={note.id} className="bg-gray-100 rounded-2xl p-4">
+                    <p className="font-bold">{note.title}</p>
+                    <p className="text-sm text-gray-600">{note.message}</p>
 
-        {note.status === "rejected" && (
-          <p className="mt-2 text-red-600 font-bold">
-            Überstunden abgelehnt
-          </p>
-        )}
+                    {note.status === "approved" && (
+                      <p className="mt-2 text-green-600 font-bold">
+                        Überstunden genehmigt
+                      </p>
+                    )}
 
-        {(!note.status || note.status === "open") && (
-          <p className="mt-2 text-orange-500 font-bold">
-            Wartet auf Freigabe
-          </p>
-        )}
-      </div>
-    ))}
-  </div>
-</div>
+                    {note.status === "rejected" && (
+                      <p className="mt-2 text-red-600 font-bold">
+                        Überstunden abgelehnt
+                      </p>
+                    )}
+
+                    {(!note.status || note.status === "open") && (
+                      <p className="mt-2 text-orange-500 font-bold">
+                        Wartet auf Freigabe
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <button
+              type="button"
               onClick={() => setLoggedIn(false)}
               className="w-full p-4 rounded-2xl bg-red-100 text-red-600 font-bold"
             >
@@ -1087,18 +1141,22 @@ function BackButton() {
       {activeTab === "admin" && (
         <section className="p-5">
           <BackButton />
+
           <h1 className="text-2xl font-bold mb-5">Administrator</h1>
 
           <div className="bg-white rounded-[28px] p-5 shadow-sm">
             {role === "admin" ? (
               <button
+                type="button"
                 onClick={() => (window.location.href = "/admin")}
                 className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold"
               >
                 Admin Dashboard öffnen
               </button>
             ) : (
-              <p className="text-gray-400">Nur Administratoren können das sehen.</p>
+              <p className="text-gray-400">
+                Nur Administratoren können das sehen.
+              </p>
             )}
           </div>
         </section>
@@ -1106,6 +1164,7 @@ function BackButton() {
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t grid grid-cols-5 p-2 text-xs text-gray-500">
         <button
+          type="button"
           onClick={() => setActiveTab("home")}
           className={activeTab === "home" ? "text-blue-500 font-bold" : ""}
         >
@@ -1114,6 +1173,7 @@ function BackButton() {
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab("search")}
           className={activeTab === "search" ? "text-blue-500 font-bold" : ""}
         >
@@ -1122,6 +1182,7 @@ function BackButton() {
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab("chat")}
           className={activeTab === "chat" ? "text-blue-500 font-bold" : ""}
         >
@@ -1130,6 +1191,7 @@ function BackButton() {
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab("profile")}
           className={activeTab === "profile" ? "text-blue-500 font-bold" : ""}
         >
@@ -1138,11 +1200,16 @@ function BackButton() {
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab(role === "admin" ? "admin" : "schedule")}
-          className={activeTab === "admin" || activeTab === "schedule" ? "text-blue-500 font-bold" : ""}
+          className={
+            activeTab === "admin" || activeTab === "schedule"
+              ? "text-blue-500 font-bold"
+              : ""
+          }
         >
           <div className="text-2xl">♕</div>
-          {role === "admin" ? "Administrator" : "Schedule"}
+          {role === "admin" ? "Admin" : "Planung"}
         </button>
       </nav>
     </main>
