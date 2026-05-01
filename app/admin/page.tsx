@@ -360,7 +360,7 @@ function calculateEmployeeWorkedMinutes(employeeName: string) {
     }
 
     if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
-total += (time.getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+      total += (time.getTime() - (lastStart as Date).getTime()) / 1000 / 60;
       lastStart = null;
     }
   });
@@ -376,6 +376,18 @@ function formatMinutes(minutes: number) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+function getPlannedMinutes(employeeName: string) {
+  const today = new Date().toISOString().split("T")[0];
+
+  return tasks
+    .filter(
+      (task) =>
+        task.employee_name === employeeName &&
+        task.task_date === today
+    )
+    .reduce((sum, task) => sum + (task.max_minutes || 0), 0);
 }
   if (loading) return <main className="p-6">Lade...</main>;
 
@@ -867,7 +879,8 @@ function formatMinutes(minutes: number) {
                   {employees.map((employeeName) => {
                     const last = getLastEntry(employeeName);
                     const workStatus = employeeWorkStatus(employeeName);
-
+const worked = calculateEmployeeWorkedMinutes(employeeName);
+const planned = getPlannedMinutes(employeeName);
                     return (
                       <div
                         key={employeeName}
@@ -890,10 +903,12 @@ function formatMinutes(minutes: number) {
 
                         <div className="grid grid-cols-3 gap-3 mt-4 text-sm">
                           <div>
-                            <p className="text-gray-400">Arbeitszeit</p>
-<p className="font-bold">
-  {formatMinutes(calculateEmployeeWorkedMinutes(employeeName))}
-</p>                          </div>
+  <p className="text-gray-400">Arbeitszeit</p>
+
+  <p className={`font-bold ${planned > 0 && worked > planned ? "text-red-500" : ""}`}>
+    {formatMinutes(worked)} / {planned > 0 ? formatMinutes(planned) : "0:00"}
+  </p>
+</div>
 
                           <div>
                             <p className="text-gray-400">Kosten</p>
