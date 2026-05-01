@@ -53,7 +53,16 @@ type EmployeeProfile = {
   role: string | null;
   phone: string | null;
 };
-
+type ChatMessageDb = {
+  id: string;
+  employee_name: string;
+  sender_role: string;
+  sender_name: string | null;
+  message: string;
+  read_by_admin: boolean | null;
+  read_by_employee: boolean | null;
+  created_at: string;
+};
 type AdminTab =
   | "dashboard"
   | "planung"
@@ -106,32 +115,32 @@ const [resetMessage, setResetMessage] = useState("");
 const [resetLoading, setResetLoading] = useState(false);
 
   const [chatText, setChatText] = useState("");
-  const [chatMessages, setChatMessages] = useState([
-    {
-      id: 1,
-      sender: "Max Mustermann",
-      text: "Alles klar, danke!",
-      time: "10:42",
-    },
-    {
-      id: 2,
-      sender: "Lisa Schneider",
-      text: "Kannst du mir bitte die Adresse schicken?",
-      time: "10:21",
-    },
-  ]);
+const [chatMessages, setChatMessages] = useState<ChatMessageDb[]>([]);
+const [selectedChatEmployee, setSelectedChatEmployee] = useState("");
 
   useEffect(() => {
     checkAdmin();
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTick((old) => old + 1);
-    }, 60000);
+  const interval = setInterval(() => {
+    setTick((old) => old + 1);
+  }, 60000);
 
-    return () => clearInterval(interval);
-  }, []);
+  return () => clearInterval(interval);
+}, []);
+
+useEffect(() => {
+  if (!allowed || activeTab !== "chat") return;
+
+  loadAdminChatMessages(selectedChatEmployee);
+
+  const timer = setInterval(() => {
+    loadAdminChatMessages(selectedChatEmployee);
+  }, 5000);
+
+  return () => clearInterval(timer);
+}, [allowed, activeTab, selectedChatEmployee]);
 
   async function checkAdmin() {
     const { data } = await supabase.auth.getUser();
@@ -545,24 +554,53 @@ async function resetEmployeePassword() {
   setResetLoading(false);
 }
 
-  function sendChatMessage() {
-    if (!chatText.trim()) return;
+  async function loadAdminChatMessages(employeeName?: string) {
+  const selectedName = employeeName || selectedChatEmployee;
 
-    setChatMessages((old) => [
-      ...old,
-      {
-        id: Date.now(),
-        sender: "Ich",
-        text: chatText.trim(),
-        time: new Date().toLocaleTimeString("de-DE", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-    ]);
+  let query = supabase
+    .from("chat_messages")
+    .select("id, employee_name, sender_role, sender_name, message, read_by_admin, read_by_employee, created_at")
+    .order("created_at", { ascending: true })
+    .limit(200);
 
-    setChatText("");
+  if (selectedName) {
+    query = query.eq("employee_name", selectedName);
   }
+
+  const { data } = await query;
+
+  setChatMessages((data || []) as ChatMessageDb[]);
+
+  if (selectedName) {
+    await supabase
+      .from("chat_messages")
+      .update({ read_by_admin: true })
+      .eq("employee_name", selectedName)
+      .eq("sender_role", "employee");
+  }
+}
+
+async function sendChatMessage() {
+  if (!chatText.trim() || !selectedChatEmployee) return;
+
+  const text = chatText.trim();
+  setChatText("");
+
+  const { error } = await supabase.from("chat_messages").insert([
+    {
+      employee_name: selectedChatEmployee,
+      sender_role: "admin",
+      sender_name: "Admin",
+      message: text,
+      read_by_admin: true,
+      read_by_employee: false,
+    },
+  ]);
+
+  if (error) return;
+
+  await loadAdminChatMessages(selectedChatEmployee);
+}
 
   function calculateEmployeeWorkedMinutes(employeeName: string) {
     const today = new Date();
@@ -1307,7 +1345,7 @@ async function resetEmployeePassword() {
                       <div key={profile.id} className="bg-gray-100 rounded-2xl p-4">
                         <p className="font-bold">{profile.name}</p>
                         <p className="text-sm text-gray-500">
-                          Rolle: {profile.role || "employee"}
+                          Rolle: {profile.role === "admin" ? "Admin" : "Mitarbeiter"}
                         </p>
                       </div>
                     ))}
@@ -1546,39 +1584,121 @@ async function resetEmployeePassword() {
             )}
 
             {activeTab === "chat" && (
-              <div className="bg-white rounded-[28px] p-6 shadow-sm max-w-3xl">
-                <h1 className="text-2xl font-bold mb-6">Chat</h1>
+  <div className="bg-white rounded-[28px] p-6 shadow-sm">
+    <h1 className="text-2xl font-bold mb-6">Chat</h1>
 
-                <div className="space-y-3 mb-5">
-                  {chatMessages.map((msg) => (
-                    <div key={msg.id} className="bg-gray-100 rounded-2xl p-4">
-                      <div className="flex justify-between">
-                        <p className="font-bold">{msg.sender}</p>
-                        <p className="text-gray-400 text-sm">{msg.time}</p>
-                      </div>
-                      <p className="text-gray-600">{msg.text}</p>
-                    </div>
-                  ))}
+    <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+      <div className="bg-gray-100 rounded-2xl p-4">
+        <h2 className="font-bold mb-3">Mitarbeiter</h2>
+
+        <div className="space-y-2">
+          {employeeProfiles.map((profile) => {
+            const unread = chatMessages.filter(
+              (msg) =>
+                msg.employee_name === profile.name &&
+                msg.sender_role === "employee" &&
+                !msg.read_by_admin
+            ).length;
+
+            return (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => {
+                  setSelectedChatEmployee(profile.name);
+                  loadAdminChatMessages(profile.name);
+                }}
+                className={
+                  selectedChatEmployee === profile.name
+                    ? "w-full text-left p-3 rounded-2xl bg-blue-500 text-white font-bold"
+                    : "w-full text-left p-3 rounded-2xl bg-white hover:bg-blue-50"
+                }
+              >
+                <div className="flex justify-between">
+                  <span>{profile.name}</span>
+                  {unread > 0 && (
+                    <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                      {unread}
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex gap-2">
-                  <input
-                    value={chatText}
-                    onChange={(e) => setChatText(e.target.value)}
-                    placeholder="Nachricht schreiben..."
-                    className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
-                  />
+                {profile.email && (
+                  <p className="text-xs opacity-70">{profile.email}</p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-                  <button
-                    onClick={sendChatMessage}
-                    className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
-                  >
-                    Senden
-                  </button>
-                </div>
-              </div>
-            )}
+      <div>
+        {!selectedChatEmployee ? (
+          <div className="bg-gray-100 rounded-2xl p-6 text-center text-gray-400">
+            Bitte Mitarbeiter auswählen.
           </div>
+        ) : (
+          <>
+            <h2 className="font-bold mb-4">Chat mit {selectedChatEmployee}</h2>
+
+            <div className="bg-gray-100 rounded-2xl p-4 h-[55vh] overflow-y-auto space-y-3 mb-4">
+              {chatMessages.length === 0 && (
+                <p className="text-gray-400 text-center">
+                  Noch keine Nachrichten vorhanden.
+                </p>
+              )}
+
+              {chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={
+                    msg.sender_role === "admin"
+                      ? "bg-blue-100 rounded-2xl p-4 ml-20"
+                      : "bg-white rounded-2xl p-4 mr-20"
+                  }
+                >
+                  <div className="flex justify-between text-sm mb-1">
+                    <p className="font-bold">
+                      {msg.sender_role === "admin"
+                        ? "Ich"
+                        : msg.sender_name || msg.employee_name}
+                    </p>
+                    <p className="text-gray-400">
+                      {new Date(msg.created_at).toLocaleTimeString("de-DE", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+
+                  <p>{msg.message}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={chatText}
+                onChange={(e) => setChatText(e.target.value)}
+                placeholder="Nachricht schreiben..."
+                className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
+              />
+
+              <button
+                type="button"
+                onClick={sendChatMessage}
+                className="px-6 rounded-2xl bg-blue-500 text-white font-bold"
+              >
+                Senden
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  </div>
+)} 
+</div>
         </section>
       </div>
     </main>

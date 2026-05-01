@@ -94,10 +94,20 @@ function ActivateEmployeeForm() {
         </button>
 
         {message && (
-          <p className="mt-4 text-center text-gray-700 font-medium">
-            {message}
-          </p>
-        )}
+  <div className="mt-4 text-center">
+    <p className="text-gray-700 font-medium">{message}</p>
+
+    {message.includes("aktiviert") && (
+      <button
+        type="button"
+        onClick={() => (window.location.href = "/mitarbeiter")}
+        className="mt-4 w-full p-4 rounded-2xl bg-green-500 text-white font-bold"
+      >
+        Jetzt einloggen
+      </button>
+    )}
+  </div>
+)}
       </div>
     </main>
   );

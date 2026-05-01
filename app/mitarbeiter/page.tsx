@@ -38,10 +38,14 @@ type Task = {
 };
 
 type ChatMessage = {
-  id: number;
-  sender: string;
-  text: string;
-  time: string;
+  id: string;
+  employee_name: string;
+  sender_role: string;
+  sender_name: string | null;
+  message: string;
+  read_by_admin: boolean | null;
+  read_by_employee: boolean | null;
+  created_at: string;
 };
 
 type AdminNotification = {
@@ -101,6 +105,13 @@ export default function MitarbeiterPage() {
   const [employeeName, setEmployeeName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [role, setRole] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState("");
+const [profileMessage, setProfileMessage] = useState("");
+const [profileImageLoading, setProfileImageLoading] = useState(false);
+
+const [profilePassword, setProfilePassword] = useState("");
+const [profilePasswordRepeat, setProfilePasswordRepeat] = useState("");
+const [profilePasswordLoading, setProfilePasswordLoading] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
 const [newPassword, setNewPassword] = useState("");
 const [newPasswordRepeat, setNewPasswordRepeat] = useState("");
@@ -133,14 +144,7 @@ const [changePasswordLoading, setChangePasswordLoading] = useState(false);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
 
   const [chatText, setChatText] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 1,
-      sender: "Admin",
-      text: "Willkommen im Chat. Hier kannst du später Nachrichten senden.",
-      time: "09:00",
-    },
-  ]);
+const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const todayISO = new Date().toISOString().split("T")[0];
 
@@ -272,7 +276,17 @@ const [changePasswordLoading, setChangePasswordLoading] = useState(false);
 
     return () => clearInterval(timer);
   }, [loggedIn, employeeName, overtimeBlocked]);
+useEffect(() => {
+  if (!loggedIn || !employeeName || activeTab !== "chat") return;
 
+  loadChatMessages();
+
+  const timer = setInterval(() => {
+    loadChatMessages();
+  }, 5000);
+
+  return () => clearInterval(timer);
+}, [loggedIn, employeeName, activeTab]);
   async function login() {
   setMessage("");
   setLoginLoading(true);
@@ -299,7 +313,7 @@ const { data, error } = await supabase.auth.signInWithPassword({
 
     const { data: profile } = await supabase
       .from("employee_profiles")
-     .select("id, name, role, must_change_password")
+     .select("id, name, role, avatar_url, must_change_password")
       .eq("auth_user_id", data.user.id)
       .single();
 
@@ -308,6 +322,7 @@ const { data, error } = await supabase.auth.signInWithPassword({
     setEmployeeName(name);
     setEmployeeId(profile?.id || data.user.id);
     setRole(profile?.role || "employee");
+    setAvatarUrl(profile?.avatar_url || "");
 setMustChangePassword(Boolean(profile?.must_change_password));
 setLoggedIn(true);
 
@@ -327,20 +342,32 @@ setLoggedIn(true);
   }
 
   async function resetPassword() {
-    if (!email.trim()) {
-      setMessage("Bitte zuerst deine E-Mail eingeben.");
-      return;
-    }
+  setMessage("");
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
-
-    if (error) {
-      setMessage("Passwort-Link konnte nicht gesendet werden.");
-      return;
-    }
-
-    setMessage("Passwort-Link wurde gesendet. Bitte E-Mail prüfen.");
+  if (!email.trim()) {
+    setMessage("Bitte zuerst deine E-Mail eingeben.");
+    return;
   }
+
+  if (!email.includes("@")) {
+    setMessage("Passwort zurücksetzen geht nur mit E-Mail.");
+    return;
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email.trim().toLowerCase(),
+    {
+      redirectTo: `${window.location.origin}/mitarbeiter/passwort-neu`,
+    }
+  );
+
+  if (error) {
+    setMessage("Passwort-Link konnte nicht gesendet werden.");
+    return;
+  }
+
+  setMessage("Passwort-Link wurde gesendet. Bitte E-Mail prüfen.");
+}
 
   async function loadWorkSites() {
     const { data } = await supabase
@@ -663,7 +690,6 @@ setLoggedIn(true);
 
     await loadNotifications(employeeName);
   }
-
   async function toggleTask(taskId: string) {
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return;
@@ -684,24 +710,50 @@ setLoggedIn(true);
       )
     );
   }
+    async function loadChatMessages() {
+    if (!employeeName) return;
 
-  function sendChatMessage() {
+    const { data } = await supabase
+      .from("chat_messages")
+      .select(
+        "id, employee_name, sender_role, sender_name, message, read_by_admin, read_by_employee, created_at"
+      )
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: true })
+      .limit(100);
+
+    setChatMessages((data || []) as ChatMessage[]);
+
+    await supabase
+      .from("chat_messages")
+      .update({ read_by_employee: true })
+      .eq("employee_name", employeeName)
+      .eq("sender_role", "admin");
+  }
+
+  async function sendChatMessage() {
     if (!chatText.trim()) return;
 
-    setChatMessages((old) => [
-      ...old,
+    const text = chatText.trim();
+    setChatText("");
+
+    const { error } = await supabase.from("chat_messages").insert([
       {
-        id: Date.now(),
-        sender: "Ich",
-        text: chatText.trim(),
-        time: new Date().toLocaleTimeString("de-DE", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        employee_name: employeeName,
+        sender_role: "employee",
+        sender_name: employeeName,
+        message: text,
+        read_by_admin: false,
+        read_by_employee: true,
       },
     ]);
 
-    setChatText("");
+    if (error) {
+      setMessage("Nachricht konnte nicht gesendet werden.");
+      return;
+    }
+
+    await loadChatMessages();
   }
 
   function formatMinutes(minutes: number) {
@@ -757,6 +809,98 @@ async function changeOwnPassword() {
   }
 
   setChangePasswordLoading(false);
+}
+function roleText(value: string | null) {
+  if (value === "admin") return "Admin";
+  return "Mitarbeiter";
+}
+
+async function uploadProfileImage(file: File | null) {
+  setProfileMessage("");
+
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    setProfileMessage("Bitte ein Bild auswählen.");
+    return;
+  }
+
+  setProfileImageLoading(true);
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!userData.user) {
+    setProfileMessage("Benutzer wurde nicht gefunden.");
+    setProfileImageLoading(false);
+    return;
+  }
+
+  const fileExt = file.name.split(".").pop() || "jpg";
+  const filePath = `${userData.user.id}/avatar-${Date.now()}.${fileExt}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(filePath, file, {
+      upsert: true,
+    });
+
+  if (uploadError) {
+    setProfileMessage("Profilbild konnte nicht hochgeladen werden.");
+    setProfileImageLoading(false);
+    return;
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from("avatars")
+    .getPublicUrl(filePath);
+
+  const publicUrl = publicUrlData.publicUrl;
+
+  const { error: profileError } = await supabase
+    .from("employee_profiles")
+    .update({ avatar_url: publicUrl })
+    .eq("auth_user_id", userData.user.id);
+
+  if (profileError) {
+    setProfileMessage("Profilbild wurde hochgeladen, aber nicht gespeichert.");
+    setProfileImageLoading(false);
+    return;
+  }
+
+  setAvatarUrl(publicUrl);
+  setProfileMessage("Profilbild wurde gespeichert.");
+  setProfileImageLoading(false);
+}
+
+async function changeProfilePassword() {
+  setProfileMessage("");
+
+  if (profilePassword.length < 6) {
+    setProfileMessage("Das Passwort muss mindestens 6 Zeichen haben.");
+    return;
+  }
+
+  if (profilePassword !== profilePasswordRepeat) {
+    setProfileMessage("Die Passwörter stimmen nicht überein.");
+    return;
+  }
+
+  setProfilePasswordLoading(true);
+
+  const { error } = await supabase.auth.updateUser({
+    password: profilePassword,
+  });
+
+  if (error) {
+    setProfileMessage("Passwort konnte nicht geändert werden.");
+    setProfilePasswordLoading(false);
+    return;
+  }
+
+  setProfilePassword("");
+  setProfilePasswordRepeat("");
+  setProfileMessage("Passwort wurde geändert.");
+  setProfilePasswordLoading(false);
 }
   function BackButton() {
     return (
@@ -1275,120 +1419,197 @@ if (mustChangePassword) {
       )}
 
       {activeTab === "chat" && (
-        <section className="p-5">
-          <BackButton />
-          <h1 className="text-2xl font-bold mb-5">Chat</h1>
+  <section className="p-5">
+    <BackButton />
 
-          <div className="bg-white rounded-[28px] p-5 shadow-sm">
-            <div className="space-y-3 mb-5">
-              {chatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={
-                    msg.sender === "Ich"
-                      ? "bg-blue-100 rounded-2xl p-4 ml-8"
-                      : "bg-gray-100 rounded-2xl p-4 mr-8"
-                  }
-                >
-                  <div className="flex justify-between text-sm mb-1">
-                    <p className="font-bold">{msg.sender}</p>
-                    <p className="text-gray-400">{msg.time}</p>
-                  </div>
-                  <p>{msg.text}</p>
-                </div>
-              ))}
+    <h1 className="text-2xl font-bold mb-5">Chat</h1>
+
+    <div className="bg-white rounded-[28px] p-5 shadow-sm">
+      <div className="space-y-3 mb-5 max-h-[55vh] overflow-y-auto">
+        {chatMessages.length === 0 && (
+          <p className="text-gray-400 text-center">
+            Noch keine Nachrichten vorhanden.
+          </p>
+        )}
+
+        {chatMessages.map((msg) => (
+          <div
+            key={msg.id}
+            className={
+              msg.sender_role === "employee"
+                ? "bg-blue-100 rounded-2xl p-4 ml-8"
+                : "bg-gray-100 rounded-2xl p-4 mr-8"
+            }
+          >
+            <div className="flex justify-between text-sm mb-1">
+              <p className="font-bold">
+                {msg.sender_role === "employee" ? "Ich" : "Admin"}
+              </p>
+              <p className="text-gray-400">
+                {new Date(msg.created_at).toLocaleTimeString("de-DE", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
             </div>
-
-            <div className="flex gap-2">
-              <input
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                placeholder="Nachricht schreiben..."
-                className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
-              />
-
-              <button
-                type="button"
-                onClick={sendChatMessage}
-                className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
-              >
-                Senden
-              </button>
-            </div>
+            <p>{msg.message}</p>
           </div>
-        </section>
-      )}
+        ))}
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          value={chatText}
+          onChange={(e) => setChatText(e.target.value)}
+          placeholder="Nachricht schreiben..."
+          className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
+        />
+
+        <button
+          type="button"
+          onClick={sendChatMessage}
+          className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
+        >
+          Senden
+        </button>
+      </div>
+    </div>
+  </section>
+)}
 
       {activeTab === "profile" && (
-        <section className="p-5">
-          <BackButton />
-          <h1 className="text-2xl font-bold mb-5">Profil</h1>
+  <section className="p-5">
+    <BackButton />
 
-          <div className="bg-white rounded-[28px] p-5 shadow-sm space-y-3">
-            <p>
-              <strong>Name:</strong> {employeeName}
-            </p>
-            <p>
-              <strong>Rolle:</strong> {role}
-            </p>
+    <h1 className="text-2xl font-bold mb-5">Profil</h1>
 
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              <div className="bg-gray-100 rounded-2xl p-4">
-                <p className="text-gray-400 text-sm">Arbeitszeit</p>
-                <p className="font-bold">{formatMinutes(workedMinutes)}</p>
-              </div>
+    <div className="bg-white rounded-[28px] p-5 shadow-sm space-y-5">
+      <div className="flex items-center gap-4">
+        <div className="w-20 h-20 rounded-full bg-orange-400 overflow-hidden flex items-center justify-center text-white text-2xl font-bold">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="Profilbild"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            employeeName.charAt(0).toUpperCase()
+          )}
+        </div>
 
-              <div className="bg-gray-100 rounded-2xl p-4">
-                <p className="text-gray-400 text-sm">Pause</p>
-                <p className="font-bold">{formatMinutes(pauseMinutes)}</p>
-              </div>
-            </div>
+        <div>
+          <p className="font-bold text-lg">{employeeName}</p>
+          <p className="text-gray-500">{roleText(role)}</p>
+        </div>
+      </div>
 
-            <div className="mt-5">
-              <h2 className="font-bold mb-3">Meine Meldungen</h2>
+      <div>
+        <p className="font-bold mb-2">Profilbild ändern</p>
 
-              <div className="space-y-3">
-                {notifications.length === 0 && (
-                  <p className="text-gray-400">Keine Meldungen vorhanden.</p>
-                )}
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => uploadProfileImage(e.target.files?.[0] || null)}
+          className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
+        />
 
-                {notifications.map((note) => (
-                  <div key={note.id} className="bg-gray-100 rounded-2xl p-4">
-                    <p className="font-bold">{note.title}</p>
-                    <p className="text-sm text-gray-600">{note.message}</p>
+        {profileImageLoading && (
+          <p className="text-sm text-gray-500 mt-2">Bild wird hochgeladen...</p>
+        )}
+      </div>
 
-                    {note.status === "approved" && (
-                      <p className="mt-2 text-green-600 font-bold">
-                        Überstunden genehmigt
-                      </p>
-                    )}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-gray-100 rounded-2xl p-4">
+          <p className="text-gray-400 text-sm">Arbeitszeit</p>
+          <p className="font-bold">{formatMinutes(workedMinutes)}</p>
+        </div>
 
-                    {note.status === "rejected" && (
-                      <p className="mt-2 text-red-600 font-bold">
-                        Überstunden abgelehnt
-                      </p>
-                    )}
+        <div className="bg-gray-100 rounded-2xl p-4">
+          <p className="text-gray-400 text-sm">Pause</p>
+          <p className="font-bold">{formatMinutes(pauseMinutes)}</p>
+        </div>
+      </div>
 
-                    {(!note.status || note.status === "open") && (
-                      <p className="mt-2 text-orange-500 font-bold">
-                        Wartet auf Freigabe
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+      <div className="border-t pt-5">
+        <h2 className="font-bold mb-3">Passwort ändern</h2>
 
-            <button
-              type="button"
-              onClick={() => setLoggedIn(false)}
-              className="w-full p-4 rounded-2xl bg-red-100 text-red-600 font-bold"
-            >
-              Abmelden
-            </button>
-          </div>
-        </section>
+        <input
+          type="password"
+          value={profilePassword}
+          onChange={(e) => setProfilePassword(e.target.value)}
+          placeholder="Neues Passwort"
+          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
+        />
+
+        <input
+          type="password"
+          value={profilePasswordRepeat}
+          onChange={(e) => setProfilePasswordRepeat(e.target.value)}
+          placeholder="Passwort wiederholen"
+          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
+        />
+
+        <button
+          type="button"
+          disabled={profilePasswordLoading}
+          onClick={changeProfilePassword}
+          className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
+        >
+          {profilePasswordLoading ? "Wird geändert..." : "Passwort ändern"}
+        </button>
+      </div>
+
+      {profileMessage && (
+        <p className="text-center font-bold text-blue-600">
+          {profileMessage}
+        </p>
       )}
+
+      <div className="mt-5">
+        <h2 className="font-bold mb-3">Meine Meldungen</h2>
+
+        <div className="space-y-3">
+          {notifications.length === 0 && (
+            <p className="text-gray-400">Keine Meldungen vorhanden.</p>
+          )}
+
+          {notifications.map((note) => (
+            <div key={note.id} className="bg-gray-100 rounded-2xl p-4">
+              <p className="font-bold">{note.title}</p>
+              <p className="text-sm text-gray-600">{note.message}</p>
+
+              {note.status === "approved" && (
+                <p className="mt-2 text-green-600 font-bold">
+                  Überstunden genehmigt
+                </p>
+              )}
+
+              {note.status === "rejected" && (
+                <p className="mt-2 text-red-600 font-bold">
+                  Überstunden abgelehnt
+                </p>
+              )}
+
+              {(!note.status || note.status === "open") && (
+                <p className="mt-2 text-orange-500 font-bold">
+                  Wartet auf Freigabe
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setLoggedIn(false)}
+        className="w-full p-4 rounded-2xl bg-red-100 text-red-600 font-bold"
+      >
+        Abmelden
+      </button>
+    </div>
+  </section>
+)}
 
       {activeTab === "admin" && (
         <section className="p-5">
