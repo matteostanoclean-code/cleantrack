@@ -495,23 +495,41 @@ async function resetEmployeePassword() {
       }),
     });
 
-    const result = await response.json();
+    const text = await response.text();
+
+    let result: { error?: string; message?: string; success?: boolean } = {};
+
+    try {
+      result = JSON.parse(text);
+    } catch {
+      setResetMessage(
+        `API antwortet nicht als JSON. Status: ${response.status}. Antwort: ${text.slice(
+          0,
+          120
+        )}`
+      );
+      setResetLoading(false);
+      return;
+    }
 
     if (!response.ok) {
-      setResetMessage(result.error || "Passwort konnte nicht geändert werden.");
+      setResetMessage(
+        result.error || `Passwort konnte nicht geändert werden. Status: ${response.status}`
+      );
       setResetLoading(false);
       return;
     }
 
     setResetPassword("");
     setResetMessage(
-      "Passwort wurde geändert. Der Mitarbeiter muss beim nächsten Login ein neues Passwort erstellen."
+      result.message ||
+        "Passwort wurde geändert. Der Mitarbeiter muss beim nächsten Login ein neues Passwort erstellen."
     );
   } catch (error) {
     setResetMessage(
       error instanceof Error
-        ? error.message
-        : "Passwort konnte nicht geändert werden. Bitte Internet prüfen."
+        ? `Fetch-Fehler: ${error.message}`
+        : "Unbekannter Fehler beim Passwort-Reset."
     );
   }
 
