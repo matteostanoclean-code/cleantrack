@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
@@ -147,6 +147,8 @@ const [changePasswordLoading, setChangePasswordLoading] = useState(false);
   const [chatText, setChatText] = useState("");
 const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 const [chatError, setChatError] = useState("");
+const chatEndRef = useRef<HTMLDivElement | null>(null);
+const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   const todayISO = new Date().toISOString().split("T")[0];
 
@@ -173,7 +175,18 @@ const [chatError, setChatError] = useState("");
     totalPlannedMinutes > 0 && workedMinutes > totalPlannedMinutes
       ? workedMinutes - totalPlannedMinutes
       : 0;
-      useEffect(() => {
+     useEffect(() => {
+  if (!loggedIn || !employeeName) return;
+
+  loadUnreadChatCount();
+
+  const timer = setInterval(() => {
+    loadUnreadChatCount();
+  }, 10000);
+
+  return () => clearInterval(timer);
+}, [loggedIn, employeeName]);
+ useEffect(() => {
   if (!loggedIn || !employeeName) return;
 
   const alreadyAsked = localStorage.getItem("cleantrack_push_asked");
@@ -214,6 +227,13 @@ async function checkExistingSession() {
 
   await loadAllData(name);
 }
+useEffect(() => {
+  if (activeTab !== "chat") return;
+
+  chatEndRef.current?.scrollIntoView({
+    behavior: "smooth",
+  });
+}, [chatMessages, activeTab]);
   useEffect(() => {
     if (!loggedIn) return;
 
@@ -329,6 +349,19 @@ useEffect(() => {
 
   return () => clearInterval(timer);
 }, [loggedIn, employeeName, activeTab]);
+
+async function loadUnreadChatCount() {
+  if (!employeeName) return;
+
+  const { count } = await supabase
+    .from("chat_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("employee_name", employeeName)
+    .eq("sender_role", "admin")
+    .eq("read_by_employee", false);
+
+  setUnreadChatCount(count || 0);
+}
   async function login() {
   setMessage("");
   setLoginLoading(true);
@@ -752,26 +785,28 @@ setLoggedIn(true);
       )
     );
   }
-    async function loadChatMessages() {
-    if (!employeeName) return;
+   async function loadChatMessages() {
+  if (!employeeName) return;
 
-    const { data } = await supabase
-      .from("chat_messages")
-      .select(
-        "id, employee_name, sender_role, sender_name, message, read_by_admin, read_by_employee, created_at"
-      )
-      .eq("employee_name", employeeName)
-      .order("created_at", { ascending: true })
-      .limit(100);
+  const { data } = await supabase
+    .from("chat_messages")
+    .select(
+      "id, employee_name, sender_role, sender_name, message, read_by_admin, read_by_employee, created_at"
+    )
+    .eq("employee_name", employeeName)
+    .order("created_at", { ascending: true })
+    .limit(100);
 
-    setChatMessages((data || []) as ChatMessage[]);
+  setChatMessages((data || []) as ChatMessage[]);
 
-    await supabase
-      .from("chat_messages")
-      .update({ read_by_employee: true })
-      .eq("employee_name", employeeName)
-      .eq("sender_role", "admin");
-  }
+  await supabase
+    .from("chat_messages")
+    .update({ read_by_employee: true })
+    .eq("employee_name", employeeName)
+    .eq("sender_role", "admin");
+
+  setUnreadChatCount(0);
+}
 
   async function sendChatMessage() {
   setChatError("");
@@ -1648,6 +1683,7 @@ if (mustChangePassword) {
             <p>{msg.message}</p>
           </div>
         ))}
+        <div ref={chatEndRef} />
       </div>
 
       <div>
@@ -1875,13 +1911,20 @@ if (mustChangePassword) {
         </button>
 
         <button
-          type="button"
-          onClick={() => setActiveTab("chat")}
-          className={activeTab === "chat" ? "text-blue-500 font-bold" : ""}
-        >
-          <div className="text-2xl">▢</div>
-          Chat
-        </button>
+  type="button"
+  onClick={() => setActiveTab("chat")}
+  className={activeTab === "chat" ? "text-blue-500 font-bold relative" : "relative"}
+>
+  <div className="relative text-2xl">
+    ▢
+    {unreadChatCount > 0 && activeTab !== "chat" && (
+      <span className="absolute -top-2 -right-3 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center">
+        {unreadChatCount}
+      </span>
+    )}
+  </div>
+  Chat
+</button>
 
         <button
           type="button"

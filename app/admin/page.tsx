@@ -611,7 +611,7 @@ async function sendChatMessage() {
   return;
 }
 
-await fetch("/api/push/send", {
+const pushResponse = await fetch("/api/push/send", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -624,9 +624,33 @@ await fetch("/api/push/send", {
   }),
 });
 
-await loadAdminChatMessages(selectedChatEmployee);
+const pushText = await pushResponse.text();
+
+let pushResult: { error?: string; sent?: number; failed?: number } = {};
+
+try {
+  pushResult = JSON.parse(pushText);
+} catch {
+  setChatError(
+    `Nachricht gespeichert, aber Push antwortet nicht als JSON. Status: ${pushResponse.status}`
+  );
 }
 
+if (!pushResponse.ok) {
+  setChatError(
+    pushResult.error ||
+      `Nachricht gespeichert, aber Push fehlgeschlagen. Status: ${pushResponse.status}`
+  );
+} else {
+  setChatError(
+    `Nachricht gesendet. Push gesendet: ${pushResult.sent ?? 0}, fehlgeschlagen: ${
+      pushResult.failed ?? 0
+    }`
+  );
+}
+
+await loadAdminChatMessages(selectedChatEmployee);
+}
   function calculateEmployeeWorkedMinutes(employeeName: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
