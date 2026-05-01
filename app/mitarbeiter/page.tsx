@@ -189,11 +189,46 @@ const [unreadChatCount, setUnreadChatCount] = useState(0);
  useEffect(() => {
   if (!loggedIn || !employeeName) return;
 
-  const alreadyAsked = localStorage.getItem("cleantrack_push_asked");
+  async function checkPushState() {
+    if (!("serviceWorker" in navigator)) return;
+    if (!("Notification" in window)) return;
+    if (!("PushManager" in window)) return;
 
-  if (!alreadyAsked) {
-    setShowPushPrompt(true);
+    if (Notification.permission === "denied") {
+      setShowPushPrompt(false);
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      const subscription = await registration.pushManager.getSubscription();
+
+      if (subscription) {
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            employeeName,
+            subscription,
+          }),
+        });
+
+        localStorage.setItem("cleantrack_push_asked", "true");
+        setShowPushPrompt(false);
+        return;
+      }
+    }
+
+    const alreadyAsked = localStorage.getItem("cleantrack_push_asked");
+
+    if (!alreadyAsked && Notification.permission === "default") {
+      setShowPushPrompt(true);
+    }
   }
+
+  checkPushState();
 }, [loggedIn, employeeName]);
 useEffect(() => {
   checkExistingSession();

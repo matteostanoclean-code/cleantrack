@@ -626,7 +626,12 @@ const pushResponse = await fetch("/api/push/send", {
 
 const pushText = await pushResponse.text();
 
-let pushResult: { error?: string; sent?: number; failed?: number } = {};
+let pushResult: {
+  error?: string;
+  sent?: number;
+  failed?: number;
+  failedMessages?: string[];
+} = {};
 
 try {
   pushResult = JSON.parse(pushText);
@@ -640,6 +645,12 @@ if (!pushResponse.ok) {
   setChatError(
     pushResult.error ||
       `Nachricht gespeichert, aber Push fehlgeschlagen. Status: ${pushResponse.status}`
+  );
+} else if ((pushResult.failed ?? 0) > 0) {
+  setChatError(
+    `Nachricht gespeichert, aber Push fehlgeschlagen: ${
+      pushResult.failedMessages?.join(" | ") || "Unbekannter Fehler"
+    }`
   );
 } else {
   setChatError(

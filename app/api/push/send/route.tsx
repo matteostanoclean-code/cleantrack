@@ -79,28 +79,51 @@ export async function POST(request: Request) {
       url,
     });
 
-    const results = await Promise.allSettled(
-      subscriptions.map((item) =>
-        webpush.sendNotification(
-          {
-            endpoint: item.endpoint,
-            keys: {
-              p256dh: item.p256dh,
-              auth: item.auth,
-            },
-          },
-          payload
-        )
-      )
+    let sent = 0;
+const failedMessages: string[] = [];
+
+for (const item of subscriptions) {
+  try {
+    await webpush.sendNotification(
+      {
+        endpoint: item.endpoint,
+        keys: {
+          p256dh: item.p256dh,
+          auth: item.auth,
+        },
+      },
+      payload
     );
 
-    const failed = results.filter((result) => result.status === "rejected");
+    sent += 1;
+  } catch (error) {
+    const pushError = error as {
+      statusCode?: number;
+      body?: string;
+      message?: string;
+    };
 
-    return NextResponse.json({
-      success: true,
-      sent: subscriptions.length - failed.length,
-      failed: failed.length,
-    });
+    failedMessages.push(
+      `${pushError.statusCode || "ohne Status"}: ${
+        pushError.body || pushError.message || "Unbekannter Push-Fehler"
+      }`
+    );
+
+    if (pushError.statusCode === 404 || pushError.statusCode === 410) {
+      await supabaseAdmin
+        .from("push_subscriptions")
+        .delete()
+        .eq("id", item.id);
+    }
+  }
+}
+
+return NextResponse.json({
+  success: true,
+  sent,
+  failed: failedMessages.length,
+  failedMessages,
+});
   } catch (error) {
     return NextResponse.json(
       {
