@@ -9,6 +9,7 @@ type Entry = {
   work_site_name: string;
   action: string;
   created_at: string;
+  auto_clock_out: boolean | null;
 };
 
 type Task = {
@@ -159,14 +160,14 @@ async function decideOvertime(id: string, decision: "approved" | "rejected") {
 
 
   async function loadEntries() {
-    const { data } = await supabase
-      .from("time_entries")
-      .select("id, employee_name, work_site_name, action, created_at")
-      .order("created_at", { ascending: false })
-      .limit(100);
+  const { data } = await supabase
+    .from("time_entries")
+    .select("id, employee_name, work_site_name, action, created_at, auto_clock_out")
+    .order("created_at", { ascending: false })
+    .limit(300);
 
-    setEntries(data || []);
-  }
+  setEntries(data || []);
+}
 
   async function loadTasks() {
     const { data } = await supabase
@@ -333,7 +334,49 @@ function employeeWorkStatus(employeeName: string) {
 
     setChatText("");
   }
+function calculateEmployeeWorkedMinutes(employeeName: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
+  const employeeEntries = entries
+    .filter(
+      (entry) =>
+        entry.employee_name === employeeName &&
+        new Date(entry.created_at) >= today
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+
+  let total = 0;
+  let lastStart: Date | null = null;
+
+  employeeEntries.forEach((entry) => {
+    const time = new Date(entry.created_at);
+
+    if (entry.action === "start" || entry.action === "break_end") {
+      lastStart = time;
+    }
+
+    if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
+total += (time.getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+      lastStart = null;
+    }
+  });
+
+  if (lastStart) {
+    total += (new Date().getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+  }
+
+  return Math.floor(total);
+}
+
+function formatMinutes(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
   if (loading) return <main className="p-6">Lade...</main>;
 
   if (!allowed) {
@@ -848,8 +891,9 @@ function employeeWorkStatus(employeeName: string) {
                         <div className="grid grid-cols-3 gap-3 mt-4 text-sm">
                           <div>
                             <p className="text-gray-400">Arbeitszeit</p>
-                            <p className="font-bold">0:00</p>
-                          </div>
+<p className="font-bold">
+  {formatMinutes(calculateEmployeeWorkedMinutes(employeeName))}
+</p>                          </div>
 
                           <div>
                             <p className="text-gray-400">Kosten</p>

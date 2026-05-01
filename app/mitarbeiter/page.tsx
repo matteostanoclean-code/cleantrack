@@ -53,7 +53,14 @@ type AdminNotification = {
   overtime_minutes: number | null;
   created_at: string;
 };
-
+type TimeEntry = {
+  id: string;
+  employee_name: string;
+  work_site_name: string;
+  action: "start" | "break_start" | "break_end" | "end";
+  created_at: string;
+  auto_clock_out: boolean | null;
+};
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000;
   const toRad = (v: number) => (v * Math.PI) / 180;
@@ -87,7 +94,7 @@ export default function MitarbeiterPage() {
   const [workSites, setWorkSites] = useState<WorkSite[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedSite, setSelectedSite] = useState<WorkSite | null>(null);
-
+const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [status, setStatus] = useState<Status>("none");
   const [message, setMessage] = useState("");
 
@@ -275,6 +282,7 @@ export default function MitarbeiterPage() {
       await loadWorkSites();
       await loadTasks(name);
       await loadNotifications(name);
+      await loadTodayEntries(name);
     } catch {
       setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
     }
@@ -336,7 +344,75 @@ export default function MitarbeiterPage() {
 
     setNotifications(data || []);
   }
+async function loadTodayEntries(name: string) {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
 
+  const { data } = await supabase
+    .from("time_entries")
+    .select("id, employee_name, work_site_name, action, created_at, auto_clock_out")
+    .eq("employee_name", name)
+    .gte("created_at", startOfDay.toISOString())
+    .order("created_at", { ascending: true });
+
+  const entries = (data || []) as TimeEntry[];
+
+  setTodayEntries(entries);
+  restoreShiftFromEntries(entries);
+  setWorkedMinutes(calculateWorkedMinutes(entries));
+}
+
+function restoreShiftFromEntries(entries: TimeEntry[]) {
+  if (entries.length === 0) {
+    setStatus("none");
+    return;
+  }
+
+  const lastEntry = entries[entries.length - 1];
+
+  if (lastEntry.action === "start" || lastEntry.action === "break_end") {
+    setStatus("working");
+    setStartTime(new Date(lastEntry.created_at));
+    setBreakStart(null);
+    return;
+  }
+
+  if (lastEntry.action === "break_start") {
+    setStatus("break");
+    setBreakStart(new Date(lastEntry.created_at));
+    return;
+  }
+
+  if (lastEntry.action === "end") {
+    setStatus("none");
+    setStartTime(null);
+    setBreakStart(null);
+  }
+}
+
+function calculateWorkedMinutes(entries: TimeEntry[]) {
+  let total = 0;
+  let lastStart: Date | null = null;
+
+  entries.forEach((entry) => {
+    const time = new Date(entry.created_at);
+
+    if (entry.action === "start" || entry.action === "break_end") {
+      lastStart = time;
+    }
+
+    if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
+      total += (time.getTime() - lastStart.getTime()) / 1000 / 60;
+      lastStart = null;
+    }
+  });
+
+ if (lastStart) {
+  total += (new Date().getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+}
+
+  return Math.max(0, Math.floor(total));
+}
   async function checkOvertimeApproval(name: string) {
     const { data } = await supabase
       .from("admin_notifications")
@@ -471,9 +547,11 @@ export default function MitarbeiterPage() {
     ]);
 
     if (error) {
-      setMessage("Stempelung konnte nicht gespeichert werden.");
-      return;
-    }
+  setMessage("Stempelung konnte nicht gespeichert werden.");
+  return;
+}
+
+await loadTodayEntries(employeeName);
 
     if (action === "start") {
       setStatus("working");
