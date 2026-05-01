@@ -89,6 +89,8 @@ useEffect(() => {
   const [currentDistance, setCurrentDistance] = useState<number | null>(null);
   const [outsideObject, setOutsideObject] = useState(false);
   const [overtimeWarningSent, setOvertimeWarningSent] = useState(false);
+    const [overtimeBlocked, setOvertimeBlocked] = useState(false);
+const [overtimeRequestSent, setOvertimeRequestSent] = useState(false);
 const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [chatText, setChatText] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -126,14 +128,24 @@ const [notifications, setNotifications] = useState<AdminNotification[]>([]);
         setWorkedMinutes(total);
 
         if (
-          plannedMinutes > 0 &&
-          total > plannedMinutes + 5 &&
-          !overtimeWarningSent
-        ) {
-          setOvertimeWarningSent(true);
-          setMessage("Du bist über der geplanten Zeit. Bitte frage Überstunden beim Admin an.");
-          notifyAdminOvertime(total - plannedMinutes);
-        }
+  plannedMinutes > 0 &&
+  total > plannedMinutes + 5 &&
+  !overtimeWarningSent
+) {
+  setOvertimeWarningSent(true);
+  setOvertimeBlocked(true);
+  setOvertimeRequestSent(true);
+
+  setMessage(
+    "Planzeit überschritten. Die Zeituhr wurde gestoppt. Bitte warte auf Freigabe vom Admin."
+  );
+
+  createEntry("end", false);
+notifyAdminOvertime(total - plannedMinutes);
+
+  setStatus("none");
+  setStartTime(null);
+}
       }
     }, 1000);
 
@@ -166,9 +178,9 @@ const [notifications, setNotifications] = useState<AdminNotification[]>([]);
         setOutsideObject(outside);
 
 if (outside && status === "working") {
-            await createEntry("end", true);
-          setMessage("Automatisch ausgestempelt: Du hast das Objekt verlassen.");
-        }
+  createEntry("end", true);
+  setMessage("Automatisch ausgestempelt: Du hast das Objekt verlassen.");
+}
       },
       () => {
         setMessage("Standort konnte nicht geprüft werden.");
@@ -331,7 +343,20 @@ async function loadNotifications(name: string) {
       distance,
     };
   }
+function isInsidePlannedWindow(task: Task | null) {
+  if (!task?.start_time || !task?.end_time) return true;
 
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const [startHour, startMinute] = task.start_time.split(":").map(Number);
+  const [endHour, endMinute] = task.end_time.split(":").map(Number);
+
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+
+  return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+}
   async function createEntry(
     action: "start" | "break_start" | "break_end" | "end",
     autoClockOut = false
@@ -343,7 +368,15 @@ async function loadNotifications(name: string) {
 
     const geo = await checkInsideObject();
     if (!geo) return;
+if (action === "start" && overtimeBlocked) {
+  setMessage("Du wartest noch auf Freigabe für Überstunden.");
+  return;
+}
 
+if (action === "start" && !isInsidePlannedWindow(selectedTask)) {
+  setMessage("Du bist außerhalb deines geplanten Zeitfensters.");
+  return;
+}
     if (action === "start" && !geo.inside) {
       setMessage("Du bist zu weit vom Objekt entfernt. Einstempeln nicht möglich.");
       return;
@@ -383,6 +416,8 @@ async function loadNotifications(name: string) {
       setWorkedMinutes(0);
       setPauseMinutes(0);
       setOvertimeWarningSent(false);
+      setOvertimeBlocked(false);
+setOvertimeRequestSent(false);
       setMessage("Schicht gestartet.");
     }
 
@@ -518,7 +553,20 @@ async function loadNotifications(name: string) {
         >
           Passwort vergessen?
         </button>
+{overtimeBlocked && (
+  <div className="mt-6 bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
+    <p className="font-bold text-red-600">Überstunden-Freigabe nötig</p>
+    <p className="text-sm text-gray-600 mt-1">
+      Deine Zeituhr wurde gestoppt. Bitte kontaktiere deinen Vorgesetzten.
+    </p>
 
+    {overtimeRequestSent && (
+      <p className="text-sm text-green-600 mt-2 font-bold">
+        Anfrage wurde an den Admin gesendet.
+      </p>
+    )}
+  </div>
+)}
         {message && (
           <p className="mt-4 text-center text-red-500 font-bold">
             {message}
