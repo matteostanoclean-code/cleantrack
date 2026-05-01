@@ -107,6 +107,7 @@ export default function MitarbeiterPage() {
   const [role, setRole] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
 const [profileMessage, setProfileMessage] = useState("");
+const [showPushPrompt, setShowPushPrompt] = useState(false);
 const [profileImageLoading, setProfileImageLoading] = useState(false);
 
 const [profilePassword, setProfilePassword] = useState("");
@@ -172,7 +173,47 @@ const [chatError, setChatError] = useState("");
     totalPlannedMinutes > 0 && workedMinutes > totalPlannedMinutes
       ? workedMinutes - totalPlannedMinutes
       : 0;
+      useEffect(() => {
+  if (!loggedIn || !employeeName) return;
 
+  const alreadyAsked = localStorage.getItem("cleantrack_push_asked");
+
+  if (!alreadyAsked) {
+    setShowPushPrompt(true);
+  }
+}, [loggedIn, employeeName]);
+useEffect(() => {
+  checkExistingSession();
+}, []);
+
+async function checkExistingSession() {
+  const { data } = await supabase.auth.getSession();
+
+  if (!data.session?.user) {
+    return;
+  }
+
+  const { data: profile } = await supabase
+    .from("employee_profiles")
+    .select("id, name, role, avatar_url, must_change_password")
+    .eq("auth_user_id", data.session.user.id)
+    .single();
+
+  if (!profile) {
+    return;
+  }
+
+  const name = profile.name;
+
+  setEmployeeName(name);
+  setEmployeeId(profile.id);
+  setRole(profile.role || "employee");
+  setAvatarUrl(profile.avatar_url || "");
+  setMustChangePassword(Boolean(profile.must_change_password));
+  setLoggedIn(true);
+
+  await loadAllData(name);
+}
   useEffect(() => {
     if (!loggedIn) return;
 
@@ -842,56 +883,71 @@ function urlBase64ToUint8Array(base64String: string) {
 async function enablePushNotifications() {
   setProfileMessage("");
 
-  if (!("serviceWorker" in navigator)) {
-    setProfileMessage("Push wird von diesem Browser nicht unterstützt.");
-    return;
+  try {
+    if (!("serviceWorker" in navigator)) {
+      setProfileMessage("Push wird von diesem Browser nicht unterstützt.");
+      return;
+    }
+
+    if (!("Notification" in window)) {
+      setProfileMessage("Benachrichtigungen werden nicht unterstützt.");
+      return;
+    }
+
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+    if (!vapidPublicKey) {
+      setProfileMessage("VAPID Public Key fehlt. Bitte Vercel ENV prüfen.");
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+
+    localStorage.setItem("cleantrack_push_asked", "true");
+    setShowPushPrompt(false);
+
+    if (permission !== "granted") {
+      setProfileMessage("Benachrichtigungen wurden nicht erlaubt.");
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.register("/sw.js");
+
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      });
+    }
+
+    const response = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        employeeName,
+        subscription,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setProfileMessage(result.error || "Push konnte nicht aktiviert werden.");
+      return;
+    }
+
+    setProfileMessage("Push-Benachrichtigungen wurden aktiviert.");
+  } catch (error) {
+    setProfileMessage(
+      error instanceof Error
+        ? `Push-Fehler: ${error.message}`
+        : "Push konnte nicht aktiviert werden."
+    );
   }
-
-  if (!("Notification" in window)) {
-    setProfileMessage("Benachrichtigungen werden nicht unterstützt.");
-    return;
-  }
-
-  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-  if (!vapidPublicKey) {
-    setProfileMessage("VAPID Public Key fehlt.");
-    return;
-  }
-
-  const permission = await Notification.requestPermission();
-
-  if (permission !== "granted") {
-    setProfileMessage("Benachrichtigungen wurden nicht erlaubt.");
-    return;
-  }
-
-  const registration = await navigator.serviceWorker.register("/sw.js");
-
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-  });
-
-  const response = await fetch("/api/push/subscribe", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      employeeName,
-      subscription,
-    }),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    setProfileMessage(result.error || "Push konnte nicht aktiviert werden.");
-    return;
-  }
-
-  setProfileMessage("Push-Benachrichtigungen wurden aktiviert.");
 }
 async function uploadProfileImage(file: File | null) {
   setProfileMessage("");
@@ -995,6 +1051,36 @@ async function changeProfilePassword() {
   if (!loggedIn) {
     return (
       <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
+        {showPushPrompt && (
+  <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-5">
+    <div className="bg-white rounded-[28px] p-6 shadow-sm max-w-sm w-full">
+      <h2 className="text-xl font-bold mb-2">Benachrichtigungen aktivieren?</h2>
+
+      <p className="text-gray-500 mb-5">
+        Ich kann Push aktivieren, damit neue Nachrichten vom Admin auch angezeigt werden, wenn die App nicht geöffnet ist.
+      </p>
+
+      <button
+        type="button"
+        onClick={enablePushNotifications}
+        className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold mb-3"
+      >
+        Push aktivieren
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          localStorage.setItem("cleantrack_push_asked", "true");
+          setShowPushPrompt(false);
+        }}
+        className="w-full p-4 rounded-2xl bg-gray-100 text-gray-600 font-bold"
+      >
+        Später
+      </button>
+    </div>
+  </div>
+)}
         <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
           <h1 className="text-2xl font-bold mb-2">Mitarbeiter Login</h1>
           <p className="text-gray-500 mb-6">Bitte einloggen.</p>
