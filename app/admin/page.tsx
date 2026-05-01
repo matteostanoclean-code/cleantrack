@@ -47,8 +47,10 @@ type WorkSite = {
 
 type EmployeeProfile = {
   id: string;
+  auth_user_id: string | null;
   name: string;
   role: string | null;
+  phone: string | null;
 };
 
 type AdminTab =
@@ -96,6 +98,10 @@ export default function AdminPage() {
   const [inviteWhatsappLink, setInviteWhatsappLink] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [resetEmployeeId, setResetEmployeeId] = useState("");
+const [resetPassword, setResetPassword] = useState("");
+const [resetMessage, setResetMessage] = useState("");
+const [resetLoading, setResetLoading] = useState(false);
 
   const [chatText, setChatText] = useState("");
   const [chatMessages, setChatMessages] = useState([
@@ -222,7 +228,7 @@ export default function AdminPage() {
   async function loadEmployeeProfiles() {
     const { data } = await supabase
       .from("employee_profiles")
-      .select("id, name, role")
+.select("id, auth_user_id, name, role, phone")
       .eq("role", "employee")
       .order("name");
 
@@ -458,7 +464,53 @@ export default function AdminPage() {
 
     setInviteLoading(false);
   }
+async function resetEmployeePassword() {
+  setResetMessage("");
 
+  const employeeProfile = employeeProfiles.find(
+    (profile) => profile.id === resetEmployeeId
+  );
+
+  if (!employeeProfile?.auth_user_id) {
+    setResetMessage("Bitte Mitarbeiter auswählen.");
+    return;
+  }
+
+  if (resetPassword.length < 6) {
+    setResetMessage("Das neue Passwort muss mindestens 6 Zeichen haben.");
+    return;
+  }
+
+  setResetLoading(true);
+
+  try {
+    const response = await fetch("/api/admin/reset-employee-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        authUserId: employeeProfile.auth_user_id,
+        password: resetPassword,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setResetMessage(result.error || "Passwort konnte nicht geändert werden.");
+      setResetLoading(false);
+      return;
+    }
+
+    setResetPassword("");
+    setResetMessage("Passwort wurde geändert. Der Mitarbeiter kann sich jetzt einloggen.");
+  } catch {
+    setResetMessage("Passwort konnte nicht geändert werden. Bitte Internet prüfen.");
+  }
+
+  setResetLoading(false);
+}
   function sendChatMessage() {
     if (!chatText.trim()) return;
 
@@ -1158,7 +1210,51 @@ export default function AdminPage() {
                     </p>
                   </div>
                 )}
+<div className="bg-white rounded-[28px] p-6 shadow-sm">
+  <h2 className="text-xl font-bold mb-2">Passwort neu setzen</h2>
+  <p className="text-gray-500 mb-5">
+    Nutze das, wenn ein Mitarbeiter sein Passwort vergessen hat oder sich nach der Aktivierung nicht einloggen kann.
+  </p>
 
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <select
+      value={resetEmployeeId}
+      onChange={(e) => setResetEmployeeId(e.target.value)}
+      className="p-4 rounded-2xl bg-gray-100 outline-none"
+    >
+      <option value="">Mitarbeiter auswählen</option>
+
+      {employeeProfiles.map((profile) => (
+        <option key={profile.id} value={profile.id}>
+          {profile.name} {profile.phone ? `· ${profile.phone}` : ""}
+        </option>
+      ))}
+    </select>
+
+    <input
+      type="password"
+      value={resetPassword}
+      onChange={(e) => setResetPassword(e.target.value)}
+      placeholder="Neues Passwort"
+      className="p-4 rounded-2xl bg-gray-100 outline-none"
+    />
+
+    <button
+      type="button"
+      onClick={resetEmployeePassword}
+      disabled={resetLoading}
+      className="p-4 rounded-2xl bg-red-500 text-white font-bold disabled:opacity-50"
+    >
+      {resetLoading ? "Wird geändert..." : "Passwort setzen"}
+    </button>
+  </div>
+
+  {resetMessage && (
+    <p className="mt-4 text-sm font-bold text-blue-600">
+      {resetMessage}
+    </p>
+  )}
+</div>
                 <div className="bg-white rounded-[28px] p-6 shadow-sm">
                   <h2 className="text-xl font-bold mb-4">Aktuelle Mitarbeiter</h2>
 
