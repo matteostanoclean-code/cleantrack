@@ -823,7 +823,76 @@ function roleText(value: string | null) {
   if (value === "admin") return "Admin";
   return "Mitarbeiter";
 }
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
 
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; i += 1) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
+async function enablePushNotifications() {
+  setProfileMessage("");
+
+  if (!("serviceWorker" in navigator)) {
+    setProfileMessage("Push wird von diesem Browser nicht unterstützt.");
+    return;
+  }
+
+  if (!("Notification" in window)) {
+    setProfileMessage("Benachrichtigungen werden nicht unterstützt.");
+    return;
+  }
+
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+  if (!vapidPublicKey) {
+    setProfileMessage("VAPID Public Key fehlt.");
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+
+  if (permission !== "granted") {
+    setProfileMessage("Benachrichtigungen wurden nicht erlaubt.");
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.register("/sw.js");
+
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+  });
+
+  const response = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      employeeName,
+      subscription,
+    }),
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    setProfileMessage(result.error || "Push konnte nicht aktiviert werden.");
+    return;
+  }
+
+  setProfileMessage("Push-Benachrichtigungen wurden aktiviert.");
+}
 async function uploadProfileImage(file: File | null) {
   setProfileMessage("");
 
@@ -1540,7 +1609,21 @@ if (mustChangePassword) {
           <p className="text-sm text-gray-500 mt-2">Bild wird hochgeladen...</p>
         )}
       </div>
+<div className="border-t pt-5">
+  <h2 className="font-bold mb-2">Benachrichtigungen</h2>
 
+  <p className="text-sm text-gray-500 mb-3">
+    Aktiviere Push, damit du neue Nachrichten vom Admin auch bekommst, wenn die App nicht geöffnet ist.
+  </p>
+
+  <button
+    type="button"
+    onClick={enablePushNotifications}
+    className="w-full p-4 rounded-2xl bg-purple-100 text-purple-600 font-bold"
+  >
+    Push-Benachrichtigungen aktivieren
+  </button>
+</div>
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-gray-100 rounded-2xl p-4">
           <p className="text-gray-400 text-sm">Arbeitszeit</p>
