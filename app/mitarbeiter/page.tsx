@@ -101,6 +101,11 @@ export default function MitarbeiterPage() {
   const [employeeName, setEmployeeName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [role, setRole] = useState<string | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+const [newPassword, setNewPassword] = useState("");
+const [newPasswordRepeat, setNewPasswordRepeat] = useState("");
+const [changePasswordMessage, setChangePasswordMessage] = useState("");
+const [changePasswordLoading, setChangePasswordLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState<Tab>("home");
 
@@ -297,7 +302,7 @@ export default function MitarbeiterPage() {
 
     const { data: profile } = await supabase
       .from("employee_profiles")
-      .select("id, name, role")
+     .select("id, name, role, must_change_password")
       .eq("auth_user_id", data.user.id)
       .single();
 
@@ -306,7 +311,8 @@ export default function MitarbeiterPage() {
     setEmployeeName(name);
     setEmployeeId(profile?.id || data.user.id);
     setRole(profile?.role || "employee");
-    setLoggedIn(true);
+setMustChangePassword(Boolean(profile?.must_change_password));
+setLoggedIn(true);
 
     await loadAllData(name);
   } catch {
@@ -706,7 +712,55 @@ export default function MitarbeiterPage() {
     const m = minutes % 60;
     return `${h}:${String(m).padStart(2, "0")}`;
   }
+async function changeOwnPassword() {
+  setChangePasswordMessage("");
 
+  if (newPassword.length < 6) {
+    setChangePasswordMessage("Das neue Passwort muss mindestens 6 Zeichen haben.");
+    return;
+  }
+
+  if (newPassword !== newPasswordRepeat) {
+    setChangePasswordMessage("Die Passwörter stimmen nicht überein.");
+    return;
+  }
+
+  setChangePasswordLoading(true);
+
+  try {
+    const { data: userData } = await supabase.auth.getUser();
+
+    if (!userData.user) {
+      setChangePasswordMessage("Benutzer konnte nicht gefunden werden.");
+      setChangePasswordLoading(false);
+      return;
+    }
+
+    const { error: passwordError } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (passwordError) {
+      setChangePasswordMessage("Passwort konnte nicht geändert werden.");
+      setChangePasswordLoading(false);
+      return;
+    }
+
+    await supabase
+      .from("employee_profiles")
+      .update({ must_change_password: false })
+      .eq("auth_user_id", userData.user.id);
+
+    setMustChangePassword(false);
+    setNewPassword("");
+    setNewPasswordRepeat("");
+    setChangePasswordMessage("Passwort wurde geändert.");
+  } catch {
+    setChangePasswordMessage("Passwort konnte nicht geändert werden. Bitte Internet prüfen.");
+  }
+
+  setChangePasswordLoading(false);
+}
   function BackButton() {
     return (
       <button
@@ -767,7 +821,50 @@ placeholder="E-Mail oder Handynummer"
       </main>
     );
   }
+if (mustChangePassword) {
+  return (
+    <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
+      <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
+        <h1 className="text-2xl font-bold mb-2">Neues Passwort erstellen</h1>
 
+        <p className="text-gray-500 mb-6">
+          Bitte ändere dein Passwort, bevor du die App nutzt.
+        </p>
+
+        <input
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder="Neues Passwort"
+          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
+        />
+
+        <input
+          type="password"
+          value={newPasswordRepeat}
+          onChange={(e) => setNewPasswordRepeat(e.target.value)}
+          placeholder="Passwort wiederholen"
+          className="w-full mb-4 p-4 rounded-2xl bg-gray-100 outline-none"
+        />
+
+        <button
+          type="button"
+          disabled={changePasswordLoading}
+          onClick={changeOwnPassword}
+          className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
+        >
+          {changePasswordLoading ? "Wird gespeichert..." : "Passwort speichern"}
+        </button>
+
+        {changePasswordMessage && (
+          <p className="mt-4 text-center text-gray-700 font-medium">
+            {changePasswordMessage}
+          </p>
+        )}
+      </div>
+    </main>
+  );
+}
   return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900 pb-24">
       {activeTab === "home" && (

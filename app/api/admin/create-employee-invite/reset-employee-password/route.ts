@@ -42,20 +42,25 @@ export async function POST(request: Request) {
     );
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(
-      authUserId,
-      {
-        password,
-      }
-    );
+  authUserId,
+  {
+    password,
+  }
+);
 
-    if (error) {
-      return NextResponse.json(
-        { error: error.message || "Passwort konnte nicht geändert werden." },
-        { status: 500 }
-      );
-    }
+if (error) {
+  return NextResponse.json(
+    { error: error.message || "Passwort konnte nicht geändert werden." },
+    { status: 500 }
+  );
+}
 
-    return NextResponse.json({ success: true });
+await supabaseAdmin
+  .from("employee_profiles")
+  .update({ must_change_password: true })
+  .eq("auth_user_id", authUserId);
+
+return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
       {
