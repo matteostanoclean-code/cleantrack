@@ -1,10 +1,10 @@
 
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type Tab = "planung" | "zeitfreigabe" | "abwesenheiten" | "lohn" | "mitarbeiter" | "objekte" | "aufgaben" | "material" | "geraete" | "schluessel" | "faktura" | "hilfe" | "einstellungen" | "chat";
+type Tab = "planung" | "zeitfreigabe" | "abwesenheiten" | "lohn" | "mitarbeiter" | "objekte" | "kunden" | "kontakte" | "auswertung" | "aufgaben" | "material" | "geraete" | "schluessel" | "faktura" | "hilfe" | "einstellungen" | "chat";
 type Row = Record<string, any>;
 type RepeatMode = "single" | "repeat";
 
@@ -46,6 +46,13 @@ function hours(minutes: number) {
 
 function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join("") || "?";
+}
+
+
+function closeAdminDropdowns() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("cleantrack-close-dropdowns"));
+  }
 }
 
 function cleanPdfText(value: string) {
@@ -335,6 +342,7 @@ export default function AdminPage() {
       await sendPush(taskEmployee, "Neuer Einsatz", `${site.name} am ${taskDate}`, "/mitarbeiter?tab=schedule");
     }
     setTaskModal(false);
+    closeAdminDropdowns();
     await loadTasks();
   }
 
@@ -380,6 +388,7 @@ export default function AdminPage() {
     const { error } = await req;
     if (error) return setMessage(error.message);
     setSiteId(""); setSiteName(""); setSiteAddress(""); setSiteRadius("50"); setSiteLat(""); setSiteLng(""); setSiteNotes("");
+    closeAdminDropdowns();
     await loadSites();
   }
 
@@ -405,6 +414,7 @@ export default function AdminPage() {
     const { error } = await req;
     if (error) return setMessage(error.message);
     setMaterialId(""); setMaterialName(""); setMaterialCategory(""); setMaterialUnit("Stück"); setMaterialStock("0"); setMaterialMinStock("0"); setMaterialImage(""); setMaterialNotes("");
+    closeAdminDropdowns();
     await loadMaterials();
   }
 
@@ -419,6 +429,7 @@ export default function AdminPage() {
     const { error } = await req;
     if (error) return setMessage(error.message);
     setDeviceId(""); setDeviceName(""); setDeviceCategory(""); setDeviceSerial(""); setDeviceEmployee(""); setDeviceStatus("Aktiv"); setDeviceImage(""); setDeviceNotes("");
+    closeAdminDropdowns();
     await loadEquipment();
   }
 
@@ -433,6 +444,7 @@ export default function AdminPage() {
     const { error } = await req;
     if (error) return setMessage(error.message);
     setKeyId(""); setKeyName(""); setKeyNumber(""); setKeyCustomer(""); setKeyObject(""); setKeyEmployee(""); setKeyStatus("Ausgegeben"); setKeyHandover(today); setKeyReturn(""); setKeyNotes("");
+    closeAdminDropdowns();
     await loadKeys();
   }
 
@@ -465,7 +477,7 @@ export default function AdminPage() {
     if (!absenceEmployee) return setMessage("Bitte Mitarbeiter auswählen.");
     const { error } = await supabase.from("absence_requests").insert([{ employee_name: absenceEmployee, absence_type: absenceType, start_date: absenceStart, end_date: absenceEnd, reason: absenceReason || null, status: "open" }]);
     if (error) return setMessage(error.message);
-    setAbsenceReason(""); await loadAbsences();
+    setAbsenceReason(""); closeAdminDropdowns(); await loadAbsences();
   }
 
   async function decideAbsence(row: Row, status: "approved" | "rejected") {
@@ -494,7 +506,33 @@ export default function AdminPage() {
           <div className="mb-6 rounded-lg bg-white/10 px-4 py-3"><input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-transparent outline-none placeholder:text-white/70" placeholder="🔍 Suche" /></div>
           <nav className="space-y-5">
             <NavGroup items={[["planung", "▦", "Einsatzplaner", 0], ["zeitfreigabe", "⏱", "Zeitenfreigabe", pendingEntries.length], ["abwesenheiten", "✈", "Abwesenheiten", openAbsences], ["lohn", "💰", "Lohnabrechnung", 0]]} tab={tab} setTab={setTab} />
-            <NavGroup items={[["mitarbeiter", "👥", "Mitarbeiter", 0], ["objekte", "🏢", "Objekte", 0], ["aufgaben", "🧾", "Aufgaben", 0], ["material", "📦", "Materialwesen", 0], ["geraete", "🔧", "Geräte", 0], ["schluessel", "🔑", "Schlüssel", 0]]} tab={tab} setTab={setTab} />
+            <div className="border-t border-white/10 pt-4">
+              <button
+                type="button"
+                onClick={() => setTab("mitarbeiter")}
+                className={tab === "mitarbeiter" ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}
+              >
+                <span className="flex items-center gap-3"><span>👥</span>Mitarbeiter</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("objekte")}
+                className={["objekte", "kunden", "kontakte", "auswertung"].includes(tab) ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}
+              >
+                <span className="flex items-center gap-3"><span>🏢</span>Objekte</span><span>⌃</span>
+              </button>
+              <div className="mb-2 ml-10 space-y-1 border-l border-white/10 pl-4">
+                <button type="button" onClick={() => setTab("objekte")} className={tab === "objekte" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Objektliste</button>
+                <button type="button" onClick={() => setTab("kunden")} className={tab === "kunden" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Kunden</button>
+                <button type="button" onClick={() => setTab("kontakte")} className={tab === "kontakte" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Kontakte</button>
+                <button type="button" onClick={() => setTab("auswertung")} className={tab === "auswertung" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Auswertung</button>
+              </div>
+              {([["aufgaben", "🧾", "Aufgaben", 0], ["material", "📦", "Materialwesen", 0], ["geraete", "🔧", "Geräte", 0], ["schluessel", "🔑", "Schlüssel", 0]] as [Tab, string, string, number][]).map(([id, icon, label, badge]) => (
+                <button key={id} type="button" onClick={() => setTab(id)} className={tab === id ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}>
+                  <span className="flex items-center gap-3"><span>{icon}</span>{label}</span>{badge > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{badge}</span>}
+                </button>
+              ))}
+            </div>
             <NavGroup items={[["faktura", "▥", "Faktura", 0], ["chat", "💬", "Chat", 0], ["hilfe", "❔", "Hilfe", 0], ["einstellungen", "⚙", "Einstellungen", 0]]} tab={tab} setTab={setTab} />
           </nav>
           <div className="mt-8 border-t border-white/10 pt-5"><p className="font-bold">Matteo Stano</p><p className="text-sm text-white/60">Admin</p></div>
@@ -505,8 +543,11 @@ export default function AdminPage() {
           {tab === "zeitfreigabe" && <TimeApproval entries={pendingEntries} approve={(row: any) => approveEntry(row, true)} reject={(row: any) => approveEntry(row, false)} />}
           {tab === "abwesenheiten" && <Absences employees={activeEmployees} absences={absences} absenceEmployee={absenceEmployee} setAbsenceEmployee={setAbsenceEmployee} absenceType={absenceType} setAbsenceType={setAbsenceType} absenceStart={absenceStart} setAbsenceStart={setAbsenceStart} absenceEnd={absenceEnd} setAbsenceEnd={setAbsenceEnd} absenceReason={absenceReason} setAbsenceReason={setAbsenceReason} createAbsence={createAbsence} decideAbsence={decideAbsence} />}
           {tab === "lohn" && <Payroll employees={activeEmployees} entries={entries} />}
-          {tab === "mitarbeiter" && <Employees employees={employees} />}
+          {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} />}
           {tab === "objekte" && <Objects sites={activeSites} siteId={siteId} siteName={siteName} setSiteName={setSiteName} siteAddress={siteAddress} setSiteAddress={setSiteAddress} siteRadius={siteRadius} setSiteRadius={setSiteRadius} siteLat={siteLat} setSiteLat={setSiteLat} siteLng={siteLng} setSiteLng={setSiteLng} siteNotes={siteNotes} setSiteNotes={setSiteNotes} geo={geocode} geoLoading={geoLoading} saveSite={saveSite} editSite={editSite} deactivate={async (id: string) => { await supabase.from("work_sites").update({ active: false }).eq("id", id); await loadSites(); }} />}
+          {tab === "kunden" && <Customers sites={sites} />}
+          {tab === "kontakte" && <Contacts sites={sites} employees={employees} />}
+          {tab === "auswertung" && <ObjectAnalysis sites={sites} tasks={tasks} entries={entries} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
           {tab === "aufgaben" && <Tasks tasks={tasks} editTask={editTask} deleteTask={deleteTask} />}
           {tab === "material" && <Material materials={materials} materialId={materialId} materialName={materialName} setMaterialName={setMaterialName} materialCategory={materialCategory} setMaterialCategory={setMaterialCategory} materialUnit={materialUnit} setMaterialUnit={setMaterialUnit} materialStock={materialStock} setMaterialStock={setMaterialStock} materialMinStock={materialMinStock} setMaterialMinStock={setMaterialMinStock} materialImage={materialImage} setMaterialImage={setMaterialImage} materialNotes={materialNotes} setMaterialNotes={setMaterialNotes} upload={async (f: File) => setMaterialImage(await uploadImage(f, "materials"))} save={saveMaterial} edit={editMaterial} remove={async (r: any) => { await supabase.from("material_products").delete().eq("id", r.id); await loadMaterials(); }} />}
           {tab === "geraete" && <Devices equipment={equipment} employees={activeEmployees} deviceId={deviceId} deviceName={deviceName} setDeviceName={setDeviceName} deviceCategory={deviceCategory} setDeviceCategory={setDeviceCategory} deviceSerial={deviceSerial} setDeviceSerial={setDeviceSerial} deviceEmployee={deviceEmployee} setDeviceEmployee={setDeviceEmployee} deviceStatus={deviceStatus} setDeviceStatus={setDeviceStatus} deviceImage={deviceImage} setDeviceImage={setDeviceImage} deviceNotes={deviceNotes} setDeviceNotes={setDeviceNotes} upload={async (f: File) => setDeviceImage(await uploadImage(f, "equipment"))} save={saveDevice} edit={editDevice} remove={async (r: any) => { await supabase.from("equipment_items").delete().eq("id", r.id); await loadEquipment(); }} />}
@@ -538,6 +579,41 @@ function NavGroup({ items, tab, setTab }: { items: [Tab, string, string, number]
           {badge > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{badge}</span>}
         </button>
       ))}
+    </div>
+  );
+}
+
+
+
+function ObjectNavGroup({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
+  const objectTabs: [Tab, string][] = [["objekte", "Objekte"], ["kunden", "Kunden"], ["kontakte", "Kontakte"], ["auswertung", "Auswertung"]];
+  const open = objectTabs.some(([id]) => id === tab);
+
+  return (
+    <div className="border-t border-white/10 pt-4">
+      <button
+        type="button"
+        onClick={() => setTab("objekte")}
+        className={open ? "mb-1 flex w-full items-center justify-between rounded-xl bg-white/15 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}
+      >
+        <span className="flex items-center gap-3"><span>🏢</span>Objekte</span>
+        <span>⌃</span>
+      </button>
+
+      {open && (
+        <div className="mb-2 ml-10 space-y-1 text-sm">
+          {objectTabs.slice(1).map(([id, label]) => (
+            <button
+              type="button"
+              key={id}
+              onClick={() => setTab(id)}
+              className={tab === id ? "block w-full rounded-lg bg-white/10 px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -611,23 +687,37 @@ function EmptyState({ text = "Noch keine Daten hinterlegt" }: { text?: string })
 
 function FilterButton({ label }: { label: string }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function close() { setOpen(false); }
+    function outside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    }
+    window.addEventListener("cleantrack-close-dropdowns", close);
+    document.addEventListener("mousedown", outside);
+    return () => {
+      window.removeEventListener("cleantrack-close-dropdowns", close);
+      document.removeEventListener("mousedown", outside);
+    };
+  }, []);
+
   return (
-    <div className="relative">
+    <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(!open)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-500 shadow-sm transition hover:bg-slate-50">
         {label}⌄
       </button>
       {open && (
         <div className="absolute z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-xl">
           <p className="font-bold text-slate-800">{label}</p>
-          <button className="mt-3 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Alle anzeigen</button>
-          <button className="mt-1 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Aktive auswählen</button>
-          <p className="mt-3 text-xs text-slate-400">Die optische Auswahl ist vorbereitet und bleibt klickbar.</p>
+          <button type="button" onClick={() => setOpen(false)} className="mt-3 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Alle anzeigen</button>
+          <button type="button" onClick={() => setOpen(false)} className="mt-1 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Aktive auswählen</button>
+          <p className="mt-3 text-xs text-slate-400">Die Auswahl schließt automatisch nach Klick außerhalb.</p>
         </div>
       )}
     </div>
   );
 }
-
 
 
 function Toolbar({ children }: { children?: React.ReactNode }) {
@@ -957,20 +1047,130 @@ function Absences(p: any) {
 
 function Payroll(p: any) { return <div><Header icon="💰" title="Lohnabrechnung"><Button>Exportieren</Button></Header><Table headers={["Mitarbeiter", "Stunden", "Stundenlohn", "AG-Faktor", "Kosten"]}>{p.employees.map((e: Row) => { const min = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + Number(x.worked_minutes || x.planned_minutes || 0), 0); const cost = (min / 60) * Number(e.hourly_rate || 0) * Number(e.employer_cost_factor || 1); return <tr key={e.id} className="border-b"><td className="p-3 font-bold">{e.name}</td><td className="p-3">{hours(min)} Std.</td><td className="p-3">{e.hourly_rate || 0} €</td><td className="p-3">{e.employer_cost_factor || 1}</td><td className="p-3 font-bold">{cost.toFixed(2)} €</td></tr>; })}</Table></div>; }
 
+function minutesFromEntryRows(rows: Row[]) {
+  const sorted = [...rows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  let total = 0;
+  let lastStart: Date | null = null;
+  for (const entry of sorted) {
+    const action = String(entry.action || "");
+    const time = new Date(entry.created_at);
+    if (action === "start" || action === "break_end") lastStart = time;
+    if ((action === "break_start" || action === "end") && lastStart) {
+      total += Math.max(0, (time.getTime() - lastStart.getTime()) / 1000 / 60);
+      lastStart = null;
+    }
+  }
+  return Math.floor(total);
+}
+
+function currentMonthRange(base = new Date()) {
+  const start = new Date(base.getFullYear(), base.getMonth(), 1);
+  const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+  return { start: iso(start), end: iso(end) };
+}
+
+function dateBetween(value: string | null | undefined, start: string, end: string) {
+  if (!value) return false;
+  return value >= start && value <= end;
+}
+
+function employeeStats(employee: Row, entries: Row[], tasks: Row[], absences: Row[]) {
+  const { start, end } = currentMonthRange();
+  const employeeEntries = entries.filter((x: Row) => x.employee_name === employee.name && dateBetween(String(x.created_at || "").slice(0, 10), start, end));
+  const worked = employeeEntries.some((x: Row) => x.worked_minutes) ? employeeEntries.reduce((sum: number, x: Row) => sum + Number(x.worked_minutes || 0), 0) : minutesFromEntryRows(employeeEntries);
+  const planned = tasks.filter((x: Row) => x.employee_name === employee.name && dateBetween(x.task_date, start, end)).reduce((sum: number, x: Row) => sum + Number(x.planned_minutes || x.max_minutes || 0), 0);
+  const overtime = Math.max(0, worked - planned);
+  const vacation = absences.filter((x: Row) => x.employee_name === employee.name && String(x.absence_type || "").toLowerCase().includes("urlaub") && x.status === "approved").length;
+  const sick = absences.filter((x: Row) => x.employee_name === employee.name && String(x.absence_type || "").toLowerCase().includes("krank") && x.status === "approved").length;
+  const last = entries.filter((x: Row) => x.employee_name === employee.name).sort((a: Row, b: Row) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  return { worked, planned, overtime, vacation, sick, lastActive: last?.created_at || employee.last_active || null };
+}
+
+function minutesWorkedForEmployee(employeeName: string, entries: Row[]) {
+  return entries
+    .filter((entry: Row) => entry.employee_name === employeeName)
+    .reduce((sum: number, entry: Row) => sum + Number(entry.worked_minutes || entry.planned_minutes || 0), 0);
+}
+
+function vacationDaysForEmployee(employeeName: string, absences: Row[]) {
+  return absences
+    .filter((a: Row) => a.employee_name === employeeName && a.absence_type === "Urlaub" && a.status === "approved")
+    .reduce((sum: number, a: Row) => {
+      const start = new Date(a.start_date);
+      const end = new Date(a.end_date || a.start_date);
+      const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+      return sum + days;
+    }, 0);
+}
+
 function Employees(p: any) {
   return (
     <div>
       <Header icon="👥" title="Mitarbeiter"><Button>Exportieren</Button><Button primary>⊕ Mitarbeiter erstellen</Button></Header>
       <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Name", "Nummer", "Adresse", "Mitarbeitergruppe", "Zuletzt aktiv", "Status"]}>
-        {p.employees.map((e: Row, i: number) => (
-          <tr key={e.id}>
-            <td className="px-4 py-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<b>{e.name}</b></div></td>
-            <td className="px-4 py-3">{i + 1}</td>
-            <td className="px-4 py-3">{e.address || "-"}</td>
-            <td className="px-4 py-3">{e.group_name || "-"}</td>
-            <td className="px-4 py-3">{e.last_active || "-"}</td>
-            <td className="px-4 py-3"><span className={e.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{e.active === false ? "Passiv" : "Aktiv"}</span></td>
+      <Table headers={["Name", "Nummer", "Adresse", "Arbeitszeit", "Urlaub", "Kosten", "Zuletzt aktiv", "Status"]}>
+        {p.employees.map((e: Row, i: number) => {
+          const minutes = minutesWorkedForEmployee(e.name, p.entries || []);
+          const hourly = Number(e.hourly_rate || 0);
+          const factor = Number(e.employer_cost_factor || 1);
+          const cost = (minutes / 60) * hourly * factor;
+          const vacationUsed = vacationDaysForEmployee(e.name, p.absences || []);
+          const vacationTotal = Number(e.vacation_days || e.annual_vacation_days || 0);
+
+          return (
+            <tr key={e.id}>
+              <td className="px-4 py-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<b>{e.name}</b></div></td>
+              <td className="px-4 py-3">{e.employee_number || i + 1}</td>
+              <td className="px-4 py-3 whitespace-pre-line">{e.address || e.street || "-"}</td>
+              <td className="px-4 py-3"><b>{hours(minutes)} Std.</b><p className="text-xs text-slate-400">Monat/geladen</p></td>
+              <td className="px-4 py-3">{vacationUsed} / {vacationTotal || "-"} Tage</td>
+              <td className="px-4 py-3 font-bold">{cost.toFixed(2)} €</td>
+              <td className="px-4 py-3">{e.last_active ? String(e.last_active) : "-"}</td>
+              <td className="px-4 py-3"><span className={e.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{e.active === false ? "Passiv" : "Aktiv"}</span></td>
+            </tr>
+          );
+        })}
+      </Table>
+    </div>
+  );
+}
+
+
+function Objects(p: any) {
+  const sorted = [...p.sites].sort((a: Row, b: Row) => String(a.name || "").localeCompare(String(b.name || "")));
+  return (
+    <div>
+      <Header icon="🏢" title="Objekte"><Button>Exportieren</Button><Button primary onClick={p.saveSite}>⊕ Objekt erstellen</Button></Header>
+      <div className="mb-4 flex gap-8 border-b border-slate-200 pl-3 text-sm">
+        <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Aktiv</button>
+        <button className="pb-3 text-slate-500">Alle</button>
+        <button className="pb-3 text-slate-500">Passiv</button>
+      </div>
+      <Toolbar><Button>Spalten⌄</Button></Toolbar>
+      <Card className="mb-6 p-5">
+        <p className="mb-4 text-slate-500">Objekt anlegen oder bearbeiten. Adresse eingeben, GPS automatisch berechnen, Notizen speichern.</p>
+        <div className="grid gap-3 md:grid-cols-6">
+          <input value={p.siteName} onChange={(e) => p.setSiteName(e.target.value)} className="field" placeholder="Objektname" />
+          <input value={p.siteAddress} onChange={(e) => p.setSiteAddress(e.target.value)} className="field md:col-span-2" placeholder="Adresse" />
+          <input value={p.siteRadius} onChange={(e) => p.setSiteRadius(e.target.value)} className="field" placeholder="Radius" />
+          <input value={p.siteLat} onChange={(e) => p.setSiteLat(e.target.value)} className="field" placeholder="Breite" />
+          <input value={p.siteLng} onChange={(e) => p.setSiteLng(e.target.value)} className="field" placeholder="Länge" />
+          <textarea value={p.siteNotes} onChange={(e) => p.setSiteNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" />
+          <button type="button" onClick={p.geo} disabled={p.geoLoading} className="rounded-xl bg-purple-100 px-4 py-3 font-bold text-purple-700 disabled:opacity-50">{p.geoLoading ? "Wird gesucht..." : "GPS ermitteln"}</button>
+          <button type="button" onClick={p.saveSite} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">{p.siteId ? "Änderung speichern" : "Speichern"}</button>
+        </div>
+      </Card>
+      <Table headers={["Name", "Nummer", "Rating", "Objektleiter", "Kunde", "Tags", "Status", "Aktion"]}>
+        {sorted.map((s: Row, index: number) => (
+          <tr key={s.id}>
+            <td className="px-4 py-3"><p className="text-xs text-slate-400">{s.address || "Keine Adresse"}</p><b>{s.name}</b></td>
+            <td className="px-4 py-3">{s.object_number || index + 1}</td>
+            <td className="px-4 py-3">{s.rating || "-"}</td>
+            <td className="px-4 py-3">{s.manager_name || "Stano, Matteo"}</td>
+            <td className="px-4 py-3"><p className="text-xs text-slate-400">{s.customer_number || ""}</p>{s.customer_name || s.name}</td>
+            <td className="px-4 py-3">{s.tags || "-"}</td>
+            <td className="px-4 py-3"><span className={s.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{s.active === false ? "Passiv" : "Aktiv"}</span></td>
+            <td className="px-4 py-3"><button onClick={() => p.editSite(s)} className="mr-2 text-blue-600">Bearbeiten</button><button onClick={() => p.deactivate(s.id)} className="text-red-600">Deaktivieren</button></td>
           </tr>
         ))}
       </Table>
@@ -978,8 +1178,76 @@ function Employees(p: any) {
   );
 }
 
+function Customers(p: any) {
+  const rows = Object.values(
+    p.sites.reduce((acc: Record<string, Row>, site: Row) => {
+      const name = site.customer_name || site.name || "Ohne Kunde";
+      if (!acc[name]) acc[name] = { name, count: 0, addresses: [] };
+      acc[name].count += 1;
+      if (site.address) acc[name].addresses.push(site.address);
+      return acc;
+    }, {})
+  ) as Row[];
 
-function Objects(p: any) { return <div><Header icon="🏢" title="Objekte"><Button primary onClick={p.saveSite}>Speichern</Button></Header><Card className="mb-6 p-5"><p className="mb-4 text-slate-500">Adresse eingeben, GPS automatisch berechnen, Notizen speichern.</p><div className="grid gap-3 md:grid-cols-6"><input value={p.siteName} onChange={(e) => p.setSiteName(e.target.value)} className="field" placeholder="Objektname" /><input value={p.siteAddress} onChange={(e) => p.setSiteAddress(e.target.value)} className="field md:col-span-2" placeholder="Adresse" /><input value={p.siteRadius} onChange={(e) => p.setSiteRadius(e.target.value)} className="field" placeholder="Radius" /><input value={p.siteLat} onChange={(e) => p.setSiteLat(e.target.value)} className="field" placeholder="Breite" /><input value={p.siteLng} onChange={(e) => p.setSiteLng(e.target.value)} className="field" placeholder="Länge" /><textarea value={p.siteNotes} onChange={(e) => p.setSiteNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.geo} disabled={p.geoLoading} className="rounded-xl bg-purple-100 px-4 py-3 font-bold text-purple-700 disabled:opacity-50">{p.geoLoading ? "Wird gesucht..." : "GPS ermitteln"}</button><button onClick={p.saveSite} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div></Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{p.sites.map((s: Row) => <Card key={s.id} className="p-4"><p className="font-bold">{s.name}</p><p className="text-sm text-slate-500">{s.address || "Keine Adresse"}</p><p className="text-sm text-slate-500">GPS: {s.latitude ?? "-"}, {s.longitude ?? "-"} · Radius {s.allowed_radius_m || 50} m</p><p className="mt-2 text-sm">{s.notes || ""}</p><div className="mt-4 flex gap-2"><button onClick={() => p.editSite(s)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.deactivate(s.id)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Deaktivieren</button></div></Card>)}</div></div>; }
+  return (
+    <div>
+      <Header icon="🏢" title="Kunden"><Button>Exportieren</Button><Button primary>⊕ Kunde erstellen</Button></Header>
+      <Toolbar><Button>Spalten⌄</Button></Toolbar>
+      <Table headers={["Kunde", "Nummer", "Objekte", "Adresse", "Status"]}>
+        {rows.map((r: Row, index: number) => <tr key={r.name}><td className="px-4 py-3 font-bold">{r.name}</td><td className="px-4 py-3">{1000 + index}</td><td className="px-4 py-3">{r.count}</td><td className="px-4 py-3">{r.addresses[0] || "-"}</td><td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td></tr>)}
+      </Table>
+    </div>
+  );
+}
+
+function Contacts(p: any) {
+  const rows = [
+    ...p.employees.map((e: Row) => ({ name: e.name, type: "Mitarbeiter", phone: e.phone || "-", email: e.email || "-", company: "Intern" })),
+    ...p.sites.map((s: Row) => ({ name: s.customer_name || s.name, type: "Kunde", phone: s.phone || "-", email: s.email || "-", company: s.name }))
+  ];
+
+  return (
+    <div>
+      <Header icon="☎" title="Kontakte"><Button>Exportieren</Button><Button primary>⊕ Kontakt erstellen</Button></Header>
+      <Toolbar><Button>Spalten⌄</Button></Toolbar>
+      <Table headers={["Name", "Typ", "Firma/Objekt", "Telefon", "E-Mail", "Status"]}>
+        {rows.map((r: Row, index: number) => <tr key={`${r.type}-${r.name}-${index}`}><td className="px-4 py-3 font-bold">{r.name}</td><td className="px-4 py-3">{r.type}</td><td className="px-4 py-3">{r.company}</td><td className="px-4 py-3">{r.phone}</td><td className="px-4 py-3">{r.email}</td><td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td></tr>)}
+      </Table>
+    </div>
+  );
+}
+
+function ObjectAnalysis(p: any) {
+  const monthStart = new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth(), 1);
+  const monthEnd = new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth() + 1, 0);
+  const startIso = iso(monthStart);
+  const endIso = iso(monthEnd);
+  const rows = p.sites.map((site: Row) => {
+    const siteTasks = p.tasks.filter((t: Row) => (t.work_site_id === site.id || t.site === site.name) && t.task_date >= startIso && t.task_date <= endIso);
+    const planned = siteTasks.reduce((sum: number, t: Row) => sum + Number(t.planned_minutes || t.max_minutes || 0), 0);
+    const worked = p.entries.filter((e: Row) => e.work_site_name === site.name && String(e.created_at || "").slice(0, 10) >= startIso && String(e.created_at || "").slice(0, 10) <= endIso).reduce((sum: number, e: Row) => sum + Number(e.worked_minutes || 0), 0);
+    return { site, planned, worked };
+  });
+
+  return (
+    <div>
+      <Header icon="◔" title="Auswertung"><Button>Exportieren</Button><Button>⚙</Button></Header>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input className="field h-12 w-80 max-w-full" placeholder="🔍 Suchen" />
+        <Button onClick={() => p.setSelectedDate(new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth() - 1, 1))}>‹</Button>
+        <Button>📅 {monthStart.toLocaleDateString("de-DE")} → {monthEnd.toLocaleDateString("de-DE")}</Button>
+        <Button onClick={() => p.setSelectedDate(new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth() + 1, 1))}>›</Button>
+        <FilterButton label="Auftragsart" />
+        <FilterButton label="Objekt Tags" />
+        <button type="button" className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-400 shadow-sm">+ Filter hinzufügen</button>
+      </div>
+      <Table headers={["Name", "Soll-Zeit", "Lohnzeit", "Abweichung"]}>
+        {rows.map((r: Row) => <tr key={r.site.id}><td className="px-4 py-3 font-bold">{r.site.name}</td><td className="px-4 py-3">{hours(r.planned)} Std.</td><td className="px-4 py-3">{hours(r.worked)} Std.</td><td className={r.worked > r.planned ? "px-4 py-3 font-bold text-red-600" : "px-4 py-3"}>{hours(Math.abs(r.worked - r.planned))} Std.</td></tr>)}
+      </Table>
+    </div>
+  );
+}
+
 function Tasks(p: any) { return <div><Header icon="🧾" title="Aufgaben" /><Table headers={["Datum", "Zeitfenster", "Planzeit", "Objekt", "Mitarbeiter", "Auftrag", "Status", "Aktion"]}>{p.tasks.map((t: Row) => <tr key={t.id} className="border-b"><td className="p-3">{t.task_date}</td><td className="p-3">{t.start_time} - {t.end_time}</td><td className="p-3">{hours(Number(t.planned_minutes || t.max_minutes || 0))} Std.</td><td className="p-3">{t.site}</td><td className="p-3">{t.employee_name}</td><td className="p-3">{t.title}</td><td className="p-3">{t.done ? "Erledigt" : "Offen"}</td><td className="p-3"><button onClick={() => p.editTask(t)} className="mr-2 text-blue-600">Bearbeiten</button><button onClick={() => p.deleteTask(t)} className="text-red-600">Löschen</button></td></tr>)}</Table></div>; }
 function Material(p: any) { return <div><Header icon="📦" title="Materialwesen"><Button primary onClick={p.save}>⊕ Produkt speichern</Button></Header><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-6"><input value={p.materialName} onChange={(e) => p.setMaterialName(e.target.value)} className="field" placeholder="Produktname" /><input value={p.materialCategory} onChange={(e) => p.setMaterialCategory(e.target.value)} className="field" placeholder="Kategorie" /><input value={p.materialUnit} onChange={(e) => p.setMaterialUnit(e.target.value)} className="field" placeholder="Einheit" /><input type="number" value={p.materialStock} onChange={(e) => p.setMaterialStock(e.target.value)} className="field" placeholder="Bestand" /><input type="number" value={p.materialMinStock} onChange={(e) => p.setMaterialMinStock(e.target.value)} className="field" placeholder="Mindestbestand" /><input type="file" accept="image/*" onChange={(e: ChangeEvent<HTMLInputElement>) => p.upload(e.target.files?.[0] || null)} className="field" /><textarea value={p.materialNotes} onChange={(e) => p.setMaterialNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.save} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div>{p.materialImage && <img src={p.materialImage} alt="Material" className="mt-4 h-24 w-24 rounded-xl object-cover" />}</Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{p.materials.map((m: Row) => <Card key={m.id} className="p-4"><div className="mb-3 h-40 overflow-hidden rounded-xl bg-slate-100">{m.image_url ? <img src={m.image_url} alt={m.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">📦</div>}</div><p className="font-bold">{m.name}</p><p className="text-sm text-slate-500">{m.category || "Ohne Kategorie"}</p><p className="mt-2 text-sm">Bestand: <b>{m.current_stock || 0}</b> {m.unit || "Stück"}</p><div className="mt-4 flex gap-2"><button onClick={() => p.edit(m)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.remove(m)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></div></Card>)}</div></div>; }
 function Devices(p: any) { return <div><Header icon="🔧" title="Geräte"><Button primary onClick={p.save}>⊕ Gerät speichern</Button></Header><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-6"><input value={p.deviceName} onChange={(e) => p.setDeviceName(e.target.value)} className="field" placeholder="Gerätename" /><input value={p.deviceCategory} onChange={(e) => p.setDeviceCategory(e.target.value)} className="field" placeholder="Kategorie" /><input value={p.deviceSerial} onChange={(e) => p.setDeviceSerial(e.target.value)} className="field" placeholder="Seriennummer" /><select value={p.deviceEmployee} onChange={(e) => p.setDeviceEmployee(e.target.value)} className="field"><option value="">Zugewiesen an</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select><select value={p.deviceStatus} onChange={(e) => p.setDeviceStatus(e.target.value)} className="field"><option>Aktiv</option><option>Wartung</option><option>Defekt</option><option>Archiv</option></select><input type="file" accept="image/*" onChange={(e: ChangeEvent<HTMLInputElement>) => p.upload(e.target.files?.[0] || null)} className="field" /><textarea value={p.deviceNotes} onChange={(e) => p.setDeviceNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.save} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div>{p.deviceImage && <img src={p.deviceImage} alt="Gerät" className="mt-4 h-24 w-24 rounded-xl object-cover" />}</Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{p.equipment.map((d: Row) => <Card key={d.id} className="p-4"><div className="mb-3 h-36 overflow-hidden rounded-xl bg-slate-100">{d.image_url ? <img src={d.image_url} alt={d.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">🔧</div>}</div><p className="font-bold">{d.name}</p><p className="text-sm text-slate-500">{d.category || "Ohne Kategorie"}</p><p className="text-sm">Seriennr.: {d.serial_number || "-"}</p><p className="text-sm">Zuweisung: {d.assigned_to || "-"}</p><div className="mt-4 flex gap-2"><button onClick={() => p.edit(d)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.remove(d)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></div></Card>)}</div></div>; }
