@@ -114,6 +114,7 @@ export default function AdminPage() {
   const [materials, setMaterials] = useState<Row[]>([]);
   const [equipment, setEquipment] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
+  const [contacts, setContacts] = useState<Row[]>([]);
   const [chatMessages, setChatMessages] = useState<Row[]>([]);
 
   const [taskModal, setTaskModal] = useState(false);
@@ -178,6 +179,24 @@ export default function AdminPage() {
   const [chatEmployee, setChatEmployee] = useState("");
   const [chatText, setChatText] = useState("");
 
+  const [customerModal, setCustomerModal] = useState(false);
+  const [customerId, setCustomerId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerNumber, setCustomerNumber] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerNotes, setCustomerNotes] = useState("");
+
+  const [contactModal, setContactModal] = useState(false);
+  const [contactId, setContactId] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactCompany, setContactCompany] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactRole, setContactRole] = useState("");
+  const [contactNotes, setContactNotes] = useState("");
+
   useEffect(() => {
     checkAdmin();
   }, []);
@@ -206,7 +225,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    await Promise.all([loadEmployees(), loadSites(), loadTasks(), loadEntries(), loadAbsences(), loadMaterials(), loadEquipment(), loadKeys()]);
+    await Promise.all([loadEmployees(), loadSites(), loadTasks(), loadEntries(), loadAbsences(), loadMaterials(), loadEquipment(), loadKeys(), loadContacts()]);
   }
 
   async function loadEmployees() {
@@ -247,6 +266,11 @@ export default function AdminPage() {
   async function loadKeys() {
     const { data } = await supabase.from("key_items").select("*").order("key_name");
     setKeys(data || []);
+  }
+
+  async function loadContacts() {
+    const { data, error } = await supabase.from("customer_contacts").select("*").order("name");
+    if (!error) setContacts(data || []);
   }
 
   async function loadChat(employeeName: string) {
@@ -390,6 +414,92 @@ export default function AdminPage() {
     setSiteId(""); setSiteName(""); setSiteAddress(""); setSiteRadius("50"); setSiteLat(""); setSiteLng(""); setSiteNotes("");
     closeAdminDropdowns();
     await loadSites();
+  }
+
+
+
+  function resetCustomerForm() {
+    setCustomerId("");
+    setCustomerName("");
+    setCustomerNumber("");
+    setCustomerAddress("");
+    setCustomerPhone("");
+    setCustomerEmail("");
+    setCustomerNotes("");
+  }
+
+  function openCustomer(row?: Row) {
+    if (row) {
+      setCustomerId(row.id || "");
+      setCustomerName(row.customer_name || row.name || "");
+      setCustomerNumber(row.customer_number || "");
+      setCustomerAddress(row.customer_address || row.address || "");
+      setCustomerPhone(row.customer_phone || row.phone || "");
+      setCustomerEmail(row.customer_email || row.email || "");
+      setCustomerNotes(row.customer_notes || row.notes || "");
+    } else {
+      resetCustomerForm();
+    }
+    closeAdminDropdowns();
+    setCustomerModal(true);
+  }
+
+  async function saveCustomer() {
+    if (!customerName.trim()) return setMessage("Bitte Kundennamen eintragen.");
+    const payload = {
+      name: customerName.trim(),
+      customer_name: customerName.trim(),
+      customer_number: customerNumber || null,
+      address: customerAddress || null,
+      customer_address: customerAddress || null,
+      customer_phone: customerPhone || null,
+      customer_email: customerEmail || null,
+      customer_notes: customerNotes || null,
+      active: true,
+    };
+    const req = customerId ? supabase.from("work_sites").update(payload).eq("id", customerId) : supabase.from("work_sites").insert([payload]);
+    const { error } = await req;
+    if (error) return setMessage(error.message);
+    setCustomerModal(false);
+    resetCustomerForm();
+    await loadSites();
+  }
+
+  function resetContactForm() {
+    setContactId("");
+    setContactName("");
+    setContactCompany("");
+    setContactPhone("");
+    setContactEmail("");
+    setContactRole("");
+    setContactNotes("");
+  }
+
+  function openContact(row?: Row) {
+    if (row) {
+      setContactId(row.id || "");
+      setContactName(row.name || "");
+      setContactCompany(row.company || "");
+      setContactPhone(row.phone || "");
+      setContactEmail(row.email || "");
+      setContactRole(row.role || row.contact_role || "");
+      setContactNotes(row.notes || "");
+    } else {
+      resetContactForm();
+    }
+    closeAdminDropdowns();
+    setContactModal(true);
+  }
+
+  async function saveContact() {
+    if (!contactName.trim()) return setMessage("Bitte Kontaktname eintragen.");
+    const payload = { name: contactName.trim(), company: contactCompany || null, phone: contactPhone || null, email: contactEmail || null, role: contactRole || null, notes: contactNotes || null, active: true };
+    const req = contactId ? supabase.from("customer_contacts").update(payload).eq("id", contactId) : supabase.from("customer_contacts").insert([payload]);
+    const { error } = await req;
+    if (error) return setMessage(error.message);
+    setContactModal(false);
+    resetContactForm();
+    await loadContacts();
   }
 
   async function uploadImage(file: File | null, folder: string) {
@@ -545,8 +655,8 @@ export default function AdminPage() {
           {tab === "lohn" && <Payroll employees={activeEmployees} entries={entries} />}
           {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} />}
           {tab === "objekte" && <Objects sites={activeSites} siteId={siteId} siteName={siteName} setSiteName={setSiteName} siteAddress={siteAddress} setSiteAddress={setSiteAddress} siteRadius={siteRadius} setSiteRadius={setSiteRadius} siteLat={siteLat} setSiteLat={setSiteLat} siteLng={siteLng} setSiteLng={setSiteLng} siteNotes={siteNotes} setSiteNotes={setSiteNotes} geo={geocode} geoLoading={geoLoading} saveSite={saveSite} editSite={editSite} deactivate={async (id: string) => { await supabase.from("work_sites").update({ active: false }).eq("id", id); await loadSites(); }} />}
-          {tab === "kunden" && <Customers sites={sites} />}
-          {tab === "kontakte" && <Contacts sites={sites} employees={employees} />}
+          {tab === "kunden" && <Customers sites={sites} openCustomer={openCustomer} />}
+          {tab === "kontakte" && <Contacts contacts={contacts} sites={sites} employees={employees} openContact={openContact} deleteContact={async (r: any) => { await supabase.from("customer_contacts").delete().eq("id", r.id); await loadContacts(); }} />}
           {tab === "auswertung" && <ObjectAnalysis sites={sites} tasks={tasks} entries={entries} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
           {tab === "aufgaben" && <Tasks tasks={tasks} editTask={editTask} deleteTask={deleteTask} />}
           {tab === "material" && <Material materials={materials} materialId={materialId} materialName={materialName} setMaterialName={setMaterialName} materialCategory={materialCategory} setMaterialCategory={setMaterialCategory} materialUnit={materialUnit} setMaterialUnit={setMaterialUnit} materialStock={materialStock} setMaterialStock={setMaterialStock} materialMinStock={materialMinStock} setMaterialMinStock={setMaterialMinStock} materialImage={materialImage} setMaterialImage={setMaterialImage} materialNotes={materialNotes} setMaterialNotes={setMaterialNotes} upload={async (f: File) => setMaterialImage(await uploadImage(f, "materials"))} save={saveMaterial} edit={editMaterial} remove={async (r: any) => { await supabase.from("material_products").delete().eq("id", r.id); await loadMaterials(); }} />}
@@ -557,6 +667,8 @@ export default function AdminPage() {
         </section>
       </div>
       {taskModal && <TaskModal close={() => setTaskModal(false)} taskId={taskId} mode={taskMode} setMode={setTaskMode} sites={activeSites} employees={activeEmployees} taskSite={taskSite} setTaskSite={setTaskSite} taskTitle={taskTitle} setTaskTitle={setTaskTitle} taskDate={taskDate} setTaskDate={setTaskDate} taskFrom={taskFrom} setTaskFrom={setTaskFrom} taskTo={taskTo} setTaskTo={setTaskTo} taskDuration={taskDuration} setTaskDuration={setTaskDuration} taskEmployee={taskEmployee} taskRepeatDays={taskRepeatDays} setTaskRepeatDays={setTaskRepeatDays} setTaskEmployee={setTaskEmployee} taskRepeatEnd={taskRepeatEnd} setTaskRepeatEnd={setTaskRepeatEnd} taskRepeatEvery={taskRepeatEvery} setTaskRepeatEvery={setTaskRepeatEvery} taskNotes={taskNotes} setTaskNotes={setTaskNotes} save={saveTask} />}
+      {customerModal && <CustomerModal close={() => setCustomerModal(false)} save={saveCustomer} customerId={customerId} customerName={customerName} setCustomerName={setCustomerName} customerNumber={customerNumber} setCustomerNumber={setCustomerNumber} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerEmail={customerEmail} setCustomerEmail={setCustomerEmail} customerNotes={customerNotes} setCustomerNotes={setCustomerNotes} />}
+      {contactModal && <ContactModal close={() => setContactModal(false)} save={saveContact} contactId={contactId} contactName={contactName} setContactName={setContactName} contactCompany={contactCompany} setContactCompany={setContactCompany} contactPhone={contactPhone} setContactPhone={setContactPhone} contactEmail={contactEmail} setContactEmail={setContactEmail} contactRole={contactRole} setContactRole={setContactRole} contactNotes={contactNotes} setContactNotes={setContactNotes} />}
     </main>
   );
 }
@@ -996,6 +1108,66 @@ function TaskModal(p: any) {
 
 
 
+
+function CustomerModal(p: any) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onMouseDown={(e) => { if (e.target === e.currentTarget) p.close(); }}>
+      <div className="h-full w-full max-w-3xl overflow-y-auto bg-white shadow-xl">
+        <div className="flex items-start justify-between border-b px-6 py-4">
+          <div>
+            <p className="text-xs font-bold text-blue-500">Kundenverwaltung</p>
+            <h2 className="text-xl font-bold text-slate-950">{p.customerId ? "Kunde bearbeiten" : "Kunde erstellen"}</h2>
+          </div>
+          <button onClick={p.close} className="text-2xl text-slate-400">×</button>
+        </div>
+        <div className="p-6">
+          <div className="mb-5 flex gap-6 border-b">
+            <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Informationen</button>
+            <button className="pb-3 font-medium text-slate-500">Kontakte</button>
+            <button className="pb-3 font-medium text-slate-500">Dokumentation</button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">Kunde*</label><input value={p.customerName} onChange={(e) => p.setCustomerName(e.target.value)} className="field" placeholder="Kundenname" /></div>
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">Kundennummer</label><input value={p.customerNumber} onChange={(e) => p.setCustomerNumber(e.target.value)} className="field" placeholder="z. B. 1001" /></div>
+            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Adresse</label><input value={p.customerAddress} onChange={(e) => p.setCustomerAddress(e.target.value)} className="field" placeholder="Straße, PLZ Ort" /></div>
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">Telefon</label><input value={p.customerPhone} onChange={(e) => p.setCustomerPhone(e.target.value)} className="field" placeholder="Telefon" /></div>
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">E-Mail</label><input value={p.customerEmail} onChange={(e) => p.setCustomerEmail(e.target.value)} className="field" placeholder="E-Mail" /></div>
+            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Notizen</label><textarea value={p.customerNotes} onChange={(e) => p.setCustomerNotes(e.target.value)} className="field min-h-28" placeholder="Besonderheiten, Ansprechpartner, Rechnungsinfo ..." /></div>
+          </div>
+          <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>{p.customerId ? "Speichern" : "Kunde erstellen"}</Button></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactModal(p: any) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onMouseDown={(e) => { if (e.target === e.currentTarget) p.close(); }}>
+      <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl">
+        <div className="flex items-start justify-between border-b px-6 py-4">
+          <div>
+            <p className="text-xs font-bold text-blue-500">Kontaktverwaltung</p>
+            <h2 className="text-xl font-bold text-slate-950">{p.contactId ? "Kontakt bearbeiten" : "Kontakt erstellen"}</h2>
+          </div>
+          <button onClick={p.close} className="text-2xl text-slate-400">×</button>
+        </div>
+        <div className="p-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">Name*</label><input value={p.contactName} onChange={(e) => p.setContactName(e.target.value)} className="field" placeholder="Kontaktname" /></div>
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">Rolle</label><input value={p.contactRole} onChange={(e) => p.setContactRole(e.target.value)} className="field" placeholder="z. B. Objektleiter" /></div>
+            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Firma / Objekt</label><input value={p.contactCompany} onChange={(e) => p.setContactCompany(e.target.value)} className="field" placeholder="Firma oder Objekt" /></div>
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">Telefon</label><input value={p.contactPhone} onChange={(e) => p.setContactPhone(e.target.value)} className="field" placeholder="Telefon" /></div>
+            <div><label className="mb-1 block text-sm font-bold text-slate-500">E-Mail</label><input value={p.contactEmail} onChange={(e) => p.setContactEmail(e.target.value)} className="field" placeholder="E-Mail" /></div>
+            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Notizen</label><textarea value={p.contactNotes} onChange={(e) => p.setContactNotes(e.target.value)} className="field min-h-28" placeholder="Notizen" /></div>
+          </div>
+          <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>{p.contactId ? "Speichern" : "Kontakt erstellen"}</Button></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TimeApproval(p: any) {
   return (
     <div>
@@ -1178,40 +1350,93 @@ function Objects(p: any) {
   );
 }
 
+
+function customerRowsFromSites(sites: Row[]) {
+  const map = sites.reduce((acc: Record<string, Row>, site: Row) => {
+    const key = site.customer_name || site.name || "Ohne Kunde";
+    if (!acc[key]) {
+      acc[key] = {
+        id: site.id,
+        name: key,
+        customer_name: key,
+        customer_number: site.customer_number || "",
+        address: site.customer_address || site.address || "",
+        customer_address: site.customer_address || site.address || "",
+        customer_phone: site.customer_phone || site.phone || "",
+        customer_email: site.customer_email || site.email || "",
+        customer_notes: site.customer_notes || "",
+        active: site.active !== false,
+        count: 0,
+      };
+    }
+    acc[key].count += 1;
+    return acc;
+  }, {});
+  return Object.values(map) as Row[];
+}
+
 function Customers(p: any) {
-  const rows = Object.values(
-    p.sites.reduce((acc: Record<string, Row>, site: Row) => {
-      const name = site.customer_name || site.name || "Ohne Kunde";
-      if (!acc[name]) acc[name] = { name, count: 0, addresses: [] };
-      acc[name].count += 1;
-      if (site.address) acc[name].addresses.push(site.address);
-      return acc;
-    }, {})
-  ) as Row[];
+  const rows = customerRowsFromSites(p.sites || []);
 
   return (
     <div>
-      <Header icon="🏢" title="Kunden"><Button>Exportieren</Button><Button primary>⊕ Kunde erstellen</Button></Header>
+      <Header icon="🏢" title="Kunden">
+        <Button>Exportieren</Button>
+        <Button primary onClick={() => p.openCustomer()}>⊕ Kunde erstellen</Button>
+      </Header>
+      <div className="mb-4 flex gap-8 border-b border-slate-200 pl-3 text-sm">
+        <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Aktiv</button>
+        <button className="pb-3 text-slate-500">Alle</button>
+        <button className="pb-3 text-slate-500">Passiv</button>
+      </div>
       <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Kunde", "Nummer", "Objekte", "Adresse", "Status"]}>
-        {rows.map((r: Row, index: number) => <tr key={r.name}><td className="px-4 py-3 font-bold">{r.name}</td><td className="px-4 py-3">{1000 + index}</td><td className="px-4 py-3">{r.count}</td><td className="px-4 py-3">{r.addresses[0] || "-"}</td><td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td></tr>)}
+      <Table headers={["Kunde", "Nummer", "Objekte", "Adresse", "Telefon", "E-Mail", "Status", "Aktion"]}>
+        {rows.map((r: Row, index: number) => (
+          <tr key={r.name} className="transition hover:bg-blue-50/60">
+            <td className="px-4 py-3">
+              <button type="button" onClick={() => p.openCustomer(r)} className="text-left font-bold text-slate-950 hover:text-blue-600">{r.name}</button>
+              {r.customer_notes && <p className="text-xs text-slate-400">{r.customer_notes}</p>}
+            </td>
+            <td className="px-4 py-3">{r.customer_number || 1000 + index}</td>
+            <td className="px-4 py-3">{r.count}</td>
+            <td className="px-4 py-3">{r.address || "-"}</td>
+            <td className="px-4 py-3">{r.customer_phone || "-"}</td>
+            <td className="px-4 py-3">{r.customer_email || "-"}</td>
+            <td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td>
+            <td className="px-4 py-3"><button onClick={() => p.openCustomer(r)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Öffnen</button></td>
+          </tr>
+        ))}
       </Table>
+      {rows.length === 0 && <Card className="mt-4"><EmptyState text="Noch keine Kunden angelegt" /></Card>}
     </div>
   );
 }
 
 function Contacts(p: any) {
-  const rows = [
-    ...p.employees.map((e: Row) => ({ name: e.name, type: "Mitarbeiter", phone: e.phone || "-", email: e.email || "-", company: "Intern" })),
-    ...p.sites.map((s: Row) => ({ name: s.customer_name || s.name, type: "Kunde", phone: s.phone || "-", email: s.email || "-", company: s.name }))
+  const generated = [
+    ...p.employees.map((e: Row) => ({ id: `emp-${e.id}`, name: e.name, type: "Mitarbeiter", phone: e.phone || "-", email: e.email || "-", company: "Intern", generated: true })),
+    ...p.sites.filter((s: Row) => s.customer_phone || s.customer_email).map((s: Row) => ({ id: `site-${s.id}`, name: s.customer_name || s.name, type: "Kunde", phone: s.customer_phone || s.phone || "-", email: s.customer_email || s.email || "-", company: s.name, generated: true }))
   ];
+  const rows = [...(p.contacts || []).map((c: Row) => ({ ...c, type: "Kontakt" })), ...generated];
 
   return (
     <div>
-      <Header icon="☎" title="Kontakte"><Button>Exportieren</Button><Button primary>⊕ Kontakt erstellen</Button></Header>
+      <Header icon="☎" title="Kontakte"><Button>Exportieren</Button><Button primary onClick={() => p.openContact()}>⊕ Kontakt erstellen</Button></Header>
       <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Name", "Typ", "Firma/Objekt", "Telefon", "E-Mail", "Status"]}>
-        {rows.map((r: Row, index: number) => <tr key={`${r.type}-${r.name}-${index}`}><td className="px-4 py-3 font-bold">{r.name}</td><td className="px-4 py-3">{r.type}</td><td className="px-4 py-3">{r.company}</td><td className="px-4 py-3">{r.phone}</td><td className="px-4 py-3">{r.email}</td><td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td></tr>)}
+      <Table headers={["Name", "Rolle", "Firma/Objekt", "Telefon", "E-Mail", "Status", "Aktion"]}>
+        {rows.map((r: Row, index: number) => (
+          <tr key={`${r.id}-${index}`} className="transition hover:bg-blue-50/60">
+            <td className="px-4 py-3 font-bold">{r.name}</td>
+            <td className="px-4 py-3">{r.role || r.type || "-"}</td>
+            <td className="px-4 py-3">{r.company || "-"}</td>
+            <td className="px-4 py-3">{r.phone || "-"}</td>
+            <td className="px-4 py-3">{r.email || "-"}</td>
+            <td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td>
+            <td className="px-4 py-3">
+              {!r.generated ? <><button onClick={() => p.openContact(r)} className="mr-2 rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.deleteContact(r)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></> : <span className="text-xs text-slate-400">Automatisch</span>}
+            </td>
+          </tr>
+        ))}
       </Table>
     </div>
   );
