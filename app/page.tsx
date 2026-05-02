@@ -18,8 +18,8 @@ export default function Home() {
       setMessage("");
 
       const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: email.trim(),
+        password: password.trim(),
       });
 
       if (error) {
@@ -31,6 +31,38 @@ export default function Home() {
       router.push("/dashboard");
     } catch {
       setMessage("Login fehlgeschlagen");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+
+  async function resetPassword() {
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail) {
+      setMessage("Bitte zuerst deine E-Mail eingeben.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setMessage("");
+
+      const redirectTo = `${window.location.origin}/mitarbeiter/passwort-neu`;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo,
+      });
+
+      if (error) {
+        setMessage("Passwort-Link konnte nicht gesendet werden: " + error.message);
+        return;
+      }
+
+      setMessage("Passwort-Link wurde gesendet. Bitte E-Mail prüfen.");
+    } catch {
+      setMessage("Passwort-Link konnte nicht gesendet werden.");
     } finally {
       setLoading(false);
     }
@@ -88,6 +120,15 @@ export default function Home() {
             >
               {loading ? "Anmelden..." : "Anmelden"}
             </button>
+            <button
+              type="button"
+              className="w-full rounded-2xl bg-slate-800 px-5 py-3 font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={resetPassword}
+              disabled={loading}
+            >
+              Passwort vergessen?
+            </button>
+
 
             {message ? (
               <div className="rounded-2xl border border-slate-800 bg-slate-800/70 px-4 py-3 text-sm text-slate-300">

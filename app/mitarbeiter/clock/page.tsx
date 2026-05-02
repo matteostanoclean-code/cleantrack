@@ -1,7 +1,1 @@
-"use client";
-
-import MitarbeiterApp from "../MitarbeiterApp";
-
-export default function MitarbeiterClockPage() {
-  return <MitarbeiterApp initialTab="clock" />;
-}
+export default function(){return <div>Clock</div>}

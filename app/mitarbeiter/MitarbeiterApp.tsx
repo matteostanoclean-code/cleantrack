@@ -184,7 +184,44 @@ const [unreadChatCount, setUnreadChatCount] = useState(0);
     loadUnreadChatCount();
   }, 10000);
 
-  return () => clearInterval(timer);
+  
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return () => clearInterval(timer);
 }, [loggedIn, employeeName]);
  useEffect(() => {
   if (!loggedIn || !employeeName) return;
@@ -287,7 +324,44 @@ useEffect(() => {
     });
   }, 150);
 
-  return () => clearTimeout(timer);
+  
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return () => clearTimeout(timer);
 }, [chatMessages, activeTab]);
   useEffect(() => {
     if (!loggedIn) return;
@@ -321,7 +395,44 @@ useEffect(() => {
       }
     }, 1000);
 
-    return () => clearInterval(timer);
+    
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return () => clearInterval(timer);
   }, [
     loggedIn,
     status,
@@ -370,7 +481,44 @@ useEffect(() => {
       }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return () => navigator.geolocation.clearWatch(watchId);
   }, [loggedIn, status, selectedSite]);
 
   useEffect(() => {
@@ -391,7 +539,44 @@ useEffect(() => {
       checkOvertimeApproval(employeeName);
     }, 10000);
 
-    return () => clearInterval(timer);
+    
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return () => clearInterval(timer);
   }, [loggedIn, employeeName, overtimeBlocked]);
 useEffect(() => {
   if (!loggedIn || !employeeName || activeTab !== "chat") return;
@@ -402,7 +587,44 @@ useEffect(() => {
     loadChatMessages();
   }, 5000);
 
-  return () => clearInterval(timer);
+  
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return () => clearInterval(timer);
 }, [loggedIn, employeeName, activeTab]);
 
 async function loadUnreadChatCount() {
@@ -1163,7 +1385,44 @@ async function changeProfilePassword() {
   setProfilePasswordLoading(false);
 }
   function BackButton() {
-    return (
+    
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return (
       <button
         type="button"
         onClick={() => setActiveTab("home")}
@@ -1175,7 +1434,44 @@ async function changeProfilePassword() {
   }
 
   if (!loggedIn) {
-    return (
+    
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return (
       <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
         {showPushPrompt && (
   <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-5">
@@ -1253,7 +1549,44 @@ placeholder="E-Mail"
     );
   }
 if (mustChangePassword) {
-  return (
+  
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return (
     <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
         <h1 className="text-2xl font-bold mb-2">Neues Passwort erstellen</h1>
@@ -1296,7 +1629,44 @@ if (mustChangePassword) {
     </main>
   );
 }
-  return (
+  
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return (
     <main className="min-h-screen bg-[#f4f7fb] text-slate-900 pb-24">
       {activeTab === "home" && (
         <>
@@ -1401,7 +1771,44 @@ if (mustChangePassword) {
                   (task) => (task.site || "Kein Objekt") === siteName
                 );
 
-                return (
+                
+  // 🔴 Live Updates (Realtime)
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const channel = supabase
+      .channel('tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `employee_name=eq.${employeeName}`
+        },
+        () => {
+          loadTasks(employeeName);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [employeeName]);
+
+  // 🔁 Fallback Polling
+  useEffect(() => {
+    if (!employeeName) return;
+
+    const interval = setInterval(() => {
+      loadTasks(employeeName);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employeeName]);
+
+return (
                   <button
                     type="button"
                     key={siteName}
