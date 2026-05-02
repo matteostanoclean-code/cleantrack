@@ -2,6 +2,6 @@
 
 import MitarbeiterApp from "../MitarbeiterApp";
 
-export default function MitarbeiterChatPage() {
+export default function Page() {
   return <MitarbeiterApp initialTab="chat" />;
 }

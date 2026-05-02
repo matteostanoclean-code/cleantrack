@@ -2,6 +2,6 @@
 
 import MitarbeiterApp from "../MitarbeiterApp";
 
-export default function MitarbeiterAdminPage() {
+export default function Page() {
   return <MitarbeiterApp initialTab="admin" />;
 }
