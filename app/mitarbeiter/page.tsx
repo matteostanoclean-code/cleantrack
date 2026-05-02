@@ -13,6 +13,7 @@ type Tab =
   | "search"
   | "chat"
   | "profile"
+  | "absence"
   | "admin";
 
 type WorkSite = {
@@ -55,6 +56,17 @@ type AdminNotification = {
   status: string | null;
   notification_type: string | null;
   overtime_minutes: number | null;
+  created_at: string;
+};
+
+type AbsenceRequest = {
+  id: string;
+  employee_name: string;
+  request_type: string;
+  start_date: string;
+  end_date: string;
+  reason: string | null;
+  status: string | null;
   created_at: string;
 };
 
@@ -143,6 +155,12 @@ const [changePasswordLoading, setChangePasswordLoading] = useState(false);
   const [overtimeRequestSent, setOvertimeRequestSent] = useState(false);
 
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
+  const [absenceType, setAbsenceType] = useState("urlaub");
+  const [absenceStart, setAbsenceStart] = useState(new Date().toISOString().split("T")[0]);
+  const [absenceEnd, setAbsenceEnd] = useState(new Date().toISOString().split("T")[0]);
+  const [absenceReason, setAbsenceReason] = useState("");
+  const [absenceMessage, setAbsenceMessage] = useState("");
 
   const [chatText, setChatText] = useState("");
 const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -248,6 +266,14 @@ useEffect(() => {
 
   if (tab === "chat") {
     setActiveTab("chat");
+  }
+
+  if (tab === "schedule") {
+    setActiveTab("schedule");
+  }
+
+  if (tab === "profile") {
+    setActiveTab("profile");
   }
 }, []);
 async function checkExistingSession() {
@@ -468,6 +494,7 @@ setLoggedIn(true);
     await loadWorkSites();
     await loadTasks(name);
     await loadNotifications(name);
+    await loadAbsenceRequests(name);
     await loadTodayEntries(name);
   }
 
@@ -536,6 +563,56 @@ setLoggedIn(true);
       .limit(10);
 
     setNotifications(data || []);
+  }
+
+  async function loadAbsenceRequests(name: string) {
+    const { data } = await supabase
+      .from("absence_requests")
+      .select("id, employee_name, request_type, start_date, end_date, reason, status, created_at")
+      .eq("employee_name", name)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    setAbsenceRequests((data || []) as AbsenceRequest[]);
+  }
+
+  async function createAbsenceRequest() {
+    setAbsenceMessage("");
+
+    if (!employeeName) {
+      setAbsenceMessage("Mitarbeiter konnte nicht erkannt werden.");
+      return;
+    }
+
+    if (!absenceStart || !absenceEnd) {
+      setAbsenceMessage("Bitte Start und Ende auswählen.");
+      return;
+    }
+
+    if (absenceEnd < absenceStart) {
+      setAbsenceMessage("Das Enddatum darf nicht vor dem Startdatum liegen.");
+      return;
+    }
+
+    const { error } = await supabase.from("absence_requests").insert([
+      {
+        employee_name: employeeName,
+        request_type: absenceType,
+        start_date: absenceStart,
+        end_date: absenceEnd,
+        reason: absenceReason.trim() || null,
+        status: "open",
+      },
+    ]);
+
+    if (error) {
+      setAbsenceMessage(error.message || "Antrag konnte nicht gesendet werden.");
+      return;
+    }
+
+    setAbsenceReason("");
+    setAbsenceMessage("Antrag wurde gesendet.");
+    await loadAbsenceRequests(employeeName);
   }
 
   async function loadTodayEntries(name: string) {
@@ -1930,6 +2007,84 @@ if (mustChangePassword) {
   </section>
 )}
 
+      {activeTab === "absence" && (
+        <section className="p-5">
+          <BackButton />
+          <h1 className="text-2xl font-bold mb-5">Urlaub & Krankheit</h1>
+
+          <div className="bg-white rounded-[28px] p-5 shadow-sm space-y-4">
+            <div className="grid grid-cols-1 gap-3">
+              <select
+                value={absenceType}
+                onChange={(e) => setAbsenceType(e.target.value)}
+                className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
+              >
+                <option value="urlaub">Urlaub</option>
+                <option value="krankheit">Krankheit</option>
+                <option value="frei">Frei / Sonstige Abwesenheit</option>
+              </select>
+
+              <input
+                type="date"
+                value={absenceStart}
+                onChange={(e) => setAbsenceStart(e.target.value)}
+                className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
+              />
+
+              <input
+                type="date"
+                value={absenceEnd}
+                onChange={(e) => setAbsenceEnd(e.target.value)}
+                className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
+              />
+
+              <textarea
+                value={absenceReason}
+                onChange={(e) => setAbsenceReason(e.target.value)}
+                placeholder="Grund oder Hinweis optional"
+                className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
+              />
+
+              <button
+                type="button"
+                onClick={createAbsenceRequest}
+                className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold"
+              >
+                Antrag senden
+              </button>
+            </div>
+
+            {absenceMessage && (
+              <p className="text-center font-bold text-blue-600">{absenceMessage}</p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-[28px] p-5 shadow-sm mt-5">
+            <h2 className="font-bold mb-3">Meine Anträge</h2>
+            <div className="space-y-3">
+              {absenceRequests.length === 0 && (
+                <p className="text-gray-400">Noch keine Anträge vorhanden.</p>
+              )}
+
+              {absenceRequests.map((request) => (
+                <div key={request.id} className="bg-gray-100 rounded-2xl p-4">
+                  <p className="font-bold">{request.request_type}</p>
+                  <p className="text-sm text-gray-600">
+                    {request.start_date} bis {request.end_date}
+                  </p>
+                  {request.reason && <p className="text-sm text-gray-500 mt-1">{request.reason}</p>}
+                  <p className="mt-2 font-bold">
+                    {request.status === "approved" && "Genehmigt"}
+                    {request.status === "rejected" && "Abgelehnt"}
+                    {(!request.status || request.status === "open") && "Wartet auf Freigabe"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {activeTab === "admin" && (
         <section className="p-5">
           <BackButton />
@@ -1953,7 +2108,7 @@ if (mustChangePassword) {
         </section>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t grid grid-cols-5 p-2 text-xs text-gray-500">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t grid grid-cols-6 p-2 text-xs text-gray-500">
         <button
           type="button"
           onClick={() => setActiveTab("home")}
@@ -1987,6 +2142,15 @@ if (mustChangePassword) {
   </div>
   Chat
 </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("absence")}
+          className={activeTab === "absence" ? "text-blue-500 font-bold" : ""}
+        >
+          <div className="text-2xl">☂</div>
+          Frei
+        </button>
 
         <button
           type="button"
