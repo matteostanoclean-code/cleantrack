@@ -542,20 +542,23 @@ function NavGroup({ items, tab, setTab }: { items: [Tab, string, string, number]
   );
 }
 
+
 function Header({ icon, title, children }: { icon: string; title: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-xl text-blue-600">{icon}</div>
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-xl text-blue-600">{icon}</div>
         <div>
-          <p className="text-xs text-slate-400">CleanTrack Admin</p>
-          <h1 className="text-2xl font-bold capitalize">{title}</h1>
+          <p className="text-xs font-medium text-slate-400">CleanTrack Admin</p>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 capitalize">{title}</h1>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">{children}</div>
+      <div className="flex flex-wrap items-center justify-end gap-2">{children}</div>
     </div>
   );
 }
+
+
 
 function Button({ children, onClick, primary, className = "" }: { children: React.ReactNode; onClick?: () => void; primary?: boolean; className?: string }) {
   return (
@@ -564,8 +567,8 @@ function Button({ children, onClick, primary, className = "" }: { children: Reac
       onClick={onClick}
       className={
         primary
-          ? `rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow-sm hover:bg-blue-700 ${className}`
-          : `rounded-xl border border-slate-200 bg-white px-5 py-3 font-medium shadow-sm hover:bg-slate-50 ${className}`
+          ? `rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow-sm transition hover:bg-blue-700 ${className}`
+          : `rounded-xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 ${className}`
       }
     >
       {children}
@@ -573,22 +576,27 @@ function Button({ children, onClick, primary, className = "" }: { children: Reac
   );
 }
 
+
+
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</div>;
 }
+
+
 
 function Table({ headers, children }: { headers: string[]; children: React.ReactNode }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
       <table className="w-full min-w-[900px] text-sm">
         <thead className="bg-slate-50 text-slate-500">
-          <tr>{headers.map((h) => <th key={h} className="border-b p-3 text-left font-semibold">{h}</th>)}</tr>
+          <tr>{headers.map((h) => <th key={h} className="border-b border-slate-200 px-4 py-3 text-left font-bold">{h}</th>)}</tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody className="divide-y divide-slate-100">{children}</tbody>
       </table>
     </div>
   );
 }
+
 
 function EmptyState({ text = "Noch keine Daten hinterlegt" }: { text?: string }) {
   return (
@@ -600,36 +608,42 @@ function EmptyState({ text = "Noch keine Daten hinterlegt" }: { text?: string })
   );
 }
 
+
 function FilterButton({ label }: { label: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(!open)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-500 shadow-sm hover:bg-slate-50">
+      <button type="button" onClick={() => setOpen(!open)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-500 shadow-sm transition hover:bg-slate-50">
         {label}⌄
       </button>
       {open && (
-        <div className="absolute z-20 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-xl">
-          <p className="font-bold text-slate-800">{label.replace("⌄", "")}</p>
-          <p className="mt-2 text-slate-500">Filter ist vorbereitet. Die Auswahl wird im nächsten Feinschliff verbunden.</p>
+        <div className="absolute z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-xl">
+          <p className="font-bold text-slate-800">{label}</p>
+          <button className="mt-3 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Alle anzeigen</button>
+          <button className="mt-1 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Aktive auswählen</button>
+          <p className="mt-3 text-xs text-slate-400">Die optische Auswahl ist vorbereitet und bleibt klickbar.</p>
         </div>
       )}
     </div>
   );
 }
 
+
+
 function Toolbar({ children }: { children?: React.ReactNode }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap gap-2">
-        <input className="field max-w-xs" placeholder="🔍 Suchen" />
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input className="field h-12 w-80 max-w-full" placeholder="🔍 Suchen" />
         <FilterButton label="Mitarbeitergruppen" />
         <FilterButton label="Objekte" />
-        <button type="button" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-400 shadow-sm hover:bg-slate-50">+ Filter hinzufügen</button>
+        <button type="button" className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-400 shadow-sm transition hover:bg-slate-50">+ Filter hinzufügen</button>
       </div>
-      <div className="flex gap-2">{children}</div>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
 }
+
 
 function weekMinutesFor(employeeName: string, tasks: Row[], week: Date[]) {
   const days = new Set(week.map(iso));
@@ -642,80 +656,137 @@ function employeeLimitMinutes(e: Row) {
   return Number(e.weekly_limit_minutes || e.weekly_minutes || e.weekly_hours * 60 || e.max_weekly_minutes || 0);
 }
 
+
 function EmployeeBars({ employee, planned }: { employee: Row; planned: number }) {
   const limit = employeeLimitMinutes(employee);
   const available = limit ? limit - planned : -planned;
-  const plannedPct = limit ? Math.min(100, Math.round((planned / limit) * 100)) : 100;
-  const limitText = limit ? `${hours(limit)}h` : "00:00h";
+  const plannedPct = limit ? Math.min(100, Math.round((planned / limit) * 100)) : Math.min(100, planned > 0 ? 100 : 0);
+  const availablePct = limit ? Math.max(0, 100 - plannedPct) : 0;
+
   return (
-    <div className="group relative mt-2 flex gap-2">
-      <div className="h-1.5 w-20 rounded-full bg-red-500" style={{ width: `${Math.max(28, plannedPct)}px` }} />
-      <div className="h-1.5 w-20 rounded-full bg-red-500 opacity-80" />
-      <div className="pointer-events-none absolute left-0 top-3 z-20 hidden w-56 rounded-lg border bg-white p-3 text-xs shadow-xl group-hover:block">
-        <p className="font-bold">Stunden für diese Woche</p>
-        <div className="mt-2 grid grid-cols-2 gap-1"><span>Eingeplant</span><b>{hours(planned)}h</b><span>Limit</span><b>{limitText}</b><span>Noch verfügbar</span><b>{hours(Math.abs(available))}h {available < 0 ? "über" : ""}</b></div>
+    <div className="group relative mt-3 w-44">
+      <div className="flex gap-1">
+        <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${Math.max(12, plannedPct * 1.2)}px` }} />
+        <div className="h-1.5 rounded-full bg-red-400" style={{ width: `${Math.max(12, availablePct * 1.2)}px` }} />
+      </div>
+      <div className="pointer-events-none absolute left-0 top-4 z-30 hidden w-60 rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-xl group-hover:block">
+        <p className="font-bold text-slate-900">Stunden für diese Woche</p>
+        <div className="mt-2 grid grid-cols-2 gap-1 text-slate-600">
+          <span>Eingeplant</span><b className="text-right text-slate-900">{hours(planned)}h</b>
+          <span>Limit</span><b className="text-right text-slate-900">{limit ? `${hours(limit)}h` : "00:00h"}</b>
+          <span>Noch verfügbar</span><b className={available < 0 ? "text-right text-red-600" : "text-right text-slate-900"}>{available < 0 ? `-${hours(Math.abs(available))}h` : `${hours(available)}h`}</b>
+        </div>
       </div>
     </div>
   );
 }
 
+function minutesOfDay(value?: string | null) {
+  if (!value) return 0;
+  const [h, m] = String(value).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function normalizedRange(task: Row) {
+  const start = minutesOfDay(task.start_time);
+  let end = minutesOfDay(task.end_time);
+  if (end <= start) end += 1440;
+  return { start, end };
+}
+
+function hasTaskOverlap(task: Row, dayTasks: Row[]) {
+  const a = normalizedRange(task);
+  return dayTasks.some((other) => {
+    if (other.id === task.id) return false;
+    const b = normalizedRange(other);
+    return a.start < b.end && b.start < a.end;
+  });
+}
+
+
+
 function Planner(p: any) {
+  const weekTitle = `${p.week[0].toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })} → ${p.week[6].toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
+
   return (
     <div>
       <Header icon="▦" title="Einsatzplaner">
-        <Button onClick={p.setPrev}>‹</Button>
+        <Button onClick={p.setPrev} className="h-12 w-12 px-0">‹</Button>
         <Button onClick={p.setToday}>Heute</Button>
-        <Button onClick={p.setNext}>›</Button>
+        <Button onClick={p.setNext} className="h-12 w-12 px-0">›</Button>
         <Button primary onClick={() => p.openTask()}>⊕ Einsatz erstellen</Button>
       </Header>
+
       <Toolbar>
+        <Button className="min-w-40">📅 {weekTitle}</Button>
         <Button>Woche⌄</Button>
       </Toolbar>
-      <Card className="overflow-x-auto">
-        <div className="grid min-w-[1320px] grid-cols-[260px_repeat(7,1fr)] border-b bg-slate-50">
-          <div className="p-5 font-bold text-slate-500">Mitarbeiter</div>
-          {p.week.map((d: Date) => (
-            <button key={d.toISOString()} onClick={() => p.setSelectedDate(d)} className="border-l p-4 text-center font-bold text-slate-600 hover:bg-blue-50">
-              <p>{d.toLocaleDateString("de-DE", { weekday: "short" })}</p>
-              <p className="text-sm">{d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</p>
-            </button>
-          ))}
-        </div>
-        {p.employees.map((e: Row) => {
-          const planned = weekMinutesFor(e.name, p.tasks, p.week);
-          return (
-            <div key={e.id} className="grid min-w-[1320px] grid-cols-[260px_repeat(7,1fr)] border-b last:border-b-0">
-              <div className="flex items-center gap-3 p-5">
-                {e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-12 w-12 rounded-full object-cover" /> : <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</div>}
-                <div>
-                  <p className="font-bold">{e.name}</p>
-                  <EmployeeBars employee={e} planned={planned} />
-                </div>
-              </div>
-              {p.week.map((d: Date) => {
-                const date = iso(d);
-                const dayTasks = p.tasks.filter((t: Row) => t.employee_name === e.name && t.task_date === date);
-                return (
-                  <div key={date} className="min-h-32 border-l p-2 hover:bg-slate-50">
-                    {dayTasks.map((t: Row) => (
-                      <div key={t.id} className="mb-2 rounded-lg border-l-4 border-blue-500 bg-white p-3 text-xs shadow-sm">
-                        <div className="flex justify-between gap-2 text-slate-500"><span>{t.start_time} → {t.end_time}</span><span><button onClick={() => p.editTask(t)}>✎</button> <button onClick={() => p.deleteTask(t)}>×</button></span></div>
-                        <p className="mt-1 font-bold">{t.site}</p>
-                        <span className="mt-2 inline-block rounded bg-orange-100 px-2 py-1 text-[11px] text-orange-700">{t.title}</span>
-                        <p className="mt-1 text-[11px] text-slate-400">Planzeit: {hours(Number(t.planned_minutes || t.max_minutes || 0))} Std.</p>
-                      </div>
-                    ))}
-                    {dayTasks.length === 0 && <button onClick={() => p.openTask(d, e)} className="h-full min-h-24 w-full rounded-lg border border-dashed text-slate-300 hover:border-blue-300 hover:text-blue-500">+ Einsatz</button>}
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[1500px] grid-cols-[260px_repeat(7,1fr)] border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center border-r border-slate-200 px-5 py-4 font-bold text-slate-600">Mitarbeiter</div>
+            {p.week.map((d: Date) => (
+              <button key={d.toISOString()} onClick={() => p.setSelectedDate(d)} className="border-r border-slate-200 px-4 py-3 text-center font-bold text-slate-600 transition last:border-r-0 hover:bg-blue-50">
+                <p>{d.toLocaleDateString("de-DE", { weekday: "short" })}</p>
+                <p className="text-sm">{d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</p>
+              </button>
+            ))}
+          </div>
+
+          {p.employees.map((e: Row) => {
+            const planned = weekMinutesFor(e.name, p.tasks, p.week);
+            return (
+              <div key={e.id} className="grid min-w-[1500px] grid-cols-[260px_repeat(7,1fr)] border-b border-slate-200 last:border-b-0">
+                <div className="flex min-h-36 items-center gap-3 border-r border-slate-200 bg-white p-5">
+                  {e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-12 w-12 rounded-full object-cover" /> : <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</div>}
+                  <div>
+                    <p className="font-bold text-slate-950">{e.name}</p>
+                    <EmployeeBars employee={e} planned={planned} />
                   </div>
-                );
-              })}
-            </div>
-          );
-        })}
+                </div>
+
+                {p.week.map((d: Date) => {
+                  const date = iso(d);
+                  const dayTasks = p.tasks
+                    .filter((t: Row) => t.employee_name === e.name && t.task_date === date)
+                    .sort((a: Row, b: Row) => minutesOfDay(a.start_time) - minutesOfDay(b.start_time));
+                  return (
+                    <div key={date} className="min-h-36 border-r border-slate-200 bg-white p-2 last:border-r-0 hover:bg-slate-50">
+                      {dayTasks.map((t: Row) => {
+                        const conflict = hasTaskOverlap(t, dayTasks);
+                        return (
+                          <button
+                            type="button"
+                            key={t.id}
+                            onClick={() => p.editTask(t)}
+                            className={`mb-2 w-full rounded-lg border bg-white p-3 text-left text-xs shadow-sm transition hover:shadow-md ${conflict ? "border-l-4 border-l-red-500" : "border-l-4 border-l-green-500"}`}
+                          >
+                            <div className="flex justify-between gap-2 text-slate-500">
+                              <span>{t.start_time} → {t.end_time}</span>
+                              <span className="flex gap-2 text-slate-400"><span>👤</span><span>↻</span></span>
+                            </div>
+                            <p className="mt-1 truncate font-bold text-slate-950">{t.site}</p>
+                            <span className="mt-2 inline-block rounded bg-orange-100 px-2 py-1 text-[11px] font-medium text-orange-700">● {t.title}</span>
+                            <p className="mt-1 text-[11px] text-slate-400">Planzeit: {hours(Number(t.planned_minutes || t.max_minutes || 0))} Std.</p>
+                            {conflict && <p className="mt-1 text-[11px] font-bold text-red-600">Zeitüberschneidung</p>}
+                          </button>
+                        );
+                      })}
+                      <button onClick={() => p.openTask(d, e)} className="min-h-24 w-full rounded-lg border border-dashed border-blue-100 text-sm text-blue-200 transition hover:border-blue-300 hover:text-blue-500">+ Einsatz</button>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </Card>
     </div>
   );
 }
+
+
 
 function TaskModal(p: any) {
   const weekdays = [
@@ -726,48 +797,114 @@ function TaskModal(p: any) {
     p.setTaskRepeatDays(days.includes(day) ? days.filter((x: number) => x !== day) : [...days, day].sort());
   };
   const duration = Math.max(0, Number(p.taskDuration || 0));
+  const selectedSite = p.sites.find((s: Row) => s.id === p.taskSite);
+
+  const form = (
+    <>
+      <div className="mb-4 flex gap-2">
+        <button type="button" onClick={() => p.setMode("single")} className={p.mode === "single" ? "rounded-lg border border-blue-400 bg-white px-4 py-2 font-bold text-blue-600" : "rounded-lg border bg-white px-4 py-2"}>Einmalig</button>
+        <button type="button" onClick={() => p.setMode("repeat")} className={p.mode === "repeat" ? "rounded-lg border border-blue-400 bg-white px-4 py-2 font-bold text-blue-600" : "rounded-lg border bg-white px-4 py-2"}>Wiederholend</button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <div><label className="mb-1 block text-sm font-bold text-slate-500">{p.mode === "repeat" ? "Startdatum*" : "Termin*"}</label><input type="date" value={p.taskDate} onChange={(e) => p.setTaskDate(e.target.value)} className="field" /></div>
+        <div><label className="mb-1 block text-sm font-bold text-slate-500">Von*</label><input type="time" value={p.taskFrom} onChange={(e) => p.setTaskFrom(e.target.value)} className="field" /></div>
+        <div><label className="mb-1 block text-sm font-bold text-slate-500">Bis*</label><input type="time" value={p.taskTo} onChange={(e) => p.setTaskTo(e.target.value)} className="field" /></div>
+        <div><label className="mb-1 block text-sm font-bold text-slate-500">Dauer in Min.</label><input type="number" min="1" value={p.taskDuration} onChange={(e) => p.setTaskDuration(e.target.value)} className="field" placeholder="120" /></div>
+      </div>
+
+      <p className="mt-2 text-xs text-slate-400">Von/Bis ist der Einsatz-Zeitrahmen. Dauer ist die maximale geplante Arbeitszeit innerhalb dieses Rahmens.</p>
+
+      <div className="mt-3 flex flex-wrap gap-3">
+        <button type="button" className="rounded-lg border px-3 py-2 text-sm text-slate-500">⊕ Fahrzeit hinzufügen</button>
+        <button type="button" className="rounded-lg border px-3 py-2 text-sm text-slate-500">⊕ Pausenzeit hinzufügen</button>
+      </div>
+
+      {p.mode === "repeat" && (
+        <div className="mt-5 space-y-4">
+          <div className="grid gap-3 md:grid-cols-[140px_1fr]"><label className="text-sm font-bold text-slate-500">Wiederholen alle</label><div className="grid grid-cols-[80px_1fr] gap-3"><input type="number" min="1" value={p.taskRepeatEvery} onChange={(e) => p.setTaskRepeatEvery(e.target.value)} className="field" /><div className="field">Woche</div></div></div>
+          <div><label className="mb-2 block text-sm font-bold text-slate-500">Wiederholen am</label><div className="flex flex-wrap gap-2">{weekdays.map(([day, label]) => <button type="button" key={`${day}-${label}`} onClick={() => toggleDay(day)} className={(p.taskRepeatDays || []).includes(day) ? "h-10 w-10 rounded-full border border-blue-500 bg-blue-100 font-bold text-blue-700" : "h-10 w-10 rounded-full border bg-white text-slate-500"}>{label}</button>)}</div></div>
+          <div><label className="mb-1 block text-sm font-bold text-slate-500">Enddatum</label><input type="date" value={p.taskRepeatEnd} onChange={(e) => p.setTaskRepeatEnd(e.target.value)} className="field" /></div>
+        </div>
+      )}
+      <div className="mt-5 border-t pt-4 text-right text-lg font-bold">Lohnzeit {hours(duration)} Std.</div>
+    </>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
-      <div className="h-full w-full max-w-2xl overflow-y-auto bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between border-b pb-4"><h2 className="text-xl font-bold">{p.taskId ? "Einsatz bearbeiten" : "Einsatz erstellen"}</h2><button onClick={p.close} className="text-2xl text-slate-400">×</button></div>
-        <div className="space-y-4">
-          <label className="block text-sm font-bold text-slate-500">Objekt*</label>
-          <select value={p.taskSite} onChange={(e) => p.setTaskSite(e.target.value)} className="field"><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
-          <label className="block text-sm font-bold text-slate-500">Auftrag*</label>
-          <input value={p.taskTitle} onChange={(e) => p.setTaskTitle(e.target.value)} className="field" placeholder="Auftrag" />
-          <div className="rounded-2xl bg-slate-50 p-5">
-            <div className="mb-5 flex gap-2">
-              <button onClick={() => p.setMode("single")} className={p.mode === "single" ? "rounded-lg border border-blue-400 bg-white px-4 py-2 font-bold text-blue-600" : "rounded-lg border bg-white px-4 py-2"}>Einmalig</button>
-              <button onClick={() => p.setMode("repeat")} className={p.mode === "repeat" ? "rounded-lg border border-blue-400 bg-white px-4 py-2 font-bold text-blue-600" : "rounded-lg border bg-white px-4 py-2"}>Wiederholend</button>
-            </div>
-            <div className="grid gap-3 md:grid-cols-4">
-              <div><label className="mb-1 block text-sm font-bold text-slate-500">{p.mode === "repeat" ? "Startdatum*" : "Termin*"}</label><input type="date" value={p.taskDate} onChange={(e) => p.setTaskDate(e.target.value)} className="field" /></div>
-              <div><label className="mb-1 block text-sm font-bold text-slate-500">Von*</label><input type="time" value={p.taskFrom} onChange={(e) => p.setTaskFrom(e.target.value)} className="field" /></div>
-              <div><label className="mb-1 block text-sm font-bold text-slate-500">Bis*</label><input type="time" value={p.taskTo} onChange={(e) => p.setTaskTo(e.target.value)} className="field" /></div>
-              <div><label className="mb-1 block text-sm font-bold text-slate-500">Dauer</label><input type="number" min="1" value={p.taskDuration} onChange={(e) => p.setTaskDuration(e.target.value)} className="field" placeholder="Minuten" /></div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-3">
-              <button type="button" className="rounded-lg border px-3 py-2 text-sm text-slate-500">⊕ Fahrzeit hinzufügen</button>
-              <button type="button" className="rounded-lg border px-3 py-2 text-sm text-slate-500">⊕ Pausenzeit hinzufügen</button>
-            </div>
-            {p.mode === "repeat" && (
-              <div className="mt-5 space-y-4">
-                <div className="grid gap-3 md:grid-cols-[140px_1fr]"><label className="text-sm font-bold text-slate-500">Wiederholen alle</label><div className="grid grid-cols-[80px_1fr] gap-3"><input type="number" min="1" value={p.taskRepeatEvery} onChange={(e) => p.setTaskRepeatEvery(e.target.value)} className="field" /><div className="field">Woche</div></div></div>
-                <div><label className="mb-2 block text-sm font-bold text-slate-500">Wiederholen am</label><div className="flex gap-2">{weekdays.map(([day, label]) => <button type="button" key={`${day}-${label}`} onClick={() => toggleDay(day)} className={(p.taskRepeatDays || []).includes(day) ? "h-10 w-10 rounded-full border border-blue-500 bg-blue-100 font-bold text-blue-700" : "h-10 w-10 rounded-full border bg-white text-slate-500"}>{label}</button>)}</div></div>
-                <div><label className="mb-1 block text-sm font-bold text-slate-500">Enddatum</label><input type="date" value={p.taskRepeatEnd} onChange={(e) => p.setTaskRepeatEnd(e.target.value)} className="field" /></div>
-              </div>
-            )}
-            <div className="mt-5 border-t pt-4 text-right text-lg font-bold">Lohnzeit {hours(duration)} Std.</div>
+      <div className={p.taskId ? "h-full w-full max-w-6xl overflow-y-auto bg-white shadow-xl" : "h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl"}>
+        <div className="flex items-start justify-between border-b px-6 py-4">
+          <div>
+            {p.taskTitle && <p className="text-xs font-bold text-orange-500">{p.taskTitle}</p>}
+            <h2 className="text-xl font-bold text-slate-950">{p.taskId ? selectedSite?.name || "Einsatz bearbeiten" : "Einsatz erstellen"}</h2>
           </div>
-          <label className="block text-sm font-bold text-slate-500">Mitarbeiter</label>
-          <select value={p.taskEmployee} onChange={(e) => p.setTaskEmployee(e.target.value)} className="field"><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
-          <div><label className="mb-1 block text-sm font-bold text-slate-500">Kommentar</label><textarea value={p.taskNotes} onChange={(e) => p.setTaskNotes(e.target.value)} className="field min-h-24" placeholder="Kommentar" /></div>
+          <div className="flex items-center gap-3">
+            {p.taskId && <span className="rounded bg-green-100 px-2 py-1 text-xs font-bold text-green-700">Geplant</span>}
+            <button onClick={p.close} className="text-2xl text-slate-400">×</button>
+          </div>
         </div>
-        <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>Erstellen</Button></div>
+
+        {p.taskId ? (
+          <div className="grid min-h-[calc(100vh-73px)] lg:grid-cols-[1.15fr_0.9fr]">
+            <div className="border-r p-6">
+              <div className="mb-5 flex gap-6 border-b">
+                <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Informationen</button>
+                <button className="pb-3 font-medium text-slate-500">Dokumentation</button>
+              </div>
+
+              <label className="block text-sm font-bold text-slate-500">Objekt*</label>
+              <select value={p.taskSite} onChange={(e) => p.setTaskSite(e.target.value)} className="field mb-4"><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              <label className="block text-sm font-bold text-slate-500">Auftrag*</label>
+              <input value={p.taskTitle} onChange={(e) => p.setTaskTitle(e.target.value)} className="field mb-4" placeholder="Auftrag" />
+
+              <div className="rounded-2xl bg-slate-50 p-5">{form}</div>
+
+              <label className="mt-4 block text-sm font-bold text-slate-500">Mitarbeiter</label>
+              <select value={p.taskEmployee} onChange={(e) => p.setTaskEmployee(e.target.value)} className="field"><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
+              <div className="mt-4"><label className="mb-1 block text-sm font-bold text-slate-500">Kommentar</label><textarea value={p.taskNotes} onChange={(e) => p.setTaskNotes(e.target.value)} className="field min-h-24" placeholder="Kommentar" /></div>
+            </div>
+
+            <div className="bg-slate-50 p-6">
+              <div className="mb-5 flex gap-4 border-b">
+                <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Aktivitäten</button>
+                <button className="pb-3 font-medium text-slate-500">Dateien</button>
+                <button className="pb-3 font-medium text-slate-500">Angeheftet</button>
+              </div>
+              <div className="flex min-h-[52vh] items-end">
+                <div className="w-full rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="mb-4 text-sm text-slate-600"><b>System</b> hat erstellt: Einsatz</p>
+                  <div className="mb-3 flex gap-4 border-b pb-3 text-sm">
+                    <button className="font-bold text-blue-600">✉ Nachricht</button>
+                    <button className="text-slate-500">🗒 Notiz</button>
+                  </div>
+                  <textarea className="w-full resize-none outline-none" placeholder="Versende eine Nachricht..." />
+                  <div className="mt-3 flex justify-end gap-2"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>Speichern</Button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6">
+            <div className="space-y-4">
+              <label className="block text-sm font-bold text-slate-500">Objekt*</label>
+              <select value={p.taskSite} onChange={(e) => p.setTaskSite(e.target.value)} className="field"><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              <label className="block text-sm font-bold text-slate-500">Auftrag*</label>
+              <input value={p.taskTitle} onChange={(e) => p.setTaskTitle(e.target.value)} className="field" placeholder="Auftrag" />
+              <div className="rounded-2xl bg-slate-50 p-5">{form}</div>
+              <label className="block text-sm font-bold text-slate-500">Mitarbeiter</label>
+              <select value={p.taskEmployee} onChange={(e) => p.setTaskEmployee(e.target.value)} className="field"><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
+              <div><label className="mb-1 block text-sm font-bold text-slate-500">Kommentar</label><textarea value={p.taskNotes} onChange={(e) => p.setTaskNotes(e.target.value)} className="field min-h-24" placeholder="Kommentar" /></div>
+            </div>
+            <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>Erstellen</Button></div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+
 
 function TimeApproval(p: any) {
   return (
@@ -776,9 +913,15 @@ function TimeApproval(p: any) {
       <Toolbar><Button>Spalten⌄</Button></Toolbar>
       <Table headers={["Datum", "Name", "Einsatz", "Fehler", "Soll-Zeit", "Abweichung", "Akzeptieren", "Ablehnen"]}>
         {p.entries.map((e: Row) => (
-          <tr key={e.id} className="border-b">
-            <td className="p-3">{new Date(e.created_at).toLocaleDateString("de-DE")}</td><td className="p-3 font-bold">{e.employee_name}</td><td className="p-3">{e.work_site_name || "-"}</td><td className="p-3">{e.status || "Prüfen"}</td><td className="p-3">{hours(Number(e.planned_minutes || 0))} Std.</td><td className="p-3">{Number(e.overtime_minutes || 0)} Min.</td>
-            <td className="p-3"><button onClick={() => p.approve(e)} className="rounded-lg bg-green-100 px-3 py-2 font-bold text-green-700">Bestätigen</button></td><td className="p-3"><button onClick={() => p.reject(e)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Ablehnen</button></td>
+          <tr key={e.id}>
+            <td className="px-4 py-3">{new Date(e.created_at).toLocaleDateString("de-DE")}</td>
+            <td className="px-4 py-3 font-bold">{e.employee_name}</td>
+            <td className="px-4 py-3">{e.work_site_name || "-"}</td>
+            <td className="px-4 py-3"><span className="rounded bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700">{e.status || "Prüfen"}</span></td>
+            <td className="px-4 py-3">{hours(Number(e.planned_minutes || 0))} Std.</td>
+            <td className="px-4 py-3">{Number(e.overtime_minutes || 0)} Min.</td>
+            <td className="px-4 py-3"><button onClick={() => p.approve(e)} className="rounded-lg bg-green-100 px-3 py-2 font-bold text-green-700">Bestätigen</button></td>
+            <td className="px-4 py-3"><button onClick={() => p.reject(e)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Ablehnen</button></td>
           </tr>
         ))}
       </Table>
@@ -787,12 +930,55 @@ function TimeApproval(p: any) {
   );
 }
 
+
+
 function Absences(p: any) {
-  return <div><Header icon="✈" title="Abwesenheiten"><Button primary onClick={p.createAbsence}>⊕ Abwesenheit erstellen</Button><Button>⚙</Button></Header><Toolbar /><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-5"><select value={p.absenceEmployee} onChange={(e) => p.setAbsenceEmployee(e.target.value)} className="field"><option value="">Mitarbeiter</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select><select value={p.absenceType} onChange={(e) => p.setAbsenceType(e.target.value)} className="field"><option>Urlaub</option><option>Krankheit</option><option>Sonstiges</option></select><input type="date" value={p.absenceStart} onChange={(e) => p.setAbsenceStart(e.target.value)} className="field" /><input type="date" value={p.absenceEnd} onChange={(e) => p.setAbsenceEnd(e.target.value)} className="field" /><input value={p.absenceReason} onChange={(e) => p.setAbsenceReason(e.target.value)} className="field" placeholder="Grund" /></div></Card><Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>{p.absences.map((a: Row) => <tr key={a.id} className="border-b"><td className="p-3 font-bold">{a.employee_name}</td><td className="p-3">{a.absence_type}</td><td className="p-3">{a.start_date}</td><td className="p-3">{a.end_date}</td><td className="p-3">{a.status || "open"}</td><td className="p-3"><button onClick={() => p.decideAbsence(a, "approved")} className="mr-2 rounded-lg bg-green-100 px-3 py-2 text-green-700">Genehmigen</button><button onClick={() => p.decideAbsence(a, "rejected")} className="rounded-lg bg-red-100 px-3 py-2 text-red-700">Ablehnen</button></td></tr>)}</Table>{p.absences.length === 0 && <Card className="mt-4"><EmptyState /></Card>}</div>;
+  return (
+    <div>
+      <Header icon="✈" title="Abwesenheiten"><Button primary onClick={p.createAbsence}>⊕ Abwesenheit erstellen</Button><Button>⚙</Button></Header>
+      <Toolbar />
+      <Card className="mb-6 p-5">
+        <div className="grid gap-3 md:grid-cols-5">
+          <select value={p.absenceEmployee} onChange={(e) => p.setAbsenceEmployee(e.target.value)} className="field"><option value="">Mitarbeiter</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
+          <select value={p.absenceType} onChange={(e) => p.setAbsenceType(e.target.value)} className="field"><option>Urlaub</option><option>Krankheit</option><option>Sonstiges</option></select>
+          <input type="date" value={p.absenceStart} onChange={(e) => p.setAbsenceStart(e.target.value)} className="field" />
+          <input type="date" value={p.absenceEnd} onChange={(e) => p.setAbsenceEnd(e.target.value)} className="field" />
+          <input value={p.absenceReason} onChange={(e) => p.setAbsenceReason(e.target.value)} className="field" placeholder="Grund" />
+        </div>
+      </Card>
+      <Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>
+        {p.absences.map((a: Row) => <tr key={a.id}><td className="px-4 py-3 font-bold">{a.employee_name}</td><td className="px-4 py-3">{a.absence_type}</td><td className="px-4 py-3">{a.start_date}</td><td className="px-4 py-3">{a.end_date}</td><td className="px-4 py-3"><span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{a.status || "open"}</span></td><td className="px-4 py-3"><button onClick={() => p.decideAbsence(a, "approved")} className="mr-2 rounded-lg bg-green-100 px-3 py-2 text-green-700">Genehmigen</button><button onClick={() => p.decideAbsence(a, "rejected")} className="rounded-lg bg-red-100 px-3 py-2 text-red-700">Ablehnen</button></td></tr>)}
+      </Table>
+      {p.absences.length === 0 && <Card className="mt-4"><EmptyState /></Card>}
+    </div>
+  );
 }
 
+
 function Payroll(p: any) { return <div><Header icon="💰" title="Lohnabrechnung"><Button>Exportieren</Button></Header><Table headers={["Mitarbeiter", "Stunden", "Stundenlohn", "AG-Faktor", "Kosten"]}>{p.employees.map((e: Row) => { const min = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + Number(x.worked_minutes || x.planned_minutes || 0), 0); const cost = (min / 60) * Number(e.hourly_rate || 0) * Number(e.employer_cost_factor || 1); return <tr key={e.id} className="border-b"><td className="p-3 font-bold">{e.name}</td><td className="p-3">{hours(min)} Std.</td><td className="p-3">{e.hourly_rate || 0} €</td><td className="p-3">{e.employer_cost_factor || 1}</td><td className="p-3 font-bold">{cost.toFixed(2)} €</td></tr>; })}</Table></div>; }
-function Employees(p: any) { return <div><Header icon="👥" title="Mitarbeiter"><Button>Exportieren</Button><Button primary>⊕ Mitarbeiter erstellen</Button></Header><Toolbar><Button>Spalten⌄</Button></Toolbar><Table headers={["Name", "Nummer", "Adresse", "Mitarbeitergruppe", "Zuletzt aktiv", "Status"]}>{p.employees.map((e: Row, i: number) => <tr key={e.id} className="border-b"><td className="p-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<b>{e.name}</b></div></td><td className="p-3">{i + 1}</td><td className="p-3">{e.address || "-"}</td><td className="p-3">{e.group_name || "-"}</td><td className="p-3">{e.last_active || "-"}</td><td className="p-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">{e.active === false ? "Passiv" : "Aktiv"}</span></td></tr>)}</Table></div>; }
+
+function Employees(p: any) {
+  return (
+    <div>
+      <Header icon="👥" title="Mitarbeiter"><Button>Exportieren</Button><Button primary>⊕ Mitarbeiter erstellen</Button></Header>
+      <Toolbar><Button>Spalten⌄</Button></Toolbar>
+      <Table headers={["Name", "Nummer", "Adresse", "Mitarbeitergruppe", "Zuletzt aktiv", "Status"]}>
+        {p.employees.map((e: Row, i: number) => (
+          <tr key={e.id}>
+            <td className="px-4 py-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<b>{e.name}</b></div></td>
+            <td className="px-4 py-3">{i + 1}</td>
+            <td className="px-4 py-3">{e.address || "-"}</td>
+            <td className="px-4 py-3">{e.group_name || "-"}</td>
+            <td className="px-4 py-3">{e.last_active || "-"}</td>
+            <td className="px-4 py-3"><span className={e.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{e.active === false ? "Passiv" : "Aktiv"}</span></td>
+          </tr>
+        ))}
+      </Table>
+    </div>
+  );
+}
+
+
 function Objects(p: any) { return <div><Header icon="🏢" title="Objekte"><Button primary onClick={p.saveSite}>Speichern</Button></Header><Card className="mb-6 p-5"><p className="mb-4 text-slate-500">Adresse eingeben, GPS automatisch berechnen, Notizen speichern.</p><div className="grid gap-3 md:grid-cols-6"><input value={p.siteName} onChange={(e) => p.setSiteName(e.target.value)} className="field" placeholder="Objektname" /><input value={p.siteAddress} onChange={(e) => p.setSiteAddress(e.target.value)} className="field md:col-span-2" placeholder="Adresse" /><input value={p.siteRadius} onChange={(e) => p.setSiteRadius(e.target.value)} className="field" placeholder="Radius" /><input value={p.siteLat} onChange={(e) => p.setSiteLat(e.target.value)} className="field" placeholder="Breite" /><input value={p.siteLng} onChange={(e) => p.setSiteLng(e.target.value)} className="field" placeholder="Länge" /><textarea value={p.siteNotes} onChange={(e) => p.setSiteNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.geo} disabled={p.geoLoading} className="rounded-xl bg-purple-100 px-4 py-3 font-bold text-purple-700 disabled:opacity-50">{p.geoLoading ? "Wird gesucht..." : "GPS ermitteln"}</button><button onClick={p.saveSite} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div></Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{p.sites.map((s: Row) => <Card key={s.id} className="p-4"><p className="font-bold">{s.name}</p><p className="text-sm text-slate-500">{s.address || "Keine Adresse"}</p><p className="text-sm text-slate-500">GPS: {s.latitude ?? "-"}, {s.longitude ?? "-"} · Radius {s.allowed_radius_m || 50} m</p><p className="mt-2 text-sm">{s.notes || ""}</p><div className="mt-4 flex gap-2"><button onClick={() => p.editSite(s)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.deactivate(s.id)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Deaktivieren</button></div></Card>)}</div></div>; }
 function Tasks(p: any) { return <div><Header icon="🧾" title="Aufgaben" /><Table headers={["Datum", "Zeitfenster", "Planzeit", "Objekt", "Mitarbeiter", "Auftrag", "Status", "Aktion"]}>{p.tasks.map((t: Row) => <tr key={t.id} className="border-b"><td className="p-3">{t.task_date}</td><td className="p-3">{t.start_time} - {t.end_time}</td><td className="p-3">{hours(Number(t.planned_minutes || t.max_minutes || 0))} Std.</td><td className="p-3">{t.site}</td><td className="p-3">{t.employee_name}</td><td className="p-3">{t.title}</td><td className="p-3">{t.done ? "Erledigt" : "Offen"}</td><td className="p-3"><button onClick={() => p.editTask(t)} className="mr-2 text-blue-600">Bearbeiten</button><button onClick={() => p.deleteTask(t)} className="text-red-600">Löschen</button></td></tr>)}</Table></div>; }
 function Material(p: any) { return <div><Header icon="📦" title="Materialwesen"><Button primary onClick={p.save}>⊕ Produkt speichern</Button></Header><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-6"><input value={p.materialName} onChange={(e) => p.setMaterialName(e.target.value)} className="field" placeholder="Produktname" /><input value={p.materialCategory} onChange={(e) => p.setMaterialCategory(e.target.value)} className="field" placeholder="Kategorie" /><input value={p.materialUnit} onChange={(e) => p.setMaterialUnit(e.target.value)} className="field" placeholder="Einheit" /><input type="number" value={p.materialStock} onChange={(e) => p.setMaterialStock(e.target.value)} className="field" placeholder="Bestand" /><input type="number" value={p.materialMinStock} onChange={(e) => p.setMaterialMinStock(e.target.value)} className="field" placeholder="Mindestbestand" /><input type="file" accept="image/*" onChange={(e: ChangeEvent<HTMLInputElement>) => p.upload(e.target.files?.[0] || null)} className="field" /><textarea value={p.materialNotes} onChange={(e) => p.setMaterialNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.save} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div>{p.materialImage && <img src={p.materialImage} alt="Material" className="mt-4 h-24 w-24 rounded-xl object-cover" />}</Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{p.materials.map((m: Row) => <Card key={m.id} className="p-4"><div className="mb-3 h-40 overflow-hidden rounded-xl bg-slate-100">{m.image_url ? <img src={m.image_url} alt={m.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">📦</div>}</div><p className="font-bold">{m.name}</p><p className="text-sm text-slate-500">{m.category || "Ohne Kategorie"}</p><p className="mt-2 text-sm">Bestand: <b>{m.current_stock || 0}</b> {m.unit || "Stück"}</p><div className="mt-4 flex gap-2"><button onClick={() => p.edit(m)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.remove(m)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></div></Card>)}</div></div>; }
