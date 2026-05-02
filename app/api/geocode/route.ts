@@ -1,25 +1,22 @@
 import { NextResponse } from "next/server";
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const address = String(searchParams.get("address") || "").trim();
+    const body = await request.json();
+    const address = String(body.address || "").trim();
 
     if (!address) {
-      return NextResponse.json(
-        { error: "Adresse fehlt." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Adresse fehlt." }, { status: 400 });
     }
 
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(
-      address
-    )}`;
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("format", "json");
+    url.searchParams.set("limit", "1");
+    url.searchParams.set("q", address);
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       headers: {
-        "User-Agent": "CleanTrack/1.0",
-        Accept: "application/json",
+        "User-Agent": "CleanTrack/1.0 (admin@cleantrack.local)",
       },
     });
 
@@ -30,13 +27,13 @@ export async function GET(request: Request) {
       );
     }
 
-    const data = (await response.json()) as Array<{
+    const results = (await response.json()) as Array<{
       lat?: string;
       lon?: string;
       display_name?: string;
     }>;
 
-    const first = data[0];
+    const first = results[0];
 
     if (!first?.lat || !first?.lon) {
       return NextResponse.json(
@@ -46,7 +43,6 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      success: true,
       latitude: Number(first.lat),
       longitude: Number(first.lon),
       displayName: first.display_name || address,
@@ -57,7 +53,7 @@ export async function GET(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Adresse konnte nicht geprüft werden.",
+            : "Serverfehler beim Ermitteln der GPS-Daten.",
       },
       { status: 500 }
     );
