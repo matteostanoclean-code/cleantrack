@@ -1820,7 +1820,7 @@ export default function AdminPage() {
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
-          {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+          {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} tasks={assignmentRows} absences={absences} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
           {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={decideAbsence} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
@@ -2236,7 +2236,7 @@ function Planning(p: any) {
                         <div className={`h-full rounded-full ${overload ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${freePercent}%` }} />
                       </div>
                       <div className="flex items-center justify-between gap-2 text-[11px] font-black text-slate-400">
-                        <span>{formatHours(monthMinutes)} geplant</span>
+                        <span>Planzeit: {formatHours(weekMinutes)}</span>
                         <span className={remainingMinutes < 0 ? "text-red-600" : "text-emerald-600"}>{limitMinutes ? `${remainingMinutes >= 0 ? formatHours(remainingMinutes) : `-${formatHours(Math.abs(remainingMinutes))}`} frei` : "Limit fehlt"}</span>
                       </div>
                     </div>
@@ -2551,9 +2551,89 @@ function payableMinutes(row: Row) {
   return Number(row.payroll_minutes ?? row.worked_minutes ?? row.planned_minutes ?? 0);
 }
 
+function timeEntryDate(row: Row) {
+  return dateOnly(row.work_date || row.check_in_at || row.created_at);
+}
+
+function DailyClosing(p: any) {
+  const employees = (p.employees || []).filter((employee: Row) => employee.role !== "admin" && employee.active !== false);
+  const dayTasks = (p.tasks || []).filter((task: Row) => dateOnly(task.task_date || task.due_date) === p.selectedDay);
+  const dayEntries = (p.entries || []).filter((entry: Row) => timeEntryDate(entry) === p.selectedDay);
+  const rows = employees.map((employee: Row) => {
+    const employeeName = String(employee.name || "");
+    const planned = dayTasks
+      .filter((task: Row) => String(task.employee_name || "") === employeeName)
+      .reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+    const employeeEntries = dayEntries.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
+    const actual = employeeEntries.reduce((sum: number, entry: Row) => sum + payableMinutes(entry), 0);
+    const absence = employeeAbsenceForDate(p.absences || [], employeeName, p.selectedDay);
+    const approvedAbsence = absence && absenceIsBlocking(absence);
+    const diff = actual - planned;
+    let status = "OK";
+    let color: "green" | "yellow" | "red" | "gray" = "green";
+
+    if (approvedAbsence && isUnpaidAbsence(absence)) {
+      status = "Unbezahlt Frei";
+      color = "gray";
+    } else if (approvedAbsence) {
+      status = absence.absence_type || "Abwesenheit";
+      color = "yellow";
+    } else if (planned > 0 && actual <= 0) {
+      status = "Nicht gestempelt";
+      color = "red";
+    } else if (diff > 15) {
+      status = "Über Planzeit";
+      color = "red";
+    } else if (diff < -15) {
+      status = "Unter Planzeit";
+      color = "yellow";
+    }
+
+    return { employee, planned, actual, diff, status, color, entries: employeeEntries };
+  });
+
+  async function approveEntries(entries: Row[]) {
+    for (const entry of entries) {
+      await p.approve(entry, true);
+    }
+  }
+
+  return (
+    <Card className="mb-5 p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-black text-slate-950">Tagesabschluss</h3>
+          <p className="text-sm font-bold text-slate-500">Ich prüfe hier geplante Zeit, gestempelte Zeit und Abwesenheiten pro Tag.</p>
+        </div>
+        <input type="date" value={p.selectedDay} onChange={(event) => p.setSelectedDay(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700" />
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+            <tr><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Planzeit</th><th className="px-4 py-3">Ist / Lohnzeit</th><th className="px-4 py-3">Differenz</th><th className="px-4 py-3">Hinweis</th><th className="px-4 py-3">Aktion</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {rows.length === 0 ? <tr><td colSpan={6}><Empty text="Keine Mitarbeiter für diesen Tag." /></td></tr> : rows.map((row: Row) => (
+              <tr key={row.employee.id || row.employee.name}>
+                <td className="px-4 py-3 font-black">{row.employee.name}</td>
+                <td className="px-4 py-3 font-bold">{prettyHours(row.planned)} Std.</td>
+                <td className="px-4 py-3 font-bold">{prettyHours(row.actual)} Std.</td>
+                <td className={`px-4 py-3 font-black ${row.diff < 0 ? "text-red-600" : row.diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>{row.diff === 0 ? "0:00" : `${row.diff > 0 ? "+" : "-"}${prettyHours(Math.abs(row.diff))}`} Std.</td>
+                <td className="px-4 py-3"><Status color={row.color}>{row.status}</Status></td>
+                <td className="px-4 py-3"><Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 function Times(p: any) {
   const defaultMonth = today.slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+  const [selectedDay, setSelectedDay] = useState(today);
   const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
   const monthRows = (p.rows || []).filter((row: Row) => monthFromValue(payrollDate(row)) === selectedMonth);
@@ -2634,6 +2714,8 @@ function Times(p: any) {
         <Button onClick={p.exportRows}>Zeiten CSV</Button>
         <Button primary onClick={exportPayroll}>Lohnexport CSV</Button>
       </PageHeader>
+
+      <DailyClosing selectedDay={selectedDay} setSelectedDay={setSelectedDay} employees={p.employees || []} tasks={p.tasks || []} entries={p.rows || []} absences={p.absences || []} approve={p.approve} />
 
       <Card className="mb-5 p-5">
         <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
