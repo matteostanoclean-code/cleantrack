@@ -1,26 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
+type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "admin";
 
-type Tab =
-  | "home"
-  | "tasks"
-  | "clock"
-  | "schedule"
-  | "search"
-  | "chat"
-  | "profile"
-  | "admin";
+type EmployeeProfile = {
+  id: string;
+  auth_user_id?: string | null;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+  active?: boolean | null;
+  avatar_url?: string | null;
+  must_change_password?: boolean | null;
+};
 
 type WorkSite = {
   id: string;
   name: string;
-  latitude: number | null;
-  longitude: number | null;
-  allowed_radius_m: number | null;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  allowed_radius_m?: number | null;
 };
 
 type Task = {
@@ -61,2362 +66,813 @@ type AdminNotification = {
 type TimeEntry = {
   id: string;
   employee_name: string;
-  work_site_name: string;
+  work_site_name: string | null;
   action: "start" | "break_start" | "break_end" | "end";
   created_at: string;
   auto_clock_out: boolean | null;
 };
 
-function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371000;
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+function formatDate(value: Date) {
+  return value.toLocaleDateString("de-DE", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  });
 }
-function normalizePhone(phone: string) {
-  let cleaned = phone.replace(/\s/g, "").replace(/-/g, "");
 
-  if (cleaned.startsWith("00")) {
-    cleaned = "+" + cleaned.slice(2);
-  }
-
-  if (cleaned.startsWith("0")) {
-    cleaned = "+49" + cleaned.slice(1);
-  }
-
-  return cleaned;
+function formatClock(value: string | null) {
+  if (!value) return "--:--";
+  if (value.length <= 5) return value;
+  return value.slice(0, 5);
 }
+
+function formatMinutes(minutes: number) {
+  const safe = Math.max(0, Math.round(minutes || 0));
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
+  return `${h}:${String(m).padStart(2, "0")} h`;
+}
+
+function initials(name: string) {
+  return (name || "M")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function sortTasksByTime(items: Task[]) {
+  return [...items].sort((a, b) => `${a.start_time || "99:99"}`.localeCompare(`${b.start_time || "99:99"}`));
+}
+
 export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: Tab }) {
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [loginLoading, setLoginLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
   const [loggedIn, setLoggedIn] = useState(false);
-
-  const [employeeName, setEmployeeName] = useState("");
-  const [employeeId, setEmployeeId] = useState("");
-  const [role, setRole] = useState<string | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState("");
-const [profileMessage, setProfileMessage] = useState("");
-const [showPushPrompt, setShowPushPrompt] = useState(false);
-const [profileImageLoading, setProfileImageLoading] = useState(false);
-
-const [profilePassword, setProfilePassword] = useState("");
-const [profilePasswordRepeat, setProfilePasswordRepeat] = useState("");
-const [profilePasswordLoading, setProfilePasswordLoading] = useState(false);
+  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
-const [newPassword, setNewPassword] = useState("");
-const [newPasswordRepeat, setNewPasswordRepeat] = useState("");
-const [changePasswordMessage, setChangePasswordMessage] = useState("");
-const [changePasswordLoading, setChangePasswordLoading] = useState(false);
-
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordRepeat, setNewPasswordRepeat] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [workSites, setWorkSites] = useState<WorkSite[]>([]);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [selectedSite, setSelectedSite] = useState<WorkSite | null>(null);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
+  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatText, setChatText] = useState("");
+  const [chatError, setChatError] = useState("");
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const [status, setStatus] = useState<Status>("none");
-  const [message, setMessage] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [loadingData, setLoadingData] = useState(false);
 
-  const [startTime, setStartTime] = useState<Date | null>(null);
-  const [breakStart, setBreakStart] = useState<Date | null>(null);
-  const [workedMinutes, setWorkedMinutes] = useState(0);
-  const [pauseMinutes, setPauseMinutes] = useState(0);
-
-  const [currentDistance, setCurrentDistance] = useState<number | null>(null);
-  const [outsideObject, setOutsideObject] = useState(false);
-
-  const [overtimeWarningSent, setOvertimeWarningSent] = useState(false);
-  const [overtimeBlocked, setOvertimeBlocked] = useState(false);
-  const [overtimeRequestSent, setOvertimeRequestSent] = useState(false);
-
-  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
-
-  const [chatText, setChatText] = useState("");
-const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-const [chatError, setChatError] = useState("");
-const chatEndRef = useRef<HTMLDivElement | null>(null);
-const [unreadChatCount, setUnreadChatCount] = useState(0);
-
-  const todayISO = new Date().toISOString().split("T")[0];
-
-  const todayText = new Date().toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-
-  const todayTasks = tasks.filter((task) => task.task_date === todayISO);
+  const name = profile?.name || "";
+  const role = profile?.role || "employee";
+  const today = todayISO();
+  const todayTasks = useMemo(() => sortTasksByTime(tasks.filter((task) => task.task_date === today)), [tasks, today]);
   const openTasks = todayTasks.filter((task) => !task.done).length;
   const doneTasks = todayTasks.filter((task) => task.done).length;
+  const plannedMinutes = todayTasks.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
+  const workedMinutes = useMemo(() => calculateWorkedMinutes(todayEntries), [todayEntries]);
+  const pauseMinutes = useMemo(() => calculatePauseMinutes(todayEntries), [todayEntries]);
+  const progress = plannedMinutes > 0 ? Math.min(100, Math.round((workedMinutes / plannedMinutes) * 100)) : 0;
+  const selectedTask = todayTasks.find((task) => task.id === selectedTaskId) || todayTasks.find((task) => !task.done) || todayTasks[0] || null;
 
-  const plannedMinutes =
-    selectedTask?.planned_minutes || selectedTask?.max_minutes || 0;
-
-  const totalPlannedMinutes = todayTasks.reduce(
-    (sum, task) => sum + (task.planned_minutes || task.max_minutes || 0),
-    0
-  );
-
-  const overtimeMinutes =
-    totalPlannedMinutes > 0 && workedMinutes > totalPlannedMinutes
-      ? workedMinutes - totalPlannedMinutes
-      : 0;
-     useEffect(() => {
-  if (!loggedIn || !employeeName) return;
-
-  loadUnreadChatCount();
-
-  const timer = setInterval(() => {
-    loadUnreadChatCount();
-  }, 10000);
-
-  
-  // 🔴 Live Updates (Realtime)
   useEffect(() => {
-    if (!employeeName) return;
+    checkExistingSession();
+  }, []);
+
+  useEffect(() => {
+    if (!loggedIn || !name) return;
+    loadAllData(name);
+    const timer = window.setInterval(() => loadAllData(name, true), 15000);
+    return () => window.clearInterval(timer);
+  }, [loggedIn, name]);
+
+  useEffect(() => {
+    if (!loggedIn || !name) return;
 
     const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
+      .channel(`cleantrack-employee-${name}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => loadTasks(name))
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => {
+        loadUnreadChatCount(name);
+        if (activeTab === "chat") loadChatMessages(name);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "time_entries" }, () => loadTodayEntries(name))
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [employeeName]);
+  }, [loggedIn, name, activeTab]);
 
-  // 🔁 Fallback Polling
   useEffect(() => {
-    if (!employeeName) return;
+    if (activeTab !== "chat") return;
+    const timer = window.setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, chatMessages]);
 
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return () => clearInterval(timer);
-}, [loggedIn, employeeName]);
- useEffect(() => {
-  if (!loggedIn || !employeeName) return;
-
-  async function checkPushState() {
-    if (!("serviceWorker" in navigator)) return;
-    if (!("Notification" in window)) return;
-    if (!("PushManager" in window)) return;
-
-    if (Notification.permission === "denied") {
-      setShowPushPrompt(false);
+  useEffect(() => {
+    const last = todayEntries[0];
+    if (!last) {
+      setStatus("none");
       return;
     }
 
-    if (Notification.permission === "granted") {
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      const subscription = await registration.pushManager.getSubscription();
+    if (last.action === "start" || last.action === "break_end") setStatus("working");
+    if (last.action === "break_start") setStatus("break");
+    if (last.action === "end") setStatus("none");
+  }, [todayEntries]);
 
-      if (subscription) {
-        const token = await getAccessToken();
+  async function checkExistingSession() {
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+    if (!user) return;
 
-        if (token) {
-          await fetch("/api/push/subscribe", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              subscription,
-            }),
-          });
-        }
+    const { data: row } = await supabase
+      .from("employee_profiles")
+      .select("*")
+      .eq("auth_user_id", user.id)
+      .single();
 
-        localStorage.setItem("cleantrack_push_asked", "true");
-        setShowPushPrompt(false);
-        return;
-      }
-    }
-
-    const alreadyAsked = localStorage.getItem("cleantrack_push_asked");
-
-    if (!alreadyAsked && Notification.permission === "default") {
-      setShowPushPrompt(true);
-    }
+    if (!row) return;
+    setProfile(row);
+    setMustChangePassword(Boolean(row.must_change_password));
+    setLoggedIn(true);
   }
 
-  checkPushState();
-}, [loggedIn, employeeName]);
-useEffect(() => {
-  checkExistingSession();
-}, []);
-
-async function getAccessToken() {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || "";
-}
-useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
-  const tab = params.get("tab");
-
-  if (tab === "chat") {
-    setActiveTab("chat");
-  }
-}, []);
-async function checkExistingSession() {
-  const { data } = await supabase.auth.getSession();
-
-  if (!data.session?.user) {
-    return;
-  }
-
-  const { data: profile } = await supabase
-    .from("employee_profiles")
-    .select("id, name, role, avatar_url, must_change_password")
-    .eq("auth_user_id", data.session.user.id)
-    .single();
-
-  if (!profile) {
-    return;
-  }
-
-  const name = profile.name;
-
-  setEmployeeName(name);
-  setEmployeeId(profile.id);
-  setRole(profile.role || "employee");
-  setAvatarUrl(profile.avatar_url || "");
-  setMustChangePassword(Boolean(profile.must_change_password));
-  setLoggedIn(true);
-
-  await loadAllData(name);
-}
-useEffect(() => {
-  if (activeTab !== "chat") return;
-
-  const timer = setTimeout(() => {
-    chatEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
-  }, 150);
-
-  
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return () => clearTimeout(timer);
-}, [chatMessages, activeTab]);
-  useEffect(() => {
-    if (!loggedIn) return;
-
-    const timer = setInterval(() => {
-      const total = calculateWorkedMinutes(todayEntries);
-      const pauses = calculatePauseMinutes(todayEntries);
-
-      setWorkedMinutes(total);
-      setPauseMinutes(pauses);
-
-      if (
-        status === "working" &&
-        plannedMinutes > 0 &&
-        total > plannedMinutes + 5 &&
-        !overtimeWarningSent
-      ) {
-        setOvertimeWarningSent(true);
-        setOvertimeBlocked(true);
-        setOvertimeRequestSent(true);
-
-        setMessage(
-          "Planzeit überschritten. Die Zeituhr wurde gestoppt. Bitte warte auf Freigabe vom Admin."
-        );
-
-        createEntry("end", false);
-        notifyAdminOvertime(total - plannedMinutes);
-
-        setStatus("none");
-        setStartTime(null);
-      }
-    }, 1000);
-
-    
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return () => clearInterval(timer);
-  }, [
-    loggedIn,
-    status,
-    plannedMinutes,
-    overtimeWarningSent,
-    todayEntries,
-  ]);
-
-  useEffect(() => {
-    if (!loggedIn || status === "none" || !selectedSite) return;
-
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        if (
-          selectedSite.latitude === null ||
-          selectedSite.longitude === null ||
-          selectedSite.allowed_radius_m === null
-        ) {
-          return;
-        }
-
-        const distance = distanceMeters(
-          position.coords.latitude,
-          position.coords.longitude,
-          selectedSite.latitude,
-          selectedSite.longitude
-        );
-
-        setCurrentDistance(Math.round(distance));
-
-        const outside = distance > selectedSite.allowed_radius_m;
-        setOutsideObject(outside);
-
-        if (outside && status === "working") {
-          createEntry("end", true);
-          setMessage("Automatisch ausgestempelt: Du hast das Objekt verlassen.");
-        }
-      },
-      () => {
-        setMessage("Standort konnte nicht geprüft werden.");
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 5000,
-        timeout: 10000,
-      }
-    );
-
-    
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return () => navigator.geolocation.clearWatch(watchId);
-  }, [loggedIn, status, selectedSite]);
-
-  useEffect(() => {
-    if (!selectedTask || workSites.length === 0) return;
-
-    const foundSite =
-      workSites.find((item) => item.id === selectedTask.work_site_id) ||
-      workSites.find((item) => item.name === selectedTask.site) ||
-      null;
-
-    setSelectedSite(foundSite);
-  }, [selectedTask, workSites]);
-
-  useEffect(() => {
-    if (!loggedIn || !employeeName || !overtimeBlocked) return;
-
-    const timer = setInterval(() => {
-      checkOvertimeApproval(employeeName);
-    }, 10000);
-
-    
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return () => clearInterval(timer);
-  }, [loggedIn, employeeName, overtimeBlocked]);
-useEffect(() => {
-  if (!loggedIn || !employeeName || activeTab !== "chat") return;
-
-  loadChatMessages();
-
-  const timer = setInterval(() => {
-    loadChatMessages();
-  }, 5000);
-
-  
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return () => clearInterval(timer);
-}, [loggedIn, employeeName, activeTab]);
-
-async function loadUnreadChatCount() {
-  if (!employeeName) return;
-
-  const { count } = await supabase
-    .from("chat_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("employee_name", employeeName)
-    .eq("sender_role", "admin")
-    .eq("read_by_employee", false);
-
-  setUnreadChatCount(count || 0);
-}
   async function login() {
-  setMessage("");
-  setLoginLoading(true);
+    setMessage("");
+    setLoginLoading(true);
 
-  if (!email.trim() || !password.trim()) {
-    setMessage("Bitte E-Mail oder Handynummer und Passwort eingeben.");
-    setLoginLoading(false);
-    return;
-  }
-
-  try {
-    const loginValue = email.trim().toLowerCase();
-
-const { data, error } = await supabase.auth.signInWithPassword({
-  email: loginValue,
-  password: password.trim(),
-});
-
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.user) {
-      setMessage("Login-Daten sind falsch.");
+      setMessage("Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.");
       setLoginLoading(false);
       return;
     }
 
-    const { data: profile } = await supabase
+    const { data: row } = await supabase
       .from("employee_profiles")
-     .select("id, name, role, avatar_url, must_change_password")
+      .select("*")
       .eq("auth_user_id", data.user.id)
       .single();
 
-    const name = profile?.name || loginValue;
+    if (!row || row.active === false) {
+      setMessage("Dein Mitarbeiterprofil ist nicht aktiv.");
+      setLoginLoading(false);
+      return;
+    }
 
-    setEmployeeName(name);
-    setEmployeeId(profile?.id || data.user.id);
-    setRole(profile?.role || "employee");
-    setAvatarUrl(profile?.avatar_url || "");
-setMustChangePassword(Boolean(profile?.must_change_password));
-setLoggedIn(true);
-
-    await loadAllData(name);
-  } catch {
-    setMessage("Login konnte nicht ausgeführt werden. Bitte Internet prüfen.");
-  }
-
-  setLoginLoading(false);
-}
-
-  async function loadAllData(name: string) {
-    await loadWorkSites();
-    await loadTasks(name);
-    await loadNotifications(name);
-    await loadTodayEntries(name);
+    setProfile(row);
+    setMustChangePassword(Boolean(row.must_change_password));
+    setLoggedIn(true);
+    setLoginLoading(false);
   }
 
   async function resetPassword() {
-  setMessage("");
-
-  if (!email.trim()) {
-    setMessage("Bitte zuerst deine E-Mail eingeben.");
-    return;
-  }
-
-  if (!email.includes("@")) {
-    setMessage("Passwort zurücksetzen geht nur mit E-Mail.");
-    return;
-  }
-
-  const { error } = await supabase.auth.resetPasswordForEmail(
-    email.trim().toLowerCase(),
-    {
-      redirectTo: `${window.location.origin}/mitarbeiter/passwort-neu`,
+    if (!email) {
+      setMessage("Bitte zuerst deine E-Mail eintragen.");
+      return;
     }
-  );
-
-  if (error) {
-    setMessage("Passwort-Link konnte nicht gesendet werden.");
-    return;
+    await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/mitarbeiter/passwort-neu`,
+    });
+    setMessage("Wenn die E-Mail bekannt ist, wurde ein Link zum Zurücksetzen gesendet.");
   }
 
-  setMessage("Passwort-Link wurde gesendet. Bitte E-Mail prüfen.");
-}
+  async function logout() {
+    await supabase.auth.signOut();
+    setLoggedIn(false);
+    setProfile(null);
+    setPassword("");
+  }
+
+  async function loadAllData(employeeName: string, silent = false) {
+    if (!silent) setLoadingData(true);
+    await Promise.all([
+      loadTasks(employeeName),
+      loadWorkSites(),
+      loadTodayEntries(employeeName),
+      loadNotifications(employeeName),
+      loadUnreadChatCount(employeeName),
+      activeTab === "chat" ? loadChatMessages(employeeName) : Promise.resolve(),
+    ]);
+    if (!silent) setLoadingData(false);
+  }
 
   async function loadWorkSites() {
-    const { data } = await supabase
-      .from("work_sites")
-      .select("id, name, latitude, longitude, allowed_radius_m")
-      .order("name");
-
-    setWorkSites(data || []);
+    const { data } = await supabase.from("work_sites").select("*").order("name");
+    setWorkSites((data || []) as WorkSite[]);
   }
 
-  async function loadTasks(name: string) {
+  async function loadTasks(employeeName: string) {
     const { data } = await supabase
       .from("tasks")
-      .select(
-        "id, title, site, employee_name, task_date, done, start_time, end_time, max_minutes, planned_minutes, work_site_id"
-      )
-      .eq("employee_name", name)
-      .eq("task_date", todayISO)
-      .order("start_time", { ascending: true });
-
-    setTasks(data || []);
-
-    if (data && data.length > 0) {
-      setSelectedTask(data[0]);
-    }
+      .select("*")
+      .eq("employee_name", employeeName)
+      .gte("task_date", todayISO())
+      .order("task_date", { ascending: true });
+    setTasks((data || []) as Task[]);
   }
 
-  async function loadNotifications(name: string) {
-    const { data } = await supabase
-      .from("admin_notifications")
-      .select(
-        "id, title, message, status, notification_type, overtime_minutes, created_at"
-      )
-      .eq("employee_name", name)
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    setNotifications(data || []);
-  }
-
-  async function loadTodayEntries(name: string) {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
+  async function loadTodayEntries(employeeName: string) {
+    const start = `${todayISO()}T00:00:00`;
+    const end = `${todayISO()}T23:59:59`;
     const { data } = await supabase
       .from("time_entries")
-      .select("id, employee_name, work_site_name, action, created_at, auto_clock_out")
-      .eq("employee_name", name)
-      .gte("created_at", startOfDay.toISOString())
-      .order("created_at", { ascending: true });
-
-    const entries = (data || []) as TimeEntry[];
-
-    setTodayEntries(entries);
-    restoreShiftFromEntries(entries);
-    setWorkedMinutes(calculateWorkedMinutes(entries));
-    setPauseMinutes(calculatePauseMinutes(entries));
+      .select("*")
+      .eq("employee_name", employeeName)
+      .gte("created_at", start)
+      .lte("created_at", end)
+      .order("created_at", { ascending: false });
+    setTodayEntries((data || []) as TimeEntry[]);
   }
 
-  function restoreShiftFromEntries(entries: TimeEntry[]) {
-    if (entries.length === 0) {
-      setStatus("none");
-      setStartTime(null);
-      setBreakStart(null);
-      return;
-    }
+  async function loadNotifications(employeeName: string) {
+    const { data } = await supabase
+      .from("admin_notifications")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setNotifications((data || []) as AdminNotification[]);
+  }
 
-    const lastEntry = entries[entries.length - 1];
+  async function loadUnreadChatCount(employeeName: string) {
+    const { count } = await supabase
+      .from("chat_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("employee_name", employeeName)
+      .eq("sender_role", "admin")
+      .eq("read_by_employee", false);
+    setUnreadChatCount(count || 0);
+  }
 
-    if (lastEntry.action === "start" || lastEntry.action === "break_end") {
-      setStatus("working");
-      setStartTime(new Date(lastEntry.created_at));
-      setBreakStart(null);
-      return;
-    }
+  async function loadChatMessages(employeeName: string) {
+    const { data } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: true });
 
-    if (lastEntry.action === "break_start") {
-      setStatus("break");
-      setBreakStart(new Date(lastEntry.created_at));
-      return;
-    }
-
-    if (lastEntry.action === "end") {
-      setStatus("none");
-      setStartTime(null);
-      setBreakStart(null);
-    }
+    setChatMessages((data || []) as ChatMessage[]);
+    await supabase
+      .from("chat_messages")
+      .update({ read_by_employee: true })
+      .eq("employee_name", employeeName)
+      .eq("sender_role", "admin");
+    setUnreadChatCount(0);
   }
 
   function calculateWorkedMinutes(entries: TimeEntry[]) {
+    const chronological = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     let total = 0;
     let lastStart: Date | null = null;
 
-    entries.forEach((entry) => {
+    for (const entry of chronological) {
       const time = new Date(entry.created_at);
-
-      if (entry.action === "start" || entry.action === "break_end") {
-        lastStart = time;
-      }
-
+      if (entry.action === "start" || entry.action === "break_end") lastStart = time;
       if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
-        total += (time.getTime() - (lastStart as Date).getTime()) / 1000 / 60;
+        total += Math.max(0, Math.round((time.getTime() - lastStart.getTime()) / 60000));
         lastStart = null;
       }
-    });
-
-    if (lastStart) {
-      total += (new Date().getTime() - (lastStart as Date).getTime()) / 1000 / 60;
     }
 
-    return Math.max(0, Math.floor(total));
+    if (lastStart && status === "working") {
+      total += Math.max(0, Math.round((Date.now() - lastStart.getTime()) / 60000));
+    }
+    return total;
   }
 
   function calculatePauseMinutes(entries: TimeEntry[]) {
+    const chronological = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     let total = 0;
-    let pauseStart: Date | null = null;
+    let lastBreak: Date | null = null;
 
-    entries.forEach((entry) => {
+    for (const entry of chronological) {
       const time = new Date(entry.created_at);
-
-      if (entry.action === "break_start") {
-        pauseStart = time;
+      if (entry.action === "break_start") lastBreak = time;
+      if (entry.action === "break_end" && lastBreak) {
+        total += Math.max(0, Math.round((time.getTime() - lastBreak.getTime()) / 60000));
+        lastBreak = null;
       }
-
-      if (entry.action === "break_end" && pauseStart) {
-        total += (time.getTime() - (pauseStart as Date).getTime()) / 1000 / 60;
-        pauseStart = null;
-      }
-    });
-
-    if (pauseStart) {
-      total += (new Date().getTime() - (pauseStart as Date).getTime()) / 1000 / 60;
     }
 
-    return Math.max(0, Math.floor(total));
+    if (lastBreak && status === "break") {
+      total += Math.max(0, Math.round((Date.now() - lastBreak.getTime()) / 60000));
+    }
+    return total;
   }
 
-  async function checkOvertimeApproval(name: string) {
-    const { data } = await supabase
-      .from("admin_notifications")
-      .select("id, status, notification_type")
-      .eq("employee_name", name)
-      .eq("notification_type", "overtime")
-      .order("created_at", { ascending: false })
-      .limit(1);
+  async function createEntry(action: TimeEntry["action"]) {
+    if (!name) return;
+    setMessage("");
 
-    const latest = data?.[0];
-
-    if (latest?.status === "approved") {
-      setOvertimeBlocked(false);
-      setOvertimeWarningSent(false);
-      setOvertimeRequestSent(false);
-      setMessage("Überstunden wurden genehmigt. Du kannst weiterarbeiten.");
-      await loadNotifications(name);
-    }
-
-    if (latest?.status === "rejected") {
-      setMessage("Überstunden wurden abgelehnt. Bitte Schicht beendet lassen.");
-      await loadNotifications(name);
-    }
-  }
-
-  async function getPosition(): Promise<GeolocationPosition> {
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-      });
-    });
-  }
-
-  async function checkInsideObject() {
-    if (!selectedSite) {
-      setMessage("Kein Objekt ausgewählt.");
-      return null;
-    }
-
-    if (
-      selectedSite.latitude === null ||
-      selectedSite.longitude === null ||
-      selectedSite.allowed_radius_m === null
-    ) {
-      setMessage("Für dieses Objekt fehlen Standortdaten.");
-      return null;
-    }
-
-    const pos = await getPosition();
-
-    const distance = distanceMeters(
-      pos.coords.latitude,
-      pos.coords.longitude,
-      selectedSite.latitude,
-      selectedSite.longitude
-    );
-
-    setCurrentDistance(Math.round(distance));
-
-    return {
-      inside: distance <= selectedSite.allowed_radius_m,
-      latitude: pos.coords.latitude,
-      longitude: pos.coords.longitude,
-      distance,
-    };
-  }
-
-  function isInsidePlannedWindow(task: Task | null) {
-    if (!task?.start_time || !task?.end_time) return true;
-
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const [startHour, startMinute] = task.start_time.split(":").map(Number);
-    const [endHour, endMinute] = task.end_time.split(":").map(Number);
-
-    const startMinutes = startHour * 60 + startMinute;
-    const endMinutes = endHour * 60 + endMinute;
-
-    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-  }
-
-  async function createEntry(
-    action: "start" | "break_start" | "break_end" | "end",
-    autoClockOut = false
-  ) {
-    if (!selectedTask || !selectedSite) {
-      setMessage("Heute ist kein Einsatz ausgewählt.");
-      return;
-    }
-
-    if (action === "start" && overtimeBlocked) {
-      setMessage("Du wartest noch auf Freigabe für Überstunden.");
-      return;
-    }
-
-    if (action === "start" && !isInsidePlannedWindow(selectedTask)) {
-      setMessage("Du bist außerhalb deines geplanten Zeitfensters.");
-      return;
-    }
-
-    const geo = await checkInsideObject();
-    if (!geo) return;
-
-    if (action === "start" && !geo.inside) {
-      setMessage("Du bist zu weit vom Objekt entfernt. Einstempeln nicht möglich.");
-      return;
-    }
-
-    const overtimeNow =
-      plannedMinutes > 0 && workedMinutes > plannedMinutes
-        ? workedMinutes - plannedMinutes
-        : 0;
+    const task = selectedTask;
+    const site = task?.site || workSites.find((item) => item.id === task?.work_site_id)?.name || "Ohne Objekt";
 
     const { error } = await supabase.from("time_entries").insert([
       {
-        employee_id: employeeId,
-        employee_name: employeeName,
-        work_site_id: selectedSite.id,
-        work_site_name: selectedSite.name,
+        employee_name: name,
+        work_site_name: site,
         action,
-        success: true,
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        distance_m: geo.distance,
-        planned_minutes: plannedMinutes,
-        overtime_minutes: overtimeNow,
-        auto_clock_out: autoClockOut,
-        created_at: new Date().toISOString(),
+        task_id: task?.id || null,
+        auto_clock_out: false,
       },
     ]);
 
     if (error) {
-      setMessage("Stempelung konnte nicht gespeichert werden.");
+      setMessage("Zeit konnte nicht gespeichert werden. Bitte Supabase/Rechte prüfen.");
       return;
     }
 
-    await loadTodayEntries(employeeName);
-
-    if (action === "start") {
-      setStatus("working");
-      setStartTime(new Date());
-      setOvertimeWarningSent(false);
-      setOvertimeBlocked(false);
-      setOvertimeRequestSent(false);
-      setMessage("Schicht gestartet.");
-    }
-
-    if (action === "break_start") {
-      setStatus("break");
-      setBreakStart(new Date());
-      setMessage("Pause gestartet.");
-    }
-
-    if (action === "break_end") {
-      setBreakStart(null);
-      setStatus("working");
-      setMessage("Pause beendet.");
-    }
-
-    if (action === "end") {
-      setStatus("none");
-      setStartTime(null);
-      setBreakStart(null);
-      setMessage(autoClockOut ? "Automatisch ausgestempelt." : "Schicht beendet.");
-    }
+    await loadTodayEntries(name);
+    setMessage(action === "start" ? "Arbeitszeit gestartet." : action === "end" ? "Arbeitszeit beendet." : action === "break_start" ? "Pause gestartet." : "Pause beendet.");
   }
 
-  async function notifyAdminOvertime(minutes: number) {
-    await supabase.from("admin_notifications").insert([
-      {
-        title: "Überstunden-Freigabe nötig",
-        message: `${employeeName} ist ${minutes} Minuten über der geplanten Zeit bei ${selectedSite?.name}.`,
-        employee_name: employeeName,
-        work_site_name: selectedSite?.name || null,
-        status: "open",
-        notification_type: "overtime",
-        overtime_minutes: minutes,
-        read: false,
-      },
-    ]);
-
-    await loadNotifications(employeeName);
-  }
-  async function toggleTask(taskId: string) {
-    const task = tasks.find((item) => item.id === taskId);
-    if (!task) return;
-
-    const { error } = await supabase
-      .from("tasks")
-      .update({ done: !task.done })
-      .eq("id", taskId);
-
+  async function toggleTask(task: Task) {
+    const { error } = await supabase.from("tasks").update({ done: !task.done }).eq("id", task.id);
     if (error) {
       setMessage("Aufgabe konnte nicht aktualisiert werden.");
       return;
     }
-
-    setTasks((old) =>
-      old.map((item) =>
-        item.id === taskId ? { ...item, done: !item.done } : item
-      )
-    );
+    if (name) await loadTasks(name);
   }
-   async function loadChatMessages() {
-  if (!employeeName) return;
-
-  const { data } = await supabase
-    .from("chat_messages")
-    .select(
-      "id, employee_name, sender_role, sender_name, message, read_by_admin, read_by_employee, created_at"
-    )
-    .eq("employee_name", employeeName)
-    .order("created_at", { ascending: true })
-    .limit(100);
-
-  setChatMessages((data || []) as ChatMessage[]);
-
-  await supabase
-    .from("chat_messages")
-    .update({ read_by_employee: true })
-    .eq("employee_name", employeeName)
-    .eq("sender_role", "admin");
-
-  setUnreadChatCount(0);
-}
 
   async function sendChatMessage() {
-  setChatError("");
+    setChatError("");
+    const text = chatText.trim();
+    if (!text || !name) return;
 
-  if (!chatText.trim()) return;
+    const { error } = await supabase.from("chat_messages").insert([
+      {
+        employee_name: name,
+        sender_role: "employee",
+        sender_name: name,
+        message: text,
+        read_by_admin: false,
+        read_by_employee: true,
+      },
+    ]);
 
-  if (!employeeName) {
-    setChatError("Mitarbeiter konnte nicht erkannt werden.");
-    return;
-  }
-
-  const text = chatText.trim();
-  setChatText("");
-
-  const { error } = await supabase.from("chat_messages").insert([
-    {
-      employee_name: employeeName,
-      sender_role: "employee",
-      sender_name: employeeName,
-      message: text,
-      read_by_admin: false,
-      read_by_employee: true,
-    },
-  ]);
-
-  if (error) {
-    setChatError(error.message || "Nachricht konnte nicht gesendet werden.");
-    setChatText(text);
-    return;
-  }
-
-  await loadChatMessages();
-}
-
-  function formatMinutes(minutes: number) {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h}:${String(m).padStart(2, "0")}`;
-  }
-async function changeOwnPassword() {
-  setChangePasswordMessage("");
-
-  if (newPassword.length < 6) {
-    setChangePasswordMessage("Das neue Passwort muss mindestens 6 Zeichen haben.");
-    return;
-  }
-
-  if (newPassword !== newPasswordRepeat) {
-    setChangePasswordMessage("Die Passwörter stimmen nicht überein.");
-    return;
-  }
-
-  setChangePasswordLoading(true);
-
-  try {
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      setChangePasswordMessage("Benutzer konnte nicht gefunden werden.");
-      setChangePasswordLoading(false);
+    if (error) {
+      setChatError("Nachricht konnte nicht gesendet werden.");
       return;
     }
 
-    const { error: passwordError } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
+    setChatText("");
+    await loadChatMessages(name);
+  }
 
-    if (passwordError) {
-      setChangePasswordMessage("Passwort konnte nicht geändert werden.");
-      setChangePasswordLoading(false);
+  async function changeOwnPassword() {
+    setMessage("");
+    if (newPassword.length < 6) {
+      setMessage("Das Passwort muss mindestens 6 Zeichen haben.");
+      return;
+    }
+    if (newPassword !== newPasswordRepeat) {
+      setMessage("Die Passwörter stimmen nicht überein.");
       return;
     }
 
-    await supabase
-      .from("employee_profiles")
-      .update({ must_change_password: false })
-      .eq("auth_user_id", userData.user.id);
+    setPasswordLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      setMessage("Passwort konnte nicht geändert werden.");
+      setPasswordLoading(false);
+      return;
+    }
+
+    if (profile?.id) {
+      await supabase.from("employee_profiles").update({ must_change_password: false }).eq("id", profile.id);
+    }
 
     setMustChangePassword(false);
     setNewPassword("");
     setNewPasswordRepeat("");
-    setChangePasswordMessage("Passwort wurde geändert.");
-  } catch {
-    setChangePasswordMessage("Passwort konnte nicht geändert werden. Bitte Internet prüfen.");
+    setPasswordLoading(false);
   }
 
-  setChangePasswordLoading(false);
-}
-function roleText(value: string | null) {
-  if (value === "admin") return "Admin";
-  return "Mitarbeiter";
-}
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; i += 1) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-
-  return outputArray;
-}
-
-async function enablePushNotifications() {
-  setProfileMessage("Push wird geprüft...");
-
-  try {
-    if (!("serviceWorker" in navigator)) {
-      setProfileMessage("Push wird von diesem Browser nicht unterstützt.");
-      return;
-    }
-
-    if (!("Notification" in window)) {
-      setProfileMessage("Benachrichtigungen werden von diesem Gerät nicht unterstützt.");
-      return;
-    }
-
-    if (!("PushManager" in window)) {
-      setProfileMessage("PushManager wird von diesem Browser nicht unterstützt.");
-      return;
-    }
-
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-    if (!vapidPublicKey) {
-      setProfileMessage("VAPID Public Key fehlt. Bitte Vercel ENV prüfen.");
-      return;
-    }
-
-    setProfileMessage("Browser fragt nach Erlaubnis...");
-
-    const permission = await Notification.requestPermission();
-
-    localStorage.setItem("cleantrack_push_asked", "true");
-    setShowPushPrompt(false);
-
-    if (permission !== "granted") {
-      setProfileMessage("Benachrichtigungen wurden nicht erlaubt.");
-      return;
-    }
-
-    setProfileMessage("Service Worker wird registriert...");
-
-    const registration = await navigator.serviceWorker.register("/sw.js");
-
-    await navigator.serviceWorker.ready;
-
-    setProfileMessage("Push-Abo wird erstellt...");
-
-    let subscription = await registration.pushManager.getSubscription();
-
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-      });
-    }
-
-    setProfileMessage("Push-Abo wird gespeichert...");
-
-    const token = await getAccessToken();
-
-    if (!token) {
-      setProfileMessage("Sitzung fehlt. Bitte neu einloggen.");
-      return;
-    }
-
-    const response = await fetch("/api/push/subscribe", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        subscription,
-      }),
-    });
-
-    const text = await response.text();
-
-    let result: { error?: string; message?: string; success?: boolean } = {};
-
-    try {
-      result = JSON.parse(text);
-    } catch {
-      setProfileMessage(
-        `Push API antwortet nicht als JSON. Status: ${response.status}. Antwort: ${text.slice(
-          0,
-          120
-        )}`
-      );
-      return;
-    }
-
-    if (!response.ok) {
-      setProfileMessage(result.error || "Push konnte nicht aktiviert werden.");
-      return;
-    }
-
-    setProfileMessage("Push-Benachrichtigungen wurden aktiviert.");
-  } catch (error) {
-    setProfileMessage(
-      error instanceof Error
-        ? `Push-Fehler: ${error.message}`
-        : "Push konnte nicht aktiviert werden."
-    );
-  }
-}
-async function uploadProfileImage(file: File | null) {
-  setProfileMessage("");
-
-  if (!file) return;
-
-  if (!file.type.startsWith("image/")) {
-    setProfileMessage("Bitte ein Bild auswählen.");
-    return;
-  }
-
-  setProfileImageLoading(true);
-
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    setProfileMessage("Benutzer wurde nicht gefunden.");
-    setProfileImageLoading(false);
-    return;
-  }
-
-  const fileExt = file.name.split(".").pop() || "jpg";
-  const filePath = `${userData.user.id}/avatar-${Date.now()}.${fileExt}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from("avatars")
-    .upload(filePath, file, {
-      upsert: true,
-    });
-
-  if (uploadError) {
-    setProfileMessage("Profilbild konnte nicht hochgeladen werden.");
-    setProfileImageLoading(false);
-    return;
-  }
-
-  const { data: publicUrlData } = supabase.storage
-    .from("avatars")
-    .getPublicUrl(filePath);
-
-  const publicUrl = publicUrlData.publicUrl;
-
-  const { error: profileError } = await supabase
-    .from("employee_profiles")
-    .update({ avatar_url: publicUrl })
-    .eq("auth_user_id", userData.user.id);
-
-  if (profileError) {
-    setProfileMessage("Profilbild wurde hochgeladen, aber nicht gespeichert.");
-    setProfileImageLoading(false);
-    return;
-  }
-
-  setAvatarUrl(publicUrl);
-  setProfileMessage("Profilbild wurde gespeichert.");
-  setProfileImageLoading(false);
-}
-
-async function changeProfilePassword() {
-  setProfileMessage("");
-
-  if (profilePassword.length < 6) {
-    setProfileMessage("Das Passwort muss mindestens 6 Zeichen haben.");
-    return;
-  }
-
-  if (profilePassword !== profilePasswordRepeat) {
-    setProfileMessage("Die Passwörter stimmen nicht überein.");
-    return;
-  }
-
-  setProfilePasswordLoading(true);
-
-  const { error } = await supabase.auth.updateUser({
-    password: profilePassword,
-  });
-
-  if (error) {
-    setProfileMessage("Passwort konnte nicht geändert werden.");
-    setProfilePasswordLoading(false);
-    return;
-  }
-
-  setProfilePassword("");
-  setProfilePasswordRepeat("");
-  setProfileMessage("Passwort wurde geändert.");
-  setProfilePasswordLoading(false);
-}
-  function BackButton() {
-    
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return (
-      <button
-        type="button"
-        onClick={() => setActiveTab("home")}
-        className="mb-5 px-5 py-3 rounded-2xl bg-white shadow-sm font-bold"
-      >
-        ← Zurück
-      </button>
-    );
+  function openTab(tab: Tab) {
+    setMessage("");
+    setActiveTab(tab);
+    if (tab === "chat" && name) loadChatMessages(name);
   }
 
   if (!loggedIn) {
-    
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
+    return (
+      <main className="min-h-screen bg-[#f5f7fb] px-5 py-8 flex items-center justify-center text-slate-950">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-7">
+            <img src="/logo.png" alt="Matteo Stano Clean" className="mx-auto mb-5 h-28 w-auto object-contain" />
+            <h1 className="text-2xl font-black">Mitarbeiter Login</h1>
+            <p className="text-sm text-slate-400 mt-1">CleanTrack Mitarbeiter-App</p>
+          </div>
 
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return (
-      <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
-        {showPushPrompt && (
-  <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-5">
-    <div className="bg-white rounded-[28px] p-6 shadow-sm max-w-sm w-full">
-      <h2 className="text-xl font-bold mb-2">Benachrichtigungen aktivieren?</h2>
-
-      <p className="text-gray-500 mb-5">
-        Ich kann Push aktivieren, damit neue Nachrichten vom Admin auch angezeigt werden, wenn die App nicht geöffnet ist.
-      </p>
-
-      <button
-        type="button"
-        onClick={enablePushNotifications}
-        className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold mb-3"
-      >
-        Push aktivieren
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          localStorage.setItem("cleantrack_push_asked", "true");
-          setShowPushPrompt(false);
-        }}
-        className="w-full p-4 rounded-2xl bg-gray-100 text-gray-600 font-bold"
-      >
-        Später
-      </button>
-    </div>
-  </div>
-)}
-        <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
-          <h1 className="text-2xl font-bold mb-2">Mitarbeiter Login</h1>
-          <p className="text-gray-500 mb-6">Bitte einloggen.</p>
-
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-placeholder="E-Mail"
-            className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
-          />
-
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            placeholder="Passwort"
-            className="w-full mb-4 p-4 rounded-2xl bg-gray-100 outline-none"
-          />
-
-          <button
-            type="button"
-            disabled={loginLoading}
-            onClick={login}
-            className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
-          >
-            {loginLoading ? "Login wird geprüft..." : "Login"}
-          </button>
-
-          <button
-            type="button"
-            onClick={resetPassword}
-            className="w-full mt-3 p-4 rounded-2xl bg-gray-100 text-gray-600 font-bold"
-          >
-            Passwort vergessen?
-          </button>
-
-          {message && (
-            <p className="mt-4 text-center text-red-500 font-medium">
-              {message}
-            </p>
-          )}
+          <div className="bg-white rounded-[30px] p-5 shadow-sm border border-slate-100">
+            <input className="mb-3 w-full rounded-2xl bg-slate-50 px-4 py-4 outline-none border border-transparent focus:border-blue-400" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-Mail" autoComplete="email" />
+            <input className="mb-4 w-full rounded-2xl bg-slate-50 px-4 py-4 outline-none border border-transparent focus:border-blue-400" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Passwort" type="password" autoComplete="current-password" />
+            <button type="button" disabled={loginLoading} onClick={login} className="w-full rounded-2xl bg-blue-600 py-4 text-white font-black shadow-sm disabled:opacity-60">
+              {loginLoading ? "Wird geprüft..." : "Einloggen"}
+            </button>
+            <button type="button" onClick={resetPassword} className="mt-3 w-full rounded-2xl bg-slate-100 py-4 text-slate-600 font-bold">
+              Passwort vergessen?
+            </button>
+            {message && <p className="mt-4 text-center text-sm font-bold text-red-500">{message}</p>}
+          </div>
         </div>
       </main>
     );
   }
-if (mustChangePassword) {
-  
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
 
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
+  if (mustChangePassword) {
+    return (
+      <main className="min-h-screen bg-[#f5f7fb] px-5 py-8 flex items-center justify-center text-slate-950">
+        <div className="w-full max-w-sm bg-white rounded-[30px] p-5 shadow-sm border border-slate-100">
+          <h1 className="text-2xl font-black mb-2">Neues Passwort</h1>
+          <p className="text-sm text-slate-500 mb-5">Ich vergebe jetzt mein eigenes Passwort für die App.</p>
+          <input className="mb-3 w-full rounded-2xl bg-slate-50 px-4 py-4 outline-none" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" placeholder="Neues Passwort" />
+          <input className="mb-4 w-full rounded-2xl bg-slate-50 px-4 py-4 outline-none" value={newPasswordRepeat} onChange={(e) => setNewPasswordRepeat(e.target.value)} type="password" placeholder="Passwort wiederholen" />
+          <button type="button" disabled={passwordLoading} onClick={changeOwnPassword} className="w-full rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">
+            {passwordLoading ? "Wird gespeichert..." : "Passwort speichern"}
+          </button>
+          {message && <p className="mt-4 text-sm font-bold text-red-500">{message}</p>}
+        </div>
+      </main>
+    );
+  }
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
+  return (
+    <main className="min-h-screen bg-[#f5f7fb] text-slate-950 pb-24">
+      <div className="mx-auto min-h-screen w-full max-w-md bg-[#f5f7fb]">
+        {activeTab === "home" && (
+          <HomeScreen
+            name={name}
+            avatar={profile?.avatar_url || ""}
+            todayTasks={todayTasks}
+            openTasks={openTasks}
+            doneTasks={doneTasks}
+            progress={progress}
+            workedMinutes={workedMinutes}
+            plannedMinutes={plannedMinutes}
+            loadingData={loadingData}
+            refresh={() => name && loadAllData(name)}
+            openTab={openTab}
+          />
+        )}
 
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
+        {activeTab === "tasks" && (
+          <TasksScreen tasks={todayTasks} toggleTask={toggleTask} openTab={openTab} />
+        )}
 
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
+        {activeTab === "clock" && (
+          <ClockScreen
+            tasks={todayTasks}
+            entries={todayEntries}
+            status={status}
+            selectedTaskId={selectedTaskId}
+            setSelectedTaskId={setSelectedTaskId}
+            workedMinutes={workedMinutes}
+            pauseMinutes={pauseMinutes}
+            message={message}
+            createEntry={createEntry}
+            openTab={openTab}
+          />
+        )}
 
-    return () => clearInterval(interval);
-  }, [employeeName]);
+        {activeTab === "schedule" && (
+          <ScheduleScreen tasks={tasks} openTab={openTab} />
+        )}
 
-return (
-    <main className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white rounded-[32px] p-6 shadow-sm">
-        <h1 className="text-2xl font-bold mb-2">Neues Passwort erstellen</h1>
+        {activeTab === "search" && (
+          <SearchScreen tasks={tasks} notifications={notifications} openTab={openTab} />
+        )}
 
-        <p className="text-gray-500 mb-6">
-          Bitte ändere dein Passwort, bevor du die App nutzt.
-        </p>
+        {activeTab === "chat" && (
+          <ChatScreen messages={chatMessages} chatText={chatText} setChatText={setChatText} sendChatMessage={sendChatMessage} chatError={chatError} chatEndRef={chatEndRef} openTab={openTab} />
+        )}
 
-        <input
-          type="password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          placeholder="Neues Passwort"
-          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
+        {activeTab === "profile" && (
+          <ProfileScreen profile={profile} workedMinutes={workedMinutes} pauseMinutes={pauseMinutes} notifications={notifications} logout={logout} openTab={openTab} />
+        )}
 
-        <input
-          type="password"
-          value={newPasswordRepeat}
-          onChange={(e) => setNewPasswordRepeat(e.target.value)}
-          placeholder="Passwort wiederholen"
-          className="w-full mb-4 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
-
-        <button
-          type="button"
-          disabled={changePasswordLoading}
-          onClick={changeOwnPassword}
-          className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
-        >
-          {changePasswordLoading ? "Wird gespeichert..." : "Passwort speichern"}
-        </button>
-
-        {changePasswordMessage && (
-          <p className="mt-4 text-center text-gray-700 font-medium">
-            {changePasswordMessage}
-          </p>
+        {activeTab === "admin" && (
+          <SimplePage title="Admin" openTab={openTab}>
+            {role === "admin" ? (
+              <button type="button" onClick={() => (window.location.href = "/admin")} className="w-full rounded-2xl bg-blue-600 py-4 text-white font-black">Admin Dashboard öffnen</button>
+            ) : (
+              <p className="text-center text-sm text-slate-400">Nur Administratoren können diesen Bereich öffnen.</p>
+            )}
+          </SimplePage>
         )}
       </div>
+
+      <BottomNav activeTab={activeTab} openTab={openTab} unreadChatCount={unreadChatCount} role={role} />
     </main>
   );
 }
-  
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
 
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
+function HomeScreen(props: {
+  name: string;
+  avatar: string;
+  todayTasks: Task[];
+  openTasks: number;
+  doneTasks: number;
+  progress: number;
+  workedMinutes: number;
+  plannedMinutes: number;
+  loadingData: boolean;
+  refresh: () => void;
+  openTab: (tab: Tab) => void;
+}) {
+  const quickLinks = [
+    { icon: "📊", title: "Einsatzübersicht", text: "Übersicht aller Einsätze für heute", tab: "schedule" as Tab, bg: "bg-blue-50" },
+    { icon: "⏱️", title: "Zeiterfassung", text: "Arbeitszeit starten und beenden", tab: "clock" as Tab, bg: "bg-green-50" },
+    { icon: "🌴", title: "Abwesenheit", text: "Abwesenheit einreichen und einsehen", tab: "profile" as Tab, bg: "bg-emerald-50" },
+    { icon: "📦", title: "Materialbestellung", text: "Benötigtes Material melden", tab: "chat" as Tab, bg: "bg-orange-50" },
+    { icon: "📋", title: "Aufgaben", text: "Aufgaben ansehen und abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
+  ];
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-900 pb-24">
-      {activeTab === "home" && (
-        <>
-          <section className="bg-white p-5 shadow-sm rounded-b-[32px]">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-orange-400 text-white flex items-center justify-center font-bold">
-                  {employeeName.charAt(0).toUpperCase()}
-                </div>
-
-                <div>
-                  <p className="font-bold">Guten Tag, {employeeName} 👋</p>
-                  <p className="text-sm text-gray-400">{todayText}</p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => loadAllData(employeeName)}
-                className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-600 font-bold"
-              >
-                Aktualisieren
-              </button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveTab("tasks")}
-                className="bg-cyan-50 rounded-[24px] p-4 text-center shadow-sm"
-              >
-                <div className="text-3xl mb-2">☑️</div>
-                <p className="text-sm font-medium">Aufgaben</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("clock")}
-                className="bg-indigo-50 rounded-[24px] p-4 text-center shadow-sm"
-              >
-                <div className="text-3xl mb-2">⏱️</div>
-                <p className="text-sm font-medium">Stempeluhr</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("schedule")}
-                className="bg-orange-50 rounded-[24px] p-4 text-center shadow-sm"
-              >
-                <div className="text-3xl mb-2">📅</div>
-                <p className="text-sm font-medium">Planung</p>
-              </button>
-            </div>
-          </section>
-
-          <section className="mt-4 px-5">
-            <h2 className="text-lg font-bold mb-3">Heute</h2>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-white rounded-[24px] p-4 shadow-sm">
-                <p className="text-xs text-gray-400">Arbeitszeit</p>
-                <p className="font-bold text-lg">{formatMinutes(workedMinutes)}</p>
-              </div>
-
-              <div className="bg-white rounded-[24px] p-4 shadow-sm">
-                <p className="text-xs text-gray-400">Pause</p>
-                <p className="font-bold text-lg">{formatMinutes(pauseMinutes)}</p>
-              </div>
-
-              <div className="bg-white rounded-[24px] p-4 shadow-sm">
-                <p className="text-xs text-gray-400">Planzeit</p>
-                <p className="font-bold text-lg">{formatMinutes(totalPlannedMinutes)}</p>
-              </div>
-            </div>
-
-            {overtimeMinutes > 0 && (
-              <div className="mt-3 bg-red-50 border border-red-100 rounded-[24px] p-4">
-                <p className="font-bold text-red-600">
-                  Überzeit: {formatMinutes(overtimeMinutes)}
-                </p>
-                <p className="text-sm text-gray-600">
-                  Bitte mit dem Admin abstimmen.
-                </p>
-              </div>
-            )}
-          </section>
-
-          <section className="mt-4 px-5">
-            <h2 className="text-lg font-bold mb-3">Heutige Objekte</h2>
-
-            <div className="grid grid-cols-1 gap-3">
-              {todayTasks.length === 0 && (
-                <div className="bg-white rounded-[28px] p-5 shadow-sm text-gray-400">
-                  Heute keine Objekte geplant.
-                </div>
-              )}
-
-              {Array.from(
-                new Set(todayTasks.map((task) => task.site || "Kein Objekt"))
-              ).map((siteName) => {
-                const siteTasks = todayTasks.filter(
-                  (task) => (task.site || "Kein Objekt") === siteName
-                );
-
-                
-  // 🔴 Live Updates (Realtime)
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const channel = supabase
-      .channel('tasks-live')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `employee_name=eq.${employeeName}`
-        },
-        () => {
-          loadTasks(employeeName);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [employeeName]);
-
-  // 🔁 Fallback Polling
-  useEffect(() => {
-    if (!employeeName) return;
-
-    const interval = setInterval(() => {
-      loadTasks(employeeName);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [employeeName]);
-
-return (
-                  <button
-                    type="button"
-                    key={siteName}
-                    onClick={() => setActiveTab("schedule")}
-                    className="bg-white rounded-[28px] p-5 shadow-sm text-left flex justify-between items-center"
-                  >
-                    <div>
-                      <p className="font-bold text-lg">{siteName}</p>
-                      <p className="text-sm text-gray-500">
-                        {siteTasks[0]?.start_time || "--:--"} -{" "}
-                        {siteTasks[0]?.end_time || "--:--"} ·{" "}
-                        {siteTasks.length} Aufgabe(n)
-                      </p>
-                    </div>
-
-                    <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-500 flex items-center justify-center text-xl">
-                      📍
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="mt-4 px-5">
-            <button
-              type="button"
-              onClick={() => setActiveTab("tasks")}
-              className="w-full bg-white rounded-[28px] p-5 shadow-sm flex items-center justify-between"
-            >
-              <div className="text-left">
-                <p className="font-bold text-lg">
-                  {openTasks} Aufgaben warten auf dich
-                </p>
-                <p className="text-sm text-gray-500">
-                  {doneTasks} erledigt · {openTasks} offen
-                </p>
-              </div>
-
-              <span className="px-5 py-2 rounded-full bg-blue-50 text-blue-500 font-bold">
-                Öffnen
-              </span>
-            </button>
-          </section>
-        </>
-      )}
-
-      {activeTab === "clock" && (
-        <>
-          <section className="relative min-h-[42vh] bg-gradient-to-br from-slate-200 to-slate-100 overflow-hidden">
-            <div className="relative p-5">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("home")}
-                  className="w-14 h-14 rounded-full bg-gray-700 text-white text-3xl"
-                >
-                  ←
-                </button>
-
-                <div className="flex-1 bg-white rounded-full px-6 py-4 shadow-sm flex justify-between items-center">
-                  <span className="text-gray-500">Arbeitszeit heute</span>
-                  <strong className="text-xl">{formatMinutes(workedMinutes)}</strong>
-                </div>
-              </div>
-
-              <div className="mt-10 grid grid-cols-3 gap-3">
-                <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
-                  <p className="text-xs text-gray-400">Pause</p>
-                  <p className="font-bold">{formatMinutes(pauseMinutes)}</p>
-                </div>
-
-                <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
-                  <p className="text-xs text-gray-400">Planzeit</p>
-                  <p className="font-bold">{formatMinutes(plannedMinutes)}</p>
-                </div>
-
-                <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
-                  <p className="text-xs text-gray-400">Überzeit</p>
-                  <p className={overtimeMinutes > 0 ? "font-bold text-red-500" : "font-bold"}>
-                    {formatMinutes(overtimeMinutes)}
-                  </p>
-                </div>
-              </div>
-
-              {selectedSite && (
-                <div className="mt-6 text-center">
-                  <p className="font-bold">{selectedSite.name}</p>
-                  <p className={outsideObject ? "text-red-500" : "text-green-600"}>
-                    {currentDistance === null
-                      ? "Standort wird geprüft..."
-                      : `${currentDistance} m vom Objekt entfernt`}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="-mt-8 relative bg-white rounded-t-[36px] p-6 min-h-[52vh] shadow-sm">
-            {tasks.length === 0 ? (
-              <p className="text-center text-gray-400 mt-4">
-                Für heute ist nichts geplant
-              </p>
-            ) : (
-              <>
-                <p className="text-center text-gray-400 mb-4">Heutiger Einsatz</p>
-
-                <select
-                  value={selectedTask?.id || ""}
-                  onChange={(e) => {
-                    const task = tasks.find((item) => item.id === e.target.value);
-                    setSelectedTask(task || null);
-                  }}
-                  className="w-full p-4 rounded-2xl bg-gray-100 outline-none mb-5"
-                >
-                  {tasks.map((task) => (
-                    <option key={task.id} value={task.id}>
-                      {task.start_time} - {task.end_time} · {task.site} ·{" "}
-                      {task.title}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-
-            <div className="flex justify-center mt-8">
-              <button
-                type="button"
-                disabled={status !== "none" || tasks.length === 0}
-                onClick={() => {
-                  if (overtimeBlocked) {
-                    setMessage("Du musst erst mit dem Admin sprechen.");
-                    return;
-                  }
-                  createEntry("start");
-                }}
-                className={
-                  status === "none"
-                    ? "w-56 h-56 rounded-full border border-gray-300 bg-white text-gray-500 flex flex-col items-center justify-center text-2xl font-bold shadow-sm disabled:opacity-40"
-                    : status === "working"
-                    ? "w-56 h-56 rounded-full bg-green-500 text-white flex flex-col items-center justify-center text-2xl font-bold shadow-md"
-                    : "w-56 h-56 rounded-full bg-purple-500 text-white flex flex-col items-center justify-center text-2xl font-bold shadow-md"
-                }
-              >
-                <span className="text-5xl mb-3">⏱</span>
-                {status === "none" && "Schicht starten"}
-                {status === "working" && "Schicht läuft"}
-                {status === "break" && "Pause läuft"}
-              </button>
-            </div>
-
-            <div className="mt-8 flex justify-center gap-3">
-              {status === "working" && (
-                <button
-                  type="button"
-                  onClick={() => createEntry("break_start")}
-                  className="px-6 py-3 rounded-full border text-purple-500 font-bold"
-                >
-                  Pause starten
-                </button>
-              )}
-
-              {status === "break" && (
-                <button
-                  type="button"
-                  onClick={() => createEntry("break_end")}
-                  className="px-6 py-3 rounded-full border text-purple-500 font-bold"
-                >
-                  Pause beenden
-                </button>
-              )}
-
-              {status !== "none" && (
-                <button
-                  type="button"
-                  onClick={() => createEntry("end")}
-                  className="px-6 py-3 rounded-full bg-red-100 text-red-600 font-bold"
-                >
-                  Schicht beenden
-                </button>
-              )}
-            </div>
-
-            {overtimeBlocked && (
-              <div className="mt-6 p-4 bg-red-100 text-red-700 rounded-2xl text-center font-bold">
-                <p>⚠️ Überstunden erreicht – bitte Admin kontaktieren</p>
-
-                {overtimeRequestSent && (
-                  <p className="text-sm text-green-700 mt-2">
-                    Anfrage wurde an den Admin gesendet.
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => checkOvertimeApproval(employeeName)}
-                  className="mt-3 px-5 py-3 rounded-2xl bg-white text-red-600 font-bold"
-                >
-                  Freigabe prüfen
-                </button>
-              </div>
-            )}
-
-            {message && (
-              <p className="mt-4 text-center font-medium text-gray-700">
-                {message}
-              </p>
-            )}
-          </section>
-        </>
-      )}
-
-      {activeTab === "tasks" && (
-        <section className="p-5">
-          <BackButton />
-          <h1 className="text-2xl font-bold mb-1">Aufgaben</h1>
-          <p className="text-gray-500 mb-5">
-            {doneTasks} erledigt · {openTasks} offen
-          </p>
-
-          <div className="space-y-3">
-            {todayTasks.length === 0 && (
-              <div className="bg-white rounded-[28px] p-6 shadow-sm text-center text-gray-400">
-                Keine Aufgaben für heute.
-              </div>
-            )}
-
-            {todayTasks.map((task) => (
-              <button
-                type="button"
-                key={task.id}
-                onClick={() => toggleTask(task.id)}
-                className="w-full bg-white rounded-[24px] p-4 shadow-sm flex justify-between items-center text-left"
-              >
-                <div>
-                  <p
-                    className={
-                      task.done
-                        ? "font-bold line-through text-gray-400"
-                        : "font-bold"
-                    }
-                  >
-                    {task.title}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {task.site || "Kein Objekt"} · {task.start_time} -{" "}
-                    {task.end_time}
-                  </p>
-                </div>
-
-                <div
-                  className={
-                    task.done
-                      ? "w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center"
-                      : "w-9 h-9 rounded-full bg-gray-100"
-                  }
-                >
-                  {task.done ? "✓" : ""}
-                </div>
-              </button>
-            ))}
+  return (
+    <section className="px-5 pt-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Avatar name={props.name} src={props.avatar} />
+          <div>
+            <h1 className="text-xl font-black">Hallo, {props.name || "Mitarbeiter"} 👋</h1>
+            <p className="text-xs font-semibold text-slate-400">{formatDate(new Date())}</p>
           </div>
-        </section>
-      )}
+        </div>
+        <button type="button" onClick={props.refresh} className="h-10 w-10 rounded-full bg-white text-slate-500 shadow-sm border border-slate-100">{props.loadingData ? "…" : "⚙"}</button>
+      </div>
 
-      {activeTab === "schedule" && (
-        <section className="p-5">
-          <BackButton />
-          <h1 className="text-2xl font-bold mb-5">Planung</h1>
-
-          <div className="bg-white rounded-[28px] p-5 shadow-sm">
-            <p className="font-bold mb-4">Heute</p>
-
-            <div className="space-y-3">
-              {todayTasks.length === 0 && (
-                <p className="text-gray-400">Heute ist nichts geplant.</p>
-              )}
-
-              {todayTasks.map((task) => (
-                <div key={task.id} className="bg-gray-100 rounded-2xl p-4">
-                  <p className="font-bold">
-                    {task.start_time} - {task.end_time}
-                  </p>
-                  <p>{task.site || "Kein Objekt"}</p>
-                  <p className="text-sm text-gray-500">{task.title}</p>
-                </div>
-              ))}
-            </div>
+      <button type="button" onClick={() => props.openTab("clock")} className="mt-7 w-full rounded-[24px] bg-blue-50 p-4 text-left shadow-sm border border-blue-100">
+        <div className="flex items-center justify-between gap-4">
+          <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-white">
+            <div className="absolute inset-2 rounded-full border-[7px] border-blue-100" />
+            <div className="absolute inset-2 rounded-full border-[7px] border-blue-500" style={{ clipPath: `inset(${100 - props.progress}% 0 0 0)` }} />
+            <span className="relative text-sm font-black text-blue-600">{props.progress}%</span>
           </div>
-        </section>
-      )}
-
-      {activeTab === "search" && (
-        <section className="p-5">
-          <BackButton />
-          <h1 className="text-2xl font-bold mb-5">Suche</h1>
-
-          <div className="bg-white rounded-[28px] p-5 shadow-sm">
-            <input
-              placeholder="Aufgaben, Objekte oder Nachrichten suchen..."
-              className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
-            />
+          <div className="flex-1">
+            <p className="text-xs font-bold text-slate-500">Dein Stundenzettel</p>
+            <p className="mt-1 text-3xl font-black">{formatMinutes(props.workedMinutes)}</p>
+            <p className="text-sm font-semibold text-slate-400">/ {formatMinutes(props.plannedMinutes)}</p>
           </div>
-        </section>
-      )}
-
-      {activeTab === "chat" && (
-  <section className="p-5">
-    <BackButton />
-
-    <h1 className="text-2xl font-bold mb-5">Chat</h1>
-
-    <div className="bg-white rounded-[28px] p-5 shadow-sm">
-      <div className="space-y-3 mb-5 max-h-[55vh] overflow-y-auto">
-        {chatMessages.length === 0 && (
-          <p className="text-gray-400 text-center">
-            Noch keine Nachrichten vorhanden.
-          </p>
-        )}
-
-        {chatMessages.map((msg) => (
-          <div
-            key={msg.id}
-            className={
-              msg.sender_role === "employee"
-                ? "bg-blue-100 rounded-2xl p-4 ml-8"
-                : "bg-gray-100 rounded-2xl p-4 mr-8"
-            }
-          >
-            <div className="flex justify-between text-sm mb-1">
-              <p className="font-bold">
-                {msg.sender_role === "employee" ? "Ich" : "Admin"}
-              </p>
-              <p className="text-gray-400">
-                {new Date(msg.created_at).toLocaleTimeString("de-DE", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </div>
-            <p>{msg.message}</p>
-          </div>
-        ))}
-        <div ref={chatEndRef} />
-      </div>
-
-      <div>
-  <div className="flex gap-2">
-    <input
-      value={chatText}
-      onChange={(e) => setChatText(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          sendChatMessage();
-        }
-      }}
-      placeholder="Nachricht schreiben..."
-      className="flex-1 p-4 rounded-2xl bg-gray-100 outline-none"
-    />
-
-    <button
-      type="button"
-      onClick={sendChatMessage}
-      className="px-5 rounded-2xl bg-blue-500 text-white font-bold"
-    >
-      Senden
-    </button>
-  </div>
-
-  {chatError && (
-    <p className="mt-3 text-sm font-bold text-red-500">
-      {chatError}
-    </p>
-  )}
-</div>
-    </div>
-  </section>
-)}
-
-      {activeTab === "profile" && (
-  <section className="p-5">
-    <BackButton />
-
-    <h1 className="text-2xl font-bold mb-5">Profil</h1>
-
-    <div className="bg-white rounded-[28px] p-5 shadow-sm space-y-5">
-      <div className="flex items-center gap-4">
-        <div className="w-20 h-20 rounded-full bg-orange-400 overflow-hidden flex items-center justify-center text-white text-2xl font-bold">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt="Profilbild"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            employeeName.charAt(0).toUpperCase()
-          )}
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-blue-600 font-black">→</div>
         </div>
-
-        <div>
-          <p className="font-bold text-lg">{employeeName}</p>
-          <p className="text-gray-500">{roleText(role)}</p>
-        </div>
-      </div>
-
-      <div>
-        <p className="font-bold mb-2">Profilbild ändern</p>
-
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => uploadProfileImage(e.target.files?.[0] || null)}
-          className="w-full p-4 rounded-2xl bg-gray-100 outline-none"
-        />
-
-        {profileImageLoading && (
-          <p className="text-sm text-gray-500 mt-2">Bild wird hochgeladen...</p>
-        )}
-      </div>
-<div className="border-t pt-5">
-  <h2 className="font-bold mb-2">Benachrichtigungen</h2>
-
-  <p className="text-sm text-gray-500 mb-3">
-    Aktiviere Push, damit du neue Nachrichten vom Admin auch bekommst, wenn die App nicht geöffnet ist.
-  </p>
-
-  <button
-    type="button"
-    onClick={enablePushNotifications}
-    className="w-full p-4 rounded-2xl bg-purple-100 text-purple-600 font-bold"
-  >
-    Push-Benachrichtigungen aktivieren
-  </button>
-</div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gray-100 rounded-2xl p-4">
-          <p className="text-gray-400 text-sm">Arbeitszeit</p>
-          <p className="font-bold">{formatMinutes(workedMinutes)}</p>
-        </div>
-
-        <div className="bg-gray-100 rounded-2xl p-4">
-          <p className="text-gray-400 text-sm">Pause</p>
-          <p className="font-bold">{formatMinutes(pauseMinutes)}</p>
-        </div>
-      </div>
-
-      <div className="border-t pt-5">
-        <h2 className="font-bold mb-3">Passwort ändern</h2>
-
-        <input
-          type="password"
-          value={profilePassword}
-          onChange={(e) => setProfilePassword(e.target.value)}
-          placeholder="Neues Passwort"
-          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
-
-        <input
-          type="password"
-          value={profilePasswordRepeat}
-          onChange={(e) => setProfilePasswordRepeat(e.target.value)}
-          placeholder="Passwort wiederholen"
-          className="w-full mb-3 p-4 rounded-2xl bg-gray-100 outline-none"
-        />
-
-        <button
-          type="button"
-          disabled={profilePasswordLoading}
-          onClick={changeProfilePassword}
-          className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold disabled:opacity-50"
-        >
-          {profilePasswordLoading ? "Wird geändert..." : "Passwort ändern"}
-        </button>
-      </div>
-
-      {profileMessage && (
-        <p className="text-center font-bold text-blue-600">
-          {profileMessage}
-        </p>
-      )}
-
-      <div className="mt-5">
-        <h2 className="font-bold mb-3">Meine Meldungen</h2>
-
-        <div className="space-y-3">
-          {notifications.length === 0 && (
-            <p className="text-gray-400">Keine Meldungen vorhanden.</p>
-          )}
-
-          {notifications.map((note) => (
-            <div key={note.id} className="bg-gray-100 rounded-2xl p-4">
-              <p className="font-bold">{note.title}</p>
-              <p className="text-sm text-gray-600">{note.message}</p>
-
-              {note.status === "approved" && (
-                <p className="mt-2 text-green-600 font-bold">
-                  Überstunden genehmigt
-                </p>
-              )}
-
-              {note.status === "rejected" && (
-                <p className="mt-2 text-red-600 font-bold">
-                  Überstunden abgelehnt
-                </p>
-              )}
-
-              {(!note.status || note.status === "open") && (
-                <p className="mt-2 text-orange-500 font-bold">
-                  Wartet auf Freigabe
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setLoggedIn(false)}
-        className="w-full p-4 rounded-2xl bg-red-100 text-red-600 font-bold"
-      >
-        Abmelden
       </button>
-    </div>
-  </section>
-)}
 
-      {activeTab === "admin" && (
-        <section className="p-5">
-          <BackButton />
-          <h1 className="text-2xl font-bold mb-5">Administrator</h1>
+      <div className="mt-7 flex items-center justify-between">
+        <h2 className="text-sm font-black">Heutige Aufgaben</h2>
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-400"><span>{props.doneTasks}/{props.todayTasks.length}</span><span className="h-1 w-10 rounded-full bg-slate-200"><span className="block h-1 rounded-full bg-blue-500" style={{ width: `${props.todayTasks.length ? (props.doneTasks / props.todayTasks.length) * 100 : 0}%` }} /></span></div>
+      </div>
 
-          <div className="bg-white rounded-[28px] p-5 shadow-sm">
-            {role === "admin" ? (
-              <button
-                type="button"
-                onClick={() => (window.location.href = "/admin")}
-                className="w-full p-4 rounded-2xl bg-blue-500 text-white font-bold"
-              >
-                Admin Dashboard öffnen
-              </button>
-            ) : (
-              <p className="text-gray-400">
-                Nur Administratoren können das sehen.
-              </p>
-            )}
-          </div>
-        </section>
-      )}
+      <div className="mt-5 rounded-[24px] bg-white p-5 text-center shadow-sm border border-slate-100">
+        {props.openTasks === 0 ? (
+          <>
+            <div className="text-4xl">🎉</div>
+            <p className="mt-2 font-black">Alles erledigt!</p>
+            <p className="mt-1 text-xs text-slate-400">Ich habe heute keine offenen Aufgaben.</p>
+          </>
+        ) : (
+          <button type="button" onClick={() => props.openTab("tasks")} className="w-full text-left">
+            <p className="font-black">{props.openTasks} Aufgaben offen</p>
+            <p className="mt-1 text-sm text-slate-400">Antippen und Aufgaben bearbeiten.</p>
+          </button>
+        )}
+      </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t grid grid-cols-5 p-2 text-xs text-gray-500">
-        <button
-          type="button"
-          onClick={() => setActiveTab("home")}
-          className={activeTab === "home" ? "text-blue-500 font-bold" : ""}
-        >
-          <div className="text-2xl">⌂</div>
-          Startseite
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("search")}
-          className={activeTab === "search" ? "text-blue-500 font-bold" : ""}
-        >
-          <div className="text-2xl">⌕</div>
-          Suche
-        </button>
-
-        <button
-  type="button"
-  onClick={() => setActiveTab("chat")}
-  className={activeTab === "chat" ? "text-blue-500 font-bold relative" : "relative"}
->
-  <div className="relative text-2xl">
-    ▢
-    {unreadChatCount > 0 && activeTab !== "chat" && (
-      <span className="absolute -top-2 -right-3 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center">
-        {unreadChatCount}
-      </span>
-    )}
-  </div>
-  Chat
-</button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("profile")}
-          className={activeTab === "profile" ? "text-blue-500 font-bold" : ""}
-        >
-          <div className="text-2xl">○</div>
-          Profil
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab(role === "admin" ? "admin" : "schedule")}
-          className={
-            activeTab === "admin" || activeTab === "schedule"
-              ? "text-blue-500 font-bold"
-              : ""
-          }
-        >
-          <div className="text-2xl">♕</div>
-          {role === "admin" ? "Admin" : "Planung"}
-        </button>
-      </nav>
-    </main>
+      <h2 className="mt-7 text-sm font-black">Schnellzugriffe</h2>
+      <div className="mt-3 overflow-hidden rounded-[24px] bg-white shadow-sm border border-slate-100">
+        {quickLinks.map((item) => (
+          <button key={item.title} type="button" onClick={() => props.openTab(item.tab)} className="flex w-full items-center gap-4 border-b border-slate-100 px-4 py-4 text-left last:border-b-0">
+            <span className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.bg} text-2xl`}>{item.icon}</span>
+            <span className="flex-1"><span className="block font-black">{item.title}</span><span className="block text-xs font-medium text-slate-400">{item.text}</span></span>
+            <span className="text-slate-300">›</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
+}
+
+function TasksScreen({ tasks, toggleTask, openTab }: { tasks: Task[]; toggleTask: (task: Task) => void; openTab: (tab: Tab) => void }) {
+  return (
+    <SimplePage title="Aufgaben" openTab={openTab} searchPlaceholder="Aufgaben suchen">
+      <div className="flex gap-5 border-b border-slate-100 text-sm font-bold text-slate-400">
+        <span className="border-b-2 border-blue-500 pb-3 text-blue-600">Alle</span>
+        <span className="pb-3">Mir zugewiesen</span>
+        <span className="pb-3">Von mir erstellt</span>
+      </div>
+      <div className="mt-5 space-y-3">
+        {tasks.length === 0 && <EmptyState text="Keine Aufgaben" />}
+        {tasks.map((task) => (
+          <button key={task.id} type="button" onClick={() => toggleTask(task)} className="w-full rounded-[22px] bg-white p-4 text-left shadow-sm border border-slate-100">
+            <div className="flex items-start gap-3">
+              <span className={`mt-1 flex h-6 w-6 items-center justify-center rounded-full border ${task.done ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300"}`}>{task.done ? "✓" : ""}</span>
+              <div className="flex-1"><p className="font-black">{task.title}</p><p className="mt-1 text-xs font-semibold text-slate-400">{task.site || "Kein Objekt"}</p><p className="mt-2 text-xs text-slate-500">{formatClock(task.start_time)} - {formatClock(task.end_time)}</p></div>
+              <span className={`rounded-full px-3 py-1 text-xs font-black ${task.done ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"}`}>{task.done ? "Erledigt" : "Offen"}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </SimplePage>
+  );
+}
+
+function ClockScreen(props: {
+  tasks: Task[];
+  entries: TimeEntry[];
+  status: Status;
+  selectedTaskId: string;
+  setSelectedTaskId: (id: string) => void;
+  workedMinutes: number;
+  pauseMinutes: number;
+  message: string;
+  createEntry: (action: TimeEntry["action"]) => void;
+  openTab: (tab: Tab) => void;
+}) {
+  return (
+    <SimplePage title="Stundenzettel" openTab={props.openTab}>
+      <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
+        <div className="flex items-end justify-between">
+          <div><p className="text-sm font-bold text-slate-400">Heute geleistet</p><p className="text-4xl font-black">{formatMinutes(props.workedMinutes)}</p></div>
+          <div className="text-right"><p className="text-sm font-bold text-slate-400">Pause</p><p className="text-xl font-black">{formatMinutes(props.pauseMinutes)}</p></div>
+        </div>
+        <div className="mt-5 rounded-2xl bg-slate-50 p-3">
+          <select className="w-full bg-transparent font-bold outline-none" value={props.selectedTaskId} onChange={(e) => props.setSelectedTaskId(e.target.value)}>
+            <option value="">Aufgabe automatisch wählen</option>
+            {props.tasks.map((task) => <option key={task.id} value={task.id}>{task.site || "Objekt"} · {task.title}</option>)}
+          </select>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          {props.status === "none" && <button type="button" onClick={() => props.createEntry("start")} className="col-span-2 rounded-2xl bg-blue-600 py-4 text-white font-black">Einstempeln</button>}
+          {props.status === "working" && <><button type="button" onClick={() => props.createEntry("break_start")} className="rounded-2xl bg-orange-100 py-4 text-orange-700 font-black">Pause</button><button type="button" onClick={() => props.createEntry("end")} className="rounded-2xl bg-red-100 py-4 text-red-700 font-black">Ausstempeln</button></>}
+          {props.status === "break" && <button type="button" onClick={() => props.createEntry("break_end")} className="col-span-2 rounded-2xl bg-green-600 py-4 text-white font-black">Pause beenden</button>}
+        </div>
+        {props.message && <p className="mt-4 text-center text-sm font-bold text-blue-600">{props.message}</p>}
+      </div>
+      <div className="mt-5 space-y-3">
+        {props.entries.length === 0 && <EmptyState text="Keine Zeiten erfasst" />}
+        {props.entries.map((entry) => <div key={entry.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{entryLabel(entry.action)}</p><p className="text-xs text-slate-400">{new Date(entry.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} · {entry.work_site_name || "Ohne Objekt"}</p></div>)}
+      </div>
+    </SimplePage>
+  );
+}
+
+function ScheduleScreen({ tasks, openTab }: { tasks: Task[]; openTab: (tab: Tab) => void }) {
+  const today = todayISO();
+  const upcoming = sortTasksByTime(tasks.filter((task) => task.task_date >= today));
+  return (
+    <SimplePage title="Einsätze" openTab={openTab} searchPlaceholder="Suchen...">
+      <div className="grid gap-2">
+        <StatusBox color="red" title="Nicht zugewiesen" count={0} />
+        <StatusBox color="orange" title="Überfällig" count={0} />
+        <StatusBox color="green" title="Aktiv" count={upcoming.length} />
+      </div>
+      <h2 className="mt-6 mb-3 text-sm font-black">Anstehend</h2>
+      <div className="space-y-3">
+        {upcoming.length === 0 && <EmptyState text="Keine Einsätze geplant" />}
+        {upcoming.map((task) => <div key={task.id} className="rounded-[22px] bg-white p-4 shadow-sm border border-slate-100"><p className="text-xs font-bold text-slate-400">{new Date(task.task_date).toLocaleDateString("de-DE")} · {formatClock(task.start_time)} - {formatClock(task.end_time)}</p><p className="mt-1 font-black">{task.site || "Kein Objekt"}</p><p className="mt-1 text-sm text-slate-500">{task.title}</p></div>)}
+      </div>
+    </SimplePage>
+  );
+}
+
+function SearchScreen({ tasks, notifications, openTab }: { tasks: Task[]; notifications: AdminNotification[]; openTab: (tab: Tab) => void }) {
+  const [query, setQuery] = useState("");
+  const q = query.toLowerCase();
+  const resultTasks = tasks.filter((task) => `${task.title} ${task.site || ""}`.toLowerCase().includes(q));
+  const resultNotes = notifications.filter((note) => `${note.title} ${note.message}`.toLowerCase().includes(q));
+  return (
+    <SimplePage title="Suche" openTab={openTab}>
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Aufgaben, Objekte oder Nachrichten suchen..." className="w-full rounded-2xl bg-white px-4 py-4 font-semibold outline-none shadow-sm border border-slate-100" />
+      <div className="mt-5 space-y-3">
+        {query && resultTasks.map((task) => <div key={task.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{task.title}</p><p className="text-xs text-slate-400">{task.site || "Kein Objekt"}</p></div>)}
+        {query && resultNotes.map((note) => <div key={note.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{note.title}</p><p className="text-xs text-slate-400">{note.message}</p></div>)}
+        {!query && <EmptyState text="Suchbegriff eingeben" />}
+        {query && resultTasks.length === 0 && resultNotes.length === 0 && <EmptyState text="Nichts gefunden" />}
+      </div>
+    </SimplePage>
+  );
+}
+
+function ChatScreen(props: { messages: ChatMessage[]; chatText: string; setChatText: (value: string) => void; sendChatMessage: () => void; chatError: string; chatEndRef: RefObject<HTMLDivElement | null>; openTab: (tab: Tab) => void }) {
+  return (
+    <SimplePage title="Nachrichten" openTab={props.openTab} searchPlaceholder="Suche">
+      <div className="min-h-[55vh] space-y-3">
+        {props.messages.length === 0 && <EmptyState text="Keine Nachrichten bisher" />}
+        {props.messages.map((msg) => <div key={msg.id} className={`max-w-[85%] rounded-[22px] p-4 ${msg.sender_role === "employee" ? "ml-auto bg-blue-600 text-white" : "bg-white text-slate-950 shadow-sm border border-slate-100"}`}><p className="text-sm font-semibold">{msg.message}</p><p className={`mt-1 text-[11px] ${msg.sender_role === "employee" ? "text-blue-100" : "text-slate-400"}`}>{new Date(msg.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</p></div>)}
+        <div ref={props.chatEndRef} />
+      </div>
+      <div className="fixed bottom-[72px] left-0 right-0 mx-auto max-w-md bg-[#f5f7fb]/95 p-4 backdrop-blur">
+        <div className="flex gap-2">
+          <input value={props.chatText} onChange={(e) => props.setChatText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") props.sendChatMessage(); }} placeholder="Nachricht schreiben..." className="flex-1 rounded-2xl bg-white px-4 py-4 outline-none shadow-sm" />
+          <button type="button" onClick={props.sendChatMessage} className="rounded-2xl bg-blue-600 px-5 text-white font-black">➤</button>
+        </div>
+        {props.chatError && <p className="mt-2 text-sm font-bold text-red-500">{props.chatError}</p>}
+      </div>
+    </SimplePage>
+  );
+}
+
+function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: number; pauseMinutes: number; notifications: AdminNotification[]; logout: () => void; openTab: (tab: Tab) => void }) {
+  return (
+    <SimplePage title="Profil" openTab={props.openTab}>
+      <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
+        <div className="flex items-center gap-4">
+          <Avatar name={props.profile?.name || "M"} src={props.profile?.avatar_url || ""} large />
+          <div><p className="text-xl font-black">{props.profile?.name}</p><p className="text-sm font-bold text-slate-400">{props.profile?.email}</p></div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <InfoBox label="Arbeitszeit" value={formatMinutes(props.workedMinutes)} />
+          <InfoBox label="Pause" value={formatMinutes(props.pauseMinutes)} />
+        </div>
+        <button type="button" onClick={props.logout} className="mt-5 w-full rounded-2xl bg-red-50 py-4 text-red-600 font-black">Abmelden</button>
+      </div>
+      <h2 className="mt-6 mb-3 text-sm font-black">Meine Meldungen</h2>
+      <div className="space-y-3">
+        {props.notifications.length === 0 && <EmptyState text="Keine Meldungen vorhanden" />}
+        {props.notifications.map((note) => <div key={note.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{note.title}</p><p className="mt-1 text-sm text-slate-500">{note.message}</p></div>)}
+      </div>
+    </SimplePage>
+  );
+}
+
+function SimplePage({ title, children, openTab, searchPlaceholder }: { title: string; children: ReactNode; openTab: (tab: Tab) => void; searchPlaceholder?: string }) {
+  return (
+    <section className="px-5 pt-5">
+      <div className="mb-5 flex items-center justify-between">
+        <button type="button" onClick={() => openTab("home")} className="text-2xl">‹</button>
+        <h1 className="font-black">{title}</h1>
+        <span className="w-6" />
+      </div>
+      {searchPlaceholder && <input placeholder={searchPlaceholder} className="mb-5 w-full rounded-2xl bg-white px-4 py-4 outline-none shadow-sm border border-slate-100" />}
+      {children}
+    </section>
+  );
+}
+
+function BottomNav({ activeTab, openTab, unreadChatCount, role }: { activeTab: Tab; openTab: (tab: Tab) => void; unreadChatCount: number; role: string }) {
+  const items = [
+    { tab: "home" as Tab, icon: "⌂", label: "Home" },
+    { tab: "tasks" as Tab, icon: "▣", label: "Inbox" },
+    { tab: "schedule" as Tab, icon: "▦", label: "Kalender" },
+    { tab: "search" as Tab, icon: "⌕", label: "Suche" },
+    { tab: "chat" as Tab, icon: "●", label: "Chat" },
+  ];
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 mx-auto grid max-w-md grid-cols-5 border-t border-slate-100 bg-white px-2 pb-3 pt-2 text-[11px] font-bold text-slate-400">
+      {items.map((item) => (
+        <button key={item.tab} type="button" onClick={() => openTab(item.tab === "schedule" && role === "admin" ? "admin" : item.tab)} className={`relative rounded-2xl py-1 ${activeTab === item.tab ? "text-blue-600" : ""}`}>
+          <span className="block text-2xl leading-none">{item.icon}</span>
+          <span>{item.label}</span>
+          {item.tab === "chat" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">{unreadChatCount}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function Avatar({ name, src, large = false }: { name: string; src?: string; large?: boolean }) {
+  const size = large ? "h-20 w-20 text-2xl" : "h-11 w-11 text-sm";
+  return <div className={`${size} flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-600 font-black text-white`}>{src ? <img src={src} alt="Profilbild" className="h-full w-full object-cover" /> : initials(name)}</div>;
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="rounded-[22px] bg-white p-8 text-center text-sm font-bold text-slate-400 shadow-sm border border-slate-100">{text}</div>;
+}
+
+function StatusBox({ color, title, count }: { color: "red" | "orange" | "green"; title: string; count: number }) {
+  const colors = {
+    red: "border-red-200 bg-red-50 text-red-700",
+    orange: "border-orange-200 bg-orange-50 text-orange-700",
+    green: "border-green-200 bg-green-50 text-green-700",
+  };
+  return <div className={`rounded-2xl border px-4 py-3 font-black ${colors[color]}`}>{title} <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs">{count}</span></div>;
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold text-slate-400">{label}</p><p className="mt-1 font-black">{value}</p></div>;
+}
+
+function entryLabel(action: TimeEntry["action"]) {
+  if (action === "start") return "Eingestempelt";
+  if (action === "break_start") return "Pause gestartet";
+  if (action === "break_end") return "Pause beendet";
+  return "Ausgestempelt";
 }
