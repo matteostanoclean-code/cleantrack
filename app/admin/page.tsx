@@ -11,6 +11,7 @@ type Tab =
   | "kontakte"
   | "objekte"
   | "aufgaben"
+  | "meldungen"
   | "material"
   | "geraete"
   | "schluessel"
@@ -1344,6 +1345,7 @@ export default function AdminPage() {
     if (tab === "kontakte") return openContact();
     if (tab === "objekte") return openSite();
     if (tab === "planung" || tab === "aufgaben") return openTask();
+    if (tab === "meldungen") return loadAll();
     if (tab === "material") return openMaterial();
     if (tab === "geraete") return openDevice();
     if (tab === "schluessel") return openKey();
@@ -1449,13 +1451,14 @@ export default function AdminPage() {
         <section className="mx-auto max-w-[1500px] px-4 py-6 lg:px-8">
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
-          {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
+          {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
           {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
+          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} absences={filtered.absences} entries={filtered.entries} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -1487,6 +1490,7 @@ const navItems: { id: Tab; icon: string; label: string }[] = [
   { id: "kontakte", icon: "☎", label: "Kontakte" },
   { id: "objekte", icon: "🏢", label: "Objekte" },
   { id: "aufgaben", icon: "✓", label: "Aufgaben" },
+  { id: "meldungen", icon: "🔔", label: "Meldungen" },
   { id: "material", icon: "📦", label: "Material" },
   { id: "geraete", icon: "🔧", label: "Geräte" },
   { id: "schluessel", icon: "🔑", label: "Schlüssel" },
@@ -1499,6 +1503,7 @@ function getCreateButtonLabel(tab: Tab) {
   if (tab === "dashboard") return "+ Einsatz";
   if (tab === "planung") return "+ Einsatz";
   if (tab === "aufgaben") return "+ Aufgabe";
+  if (tab === "meldungen") return "Aktualisieren";
   if (tab === "mitarbeiter") return "+ Mitarbeiter";
   if (tab === "kunden") return "+ Kunde";
   if (tab === "kontakte") return "+ Kontakt";
@@ -1616,7 +1621,7 @@ function Dashboard(p: any) {
         <Metric title="Offene Aufgaben" value={p.openTasks ?? p.tasks.filter((x: Row) => !x.done).length} hint="noch zu erledigen" />
         <Metric title="Arbeitszeit" value={`${prettyHours(p.workedMinutes)} Std.`} hint="erfasster Zeitraum" />
         <Metric title="Material prüfen" value={p.lowStock} hint="unter Mindestbestand" />
-        <Metric title="Materialmeldungen" value={p.openMaterialReports || 0} hint="von Mitarbeitern offen" />
+        <Metric title="Offene Meldungen" value={(p.openMaterialReports || 0) + (p.openNotifications || 0) + (p.openAbsences || 0)} hint="bitte prüfen" />
       </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
         <Card className="p-5">
@@ -1624,12 +1629,14 @@ function Dashboard(p: any) {
           <div className="grid gap-3 md:grid-cols-2">
             <Quick title="Mitarbeiter anlegen" text="Einladung erstellen und Link versenden." onClick={() => p.setTab("mitarbeiter")} />
             <Quick title="Aufgabe planen" text="Einsatz für Objekt und Mitarbeiter erstellen." onClick={() => p.setTab("aufgaben")} />
+            <Quick title="Meldungen prüfen" text="Material, Überstunden und Abwesenheiten zentral bearbeiten." onClick={() => p.setTab("meldungen")} />
             <Quick title="Material buchen" text="Bestände und Artikel verwalten." onClick={() => p.setTab("material")} />
             <Quick title="Schlüssel prüfen" text="Ausgabe und Rückgabe dokumentieren." onClick={() => p.setTab("schluessel")} />
           </div>
         </Card>
         <Card className="p-5">
           <h3 className="mb-4 font-black">Offene Hinweise</h3>
+          <InfoLine label="Meldungen" value={(p.openMaterialReports || 0) + (p.openNotifications || 0)} />
           <InfoLine label="Abwesenheiten" value={p.openAbsences} />
           <InfoLine label="Aufgaben" value={p.tasks.filter((x: Row) => !x.done).length} />
           <InfoLine label="Objekte" value={p.sites.length} />
@@ -1777,6 +1784,130 @@ function Sites(p: any) {
 
 function Tasks(p: any) {
   return <ListPage icon="✓" title="Aufgaben" sub="Zusätzliche Aufgaben zu Kunden, Objekten oder Mitarbeitern. Einsätze bleiben in der Einsatzplanung." rows={p.rows} headers={["Fällig", "Typ", "Aufgabe", "Objekt", "Mitarbeiter", "Priorität", "Status", "Aktion"]} createLabel="+ Aufgabe erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine separaten Aufgaben angelegt" /></td></tr> : p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.due_date || r.task_date)}</td><td className="px-4 py-3"><Status color="blue">{r.task_category || "Sonstiges"}</Status></td><td className="px-4 py-3 font-black">{r.title}</td><td className="px-4 py-3">{r.site || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.priority === "Dringend" ? "red" : r.priority === "Hoch" ? "yellow" : "blue"}>{r.priority || "Mittel"}</Status></td><td className="px-4 py-3"><Status color={r.done || r.status === "done" ? "green" : "gray"}>{r.done || r.status === "done" ? "Erledigt" : "Offen"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+}
+
+
+function messageDate(value: unknown) {
+  const text = String(value || "");
+  if (!text) return "-";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function Meldungen(p: any) {
+  const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
+  const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
+  const otherNotifications = openNotifications.filter((item: Row) => item.notification_type !== "overtime_request");
+  const openReports = (p.materialReports || []).filter((item: Row) => !item.status || item.status === "open");
+  const openAbsences = (p.absences || []).filter((item: Row) => !item.status || item.status === "open");
+  const autoClockOuts = (p.entries || []).filter((item: Row) => item.auto_clock_out === true || String(item.reason || "").toLowerCase().includes("gps"));
+  const total = overtimeRequests.length + otherNotifications.length + openReports.length + openAbsences.length + autoClockOuts.length;
+
+  return (
+    <div>
+      <PageHeader icon="🔔" title="Meldezentrale" sub="Hier sammle ich alles, worauf ich reagieren muss.">
+        <Button onClick={() => p.setTab("material")}>Material öffnen</Button>
+        <Button onClick={() => p.setTab("zeiten")}>Zeiten öffnen</Button>
+        <Button onClick={() => p.setTab("abwesenheiten")}>Abwesenheiten öffnen</Button>
+      </PageHeader>
+
+      <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Metric title="Alles offen" value={total} hint="Meldungen gesamt" />
+        <Metric title="Material" value={openReports.length} hint="leer / fehlt" />
+        <Metric title="Überstunden" value={overtimeRequests.length} hint="Anfragen" />
+        <Metric title="Abwesenheit" value={openAbsences.length} hint="Anträge" />
+        <Metric title="GPS / Auto-Stopp" value={autoClockOuts.length} hint="zu prüfen" />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-black text-slate-950">Materialmeldungen</h3><p className="text-sm text-slate-500">Mitarbeiter meldet leeres Material am Objekt.</p></div>
+            <Status color={openReports.length ? "red" : "green"}>{openReports.length} offen</Status>
+          </div>
+          <div className="space-y-3">
+            {openReports.length === 0 && <Empty text="Keine offenen Materialmeldungen." />}
+            {openReports.map((r: Row) => (
+              <div key={r.id} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-black text-orange-950">{r.material_name || "Material"}</p>
+                    <p className="text-sm font-bold text-orange-700">Objekt: {r.object_name || r.site || "-"}</p>
+                    <p className="text-xs font-bold text-orange-600">{r.employee_name || "Mitarbeiter"} · Menge: {r.quantity_requested || r.quantity || 1} · {messageDate(r.created_at)}</p>
+                    {r.notes && <p className="mt-2 text-sm text-orange-800">{r.notes}</p>}
+                  </div>
+                  <Button primary onClick={() => p.resolveReport(r)}>Erledigt</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-black text-slate-950">Überstunden</h3><p className="text-sm text-slate-500">Freigabe, bevor Mitarbeiter länger arbeitet.</p></div>
+            <Status color={overtimeRequests.length ? "yellow" : "green"}>{overtimeRequests.length} offen</Status>
+          </div>
+          <div className="space-y-3">
+            {overtimeRequests.length === 0 && <Empty text="Keine offenen Überstundenanfragen." />}
+            {overtimeRequests.map((note: Row) => (
+              <div key={note.id} className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                <p className="font-black text-amber-950">{note.title || "Überstundenanfrage"}</p>
+                <p className="text-sm font-bold text-amber-700">{note.employee_name || "Mitarbeiter"} · {note.site || note.object_name || "Objekt"} · +{note.overtime_minutes || 0} Minuten</p>
+                <p className="mt-1 text-sm text-amber-800">{note.message || "Überstunden werden angefragt."}</p>
+                <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideNotification(note, true)}>Genehmigen</Button><Button danger onClick={() => p.decideNotification(note, false)}>Ablehnen</Button></div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-black text-slate-950">Abwesenheiten</h3><p className="text-sm text-slate-500">Urlaub, Krankmeldung oder Frei-Antrag.</p></div>
+            <Status color={openAbsences.length ? "yellow" : "green"}>{openAbsences.length} offen</Status>
+          </div>
+          <div className="space-y-3">
+            {openAbsences.length === 0 && <Empty text="Keine offenen Abwesenheiten." />}
+            {openAbsences.map((a: Row) => (
+              <div key={a.id} className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                <p className="font-black text-blue-950">{a.employee_name || "Mitarbeiter"} · {a.absence_type || "Abwesenheit"}</p>
+                <p className="text-sm font-bold text-blue-700">{dateText(a.start_date)} bis {dateText(a.end_date)}</p>
+                {a.reason && <p className="mt-1 text-sm text-blue-800">{a.reason}</p>}
+                <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideAbsence(a, "approved")}>Genehmigen</Button><Button danger onClick={() => p.decideAbsence(a, "rejected")}>Ablehnen</Button></div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-black text-slate-950">Weitere Meldungen</h3><p className="text-sm text-slate-500">GPS, System- und Mitarbeiterhinweise.</p></div>
+            <Status color={(otherNotifications.length + autoClockOuts.length) ? "blue" : "green"}>{otherNotifications.length + autoClockOuts.length} offen</Status>
+          </div>
+          <div className="space-y-3">
+            {otherNotifications.length === 0 && autoClockOuts.length === 0 && <Empty text="Keine weiteren offenen Meldungen." />}
+            {otherNotifications.map((note: Row) => (
+              <div key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-black text-slate-950">{note.title || "Meldung"}</p>
+                <p className="text-sm text-slate-600">{note.message || "-"}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">{note.employee_name || "System"} · {messageDate(note.created_at)}</p>
+                <div className="mt-3"><Button onClick={() => p.closeNotification(note)}>Erledigt markieren</Button></div>
+              </div>
+            ))}
+            {autoClockOuts.map((entry: Row) => (
+              <div key={entry.id} className="rounded-2xl border border-red-100 bg-red-50 p-4">
+                <p className="font-black text-red-950">Automatisch ausgestempelt</p>
+                <p className="text-sm font-bold text-red-700">{entry.employee_name || "Mitarbeiter"} · {entry.work_site_name || entry.site || "Objekt"}</p>
+                <p className="mt-1 text-sm text-red-700">{entry.reason || "GPS-Bereich verlassen oder Planzeit erreicht."}</p>
+                <p className="mt-1 text-xs font-bold text-red-500">{messageDate(entry.created_at)}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 }
 
 function Materials(p: any) {
