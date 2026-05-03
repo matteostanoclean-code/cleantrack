@@ -40,17 +40,10 @@ async function findAuthUserByEmail(supabaseAdmin: SupabaseAdmin, email: string) 
   const normalizedEmail = email.trim().toLowerCase();
 
   for (let page = 1; page <= 20; page += 1) {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-      page,
-      perPage: 1000,
-    });
-
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) throw error;
 
-    const user = data.users.find(
-      (item: any) => String(item.email || "").trim().toLowerCase() === normalizedEmail
-    );
-
+    const user = data.users.find((item) => String(item.email || "").trim().toLowerCase() === normalizedEmail);
     if (user) return user;
     if (data.users.length < 1000) break;
   }
@@ -82,13 +75,13 @@ async function requireAdmin(request: Request): Promise<{ error: NextResponse | n
     };
   }
 
-  const { data: profile } = await supabaseAdmin
+  const { data: profile, error: profileError } = await supabaseAdmin
     .from("employee_profiles")
     .select("role")
     .eq("auth_user_id", userData.user.id)
     .maybeSingle();
 
-  if (profile?.role !== "admin") {
+  if (profileError || profile?.role !== "admin") {
     return {
       error: NextResponse.json({ error: "Kein Zugriff. Nur Admins dürfen Mitarbeiter bearbeiten." }, { status: 403 }),
       supabaseAdmin: null,
@@ -102,10 +95,12 @@ export async function POST(request: Request) {
   try {
     const adminCheck = await requireAdmin(request);
     if (adminCheck.error) return adminCheck.error;
+    if (!adminCheck.supabaseAdmin) {
+      return NextResponse.json({ error: "Admin-Verbindung konnte nicht aufgebaut werden." }, { status: 500 });
+    }
 
     const supabaseAdmin = adminCheck.supabaseAdmin;
     const body = await request.json();
-
     const id = String(body.id || "").trim();
 
     if (!id) {
@@ -119,11 +114,11 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (currentError) {
-      return NextResponse.json({ error: currentError.message }, { status: 500 });
+      return NextResponse.json({ error: currentError.message || "Mitarbeiter konnte nicht gelesen werden." }, { status: 500 });
     }
 
     if (!currentEmployee) {
-      return NextResponse.json({ error: "Mitarbeiter wurde nicht gefunden." }, { status: 404 });
+      return NextResponse.json({ error: "Mitarbeiter wurde nicht gefunden. Bitte Seite neu laden." }, { status: 404 });
     }
 
     const update: Record<string, unknown> = {};
@@ -146,14 +141,14 @@ export async function POST(request: Request) {
       update.annual_vacation_days = days;
     }
 
-    if ("active" in body) {
-      update.active = body.active === true || body.active === "true";
-    }
+    if ("active" in body) update.active = body.active === true || body.active === "true";
 
     const nextEmail = String(update.email || currentEmployee.email || "").trim().toLowerCase();
     const nextName = String(update.name || currentEmployee.name || "").trim();
     const nextPhone = String(update.phone || currentEmployee.phone || "").trim() || null;
 
+    // Wenn ein Mitarbeiter schon einen Auth-User hat, halten wir Name/Telefon/E-Mail dort mit aktuell.
+    // Wenn kein Auth-Link im Profil steht, aber Supabase Auth die E-Mail schon kennt, verknüpfen wir das Profil.
     if (nextEmail) {
       let authUserId = currentEmployee.auth_user_id || null;
 
@@ -179,13 +174,9 @@ export async function POST(request: Request) {
           authUpdate.email_confirm = true;
         }
 
-        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
-          authUserId,
-          authUpdate
-        );
-
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, authUpdate);
         if (authUpdateError) {
-          return NextResponse.json({ error: authUpdateError.message }, { status: 500 });
+          return NextResponse.json({ error: authUpdateError.message || "Supabase Auth konnte nicht aktualisiert werden." }, { status: 500 });
         }
       }
     }
@@ -198,13 +189,17 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: error.message || "Mitarbeiter konnte nicht gespeichert werden." }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: "Mitarbeiter wurde nicht gefunden. Bitte Seite neu laden." }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, employee: data });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Serverfehler beim Speichern." },
+      { error: error instanceof Error ? error.message : "Serverfehler beim Speichern des Mitarbeiters." },
       { status: 500 }
     );
   }
