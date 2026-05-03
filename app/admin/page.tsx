@@ -1099,7 +1099,7 @@ export default function AdminPage() {
     await insertOrUpdate("key_items", keyForm.id, {
       key_name: keyForm.key_name,
       key_number: keyForm.key_number || null,
-      customer_id: isUuid(keyForm.customer_id) ? keyForm.customer_id : isUuid(customer?.id) ? customer?.id : null,
+      customer_id: isUuid(keyForm.customer_id) ? keyForm.customer_id : customer && isUuid(customer.id) ? customer.id : null,
       customer_name: customerName,
       customer_address: customerAddr,
       work_site_id: keyForm.work_site_id || site?.id || null,
@@ -1399,7 +1399,7 @@ export default function AdminPage() {
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
-          {tab === "zeiten" && <Times rows={filtered.entries} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+          {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
           {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
@@ -1768,9 +1768,66 @@ function Keys(p: any) {
   return <ListPage icon="🔑" title="Schlüssel" sub="Schlüsselverwaltung mit Übergabeprotokoll" rows={p.rows} headers={["Anzahl", "Schlüsselnummer", "Kunde", "Objekt", "Mitarbeiter", "Status", "Protokoll", "Aktion"]} createLabel="+ Schlüssel erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.key_name}</td><td className="px-4 py-3">{r.key_number || "-"}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.object_name || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.status === "Verloren" ? "red" : r.status === "Zurückgegeben" ? "green" : "blue"}>{r.status || "Ausgegeben"}</Status></td><td className="px-4 py-3"><Button onClick={() => p.pdf(r)}>Protokoll</Button></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
+function monthFromValue(value: unknown) {
+  const text = String(value || "");
+  if (!text) return "";
+  return text.slice(0, 7);
+}
+
+function payrollDate(value: Row) {
+  return String(value.work_date || value.check_in_at || value.created_at || "");
+}
+
+function payableMinutes(row: Row) {
+  return Number(row.worked_minutes || row.planned_minutes || 0);
+}
+
 function Times(p: any) {
+  const defaultMonth = today.slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
   const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
+  const monthRows = (p.rows || []).filter((row: Row) => monthFromValue(payrollDate(row)) === selectedMonth);
+  const approvedRows = monthRows.filter((row: Row) => row.approved === true || row.status === "approved");
+  const openRows = monthRows.filter((row: Row) => !(row.approved === true || row.status === "approved") && row.status !== "rejected");
+
+  const payrollRows = (p.employees || [])
+    .map((employee: Row) => {
+      const employeeEntries = approvedRows.filter((entry: Row) => String(entry.employee_name || "") === String(employee.name || ""));
+      const totalMinutes = employeeEntries.reduce((sum: number, entry: Row) => sum + payableMinutes(entry), 0);
+      const hourlyRate = Number(employee.hourly_rate || 0);
+      return {
+        employee_name: employee.name || "-",
+        entries: employeeEntries.length,
+        minutes: totalMinutes,
+        hours: Number((totalMinutes / 60).toFixed(2)),
+        hourly_rate: hourlyRate,
+        amount: Number(((totalMinutes / 60) * hourlyRate).toFixed(2)),
+      };
+    })
+    .filter((row: Row) => row.minutes > 0);
+
+  const totalApprovedMinutes = approvedRows.reduce((sum: number, row: Row) => sum + payableMinutes(row), 0);
+  const totalAmount = payrollRows.reduce((sum: number, row: Row) => sum + Number(row.amount || 0), 0);
+
+  function exportPayroll() {
+    const rows = payrollRows.map((row: Row) => ({
+      Monat: selectedMonth,
+      Mitarbeiter: row.employee_name,
+      Eintraege: row.entries,
+      Minuten: row.minutes,
+      Stunden: row.hours,
+      Stundenlohn: row.hourly_rate,
+      Betrag: row.amount,
+    }));
+    downloadCsv(`lohnexport-${selectedMonth}.csv`, rows.length ? rows : [{ Monat: selectedMonth, Hinweis: "Keine freigegebenen Zeiten vorhanden" }]);
+  }
+
+  async function approveOpenMonth() {
+    for (const row of openRows) {
+      await p.approve(row, true);
+    }
+  }
 
   return (
     <div>
@@ -1804,13 +1861,48 @@ function Times(p: any) {
         </Card>
       )}
 
+      <PageHeader icon="⏱" title="Zeiten & Lohnexport" sub="Ich gebe Zeiten frei und exportiere danach die Monatsstunden.">
+        <Button onClick={p.exportRows}>Zeiten CSV</Button>
+        <Button primary onClick={exportPayroll}>Lohnexport CSV</Button>
+      </PageHeader>
+
+      <Card className="mb-5 p-5">
+        <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+          <div>
+            <label className="text-xs font-black uppercase tracking-wide text-slate-400">Monat</label>
+            <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-500" />
+            <button type="button" onClick={approveOpenMonth} disabled={openRows.length === 0} className="mt-3 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+              Offene Zeiten freigeben
+            </button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <Metric title="Freigegebene Zeiten" value={approvedRows.length} hint="Einträge im Monat" />
+            <Metric title="Offene Zeiten" value={openRows.length} hint="noch zu prüfen" />
+            <Metric title="Freigegebene Stunden" value={`${(totalApprovedMinutes / 60).toFixed(2)} h`} hint="für Lohnexport" />
+            <Metric title="Lohnsumme" value={euro(totalAmount)} hint="nach Stundenlohn" />
+          </div>
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+              <tr><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Einträge</th><th className="px-4 py-3">Stunden</th><th className="px-4 py-3">Stundenlohn</th><th className="px-4 py-3">Betrag</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {payrollRows.length === 0 ? <tr><td colSpan={5}><Empty text="Für diesen Monat gibt es noch keine freigegebenen Zeiten." /></td></tr> : payrollRows.map((row: Row) => (
+                <tr key={row.employee_name}><td className="px-4 py-3 font-black">{row.employee_name}</td><td className="px-4 py-3">{row.entries}</td><td className="px-4 py-3">{row.hours}</td><td className="px-4 py-3">{euro(row.hourly_rate)}</td><td className="px-4 py-3 font-black">{euro(row.amount)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
         {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );
 }
-
 
 function Absences(p: any) {
   return <ListPage icon="✈" title="Abwesenheiten" sub="Urlaub, Krankheit und Freistellung" rows={p.rows} headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]} createLabel="+ Abwesenheit" onCreate={p.openCreate}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.absence_type}</td><td className="px-4 py-3">{dateText(r.start_date)}</td><td className="px-4 py-3">{dateText(r.end_date)}</td><td className="px-4 py-3"><Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || "open"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.decide(r, "approved")}>OK</Button><Button danger onClick={() => p.decide(r, "rejected")}>Nein</Button><Button onClick={() => p.openEdit(r)}>Bearbeiten</Button><Button danger onClick={() => p.deleteRow(r)}>Löschen</Button></div></td></tr>)}</ListPage>;
@@ -2059,7 +2151,7 @@ function KeyModal(p: any) {
     const customer = findCustomerByValue(p.customers, value);
     p.setForm({
       ...p.form,
-      customer_id: isUuid(value) ? value : isUuid(customer?.id) ? customer?.id : "",
+      customer_id: isUuid(value) ? value : customer && isUuid(customer.id) ? customer.id : "",
       customer_name: customerLabel(customer) || value,
       customer_address: customerAddress(customer),
       work_site_id: "",
