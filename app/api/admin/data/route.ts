@@ -3,11 +3,14 @@ import { createClient } from "@supabase/supabase-js";
 
 const allowedTables = new Set([
   "employee_profiles",
+  "customers",
   "work_sites",
   "tasks",
   "time_entries",
   "absence_requests",
   "material_products",
+  "material_reports",
+  "admin_notifications",
   "equipment_items",
   "key_items",
   "customer_contacts",
@@ -108,6 +111,10 @@ function numericValue(value: unknown, fallback: number) {
 function sanitizeRow(table: string, row: Record<string, unknown>) {
   const cleaned = { ...row };
 
+  if (table === "customers") {
+    if (!("active" in cleaned)) cleaned.active = true;
+  }
+
   if (table === "work_sites") {
     // Einige bestehende CleanTrack-Datenbanken haben latitude/longitude noch als NOT NULL.
     // Damit Kunden und Objekte trotzdem direkt speicherbar sind, setzen wir einen neutralen Fallback.
@@ -115,7 +122,16 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     if (isEmpty(cleaned.longitude)) cleaned.longitude = 0;
     cleaned.allowed_radius_m = numericValue(cleaned.allowed_radius_m, 50);
     if (!("active" in cleaned)) cleaned.active = true;
-    if (isEmpty(cleaned.customer_name) && !isEmpty(cleaned.name)) cleaned.customer_name = cleaned.name;
+    if (isEmpty(cleaned.customer_name) && !isEmpty(cleaned.name)) cleaned.customer_name = null;
+  }
+
+  if (table === "material_products") {
+    if (isEmpty(cleaned.work_site_id)) cleaned.work_site_id = null;
+    if (isEmpty(cleaned.object_name)) cleaned.object_name = null;
+  }
+
+  if (table === "material_reports") {
+    if (isEmpty(cleaned.status)) cleaned.status = "open";
   }
 
   if (table === "customer_contacts" && !("active" in cleaned)) {

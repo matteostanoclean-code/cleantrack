@@ -86,12 +86,8 @@ export async function POST(request: Request) {
   try {
     const authCheck = await requireAuthenticatedUser(request);
 
-    if (authCheck.error) {
+    if (authCheck.error || !authCheck.supabaseAdmin || !authCheck.profile) {
       return authCheck.error;
-    }
-
-    if (!authCheck.supabaseAdmin || !authCheck.profile) {
-      return NextResponse.json({ error: "Benutzer-Verbindung konnte nicht aufgebaut werden." }, { status: 500 });
     }
 
     const supabaseAdmin = authCheck.supabaseAdmin;

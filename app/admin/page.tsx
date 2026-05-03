@@ -25,11 +25,11 @@ const today = new Date().toISOString().slice(0, 10);
 
 const emptyEmployeeInvite = { name: "", email: "", phone: "" };
 const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", vacation_days: "0", active: true };
-const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "" };
+const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
-const emptySite = { id: "", name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
+const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
 const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false };
-const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", image_url: "", notes: "" };
+const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_name: "", object_name: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
 const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
@@ -151,11 +151,13 @@ export default function AdminPage() {
   const [whatsappLink, setWhatsappLink] = useState("");
 
   const [employees, setEmployees] = useState<Row[]>([]);
+  const [customers, setCustomers] = useState<Row[]>([]);
   const [sites, setSites] = useState<Row[]>([]);
   const [tasks, setTasks] = useState<Row[]>([]);
   const [entries, setEntries] = useState<Row[]>([]);
   const [absences, setAbsences] = useState<Row[]>([]);
   const [materials, setMaterials] = useState<Row[]>([]);
+  const [materialReports, setMaterialReports] = useState<Row[]>([]);
   const [devices, setDevices] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
   const [contacts, setContacts] = useState<Row[]>([]);
@@ -227,45 +229,50 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, siteRows, taskRows, entryRows, absenceRows, materialRows, deviceRows, keyRows, contactRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, deviceRows, keyRows, contactRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
+      selectTable("customers", "name", true),
       selectTable("work_sites", "name", true),
       selectTable("tasks", "task_date", false),
       selectTable("time_entries", "created_at", false, 800),
       selectTable("absence_requests", "start_date", false),
       selectTable("material_products", "name", true),
+      selectTable("material_reports", "created_at", false, 300),
       selectTable("equipment_items", "name", true),
       selectTable("key_items", "key_name", true),
       selectTable("customer_contacts", "name", true),
     ]);
     setEmployees(employeeRows);
+    setCustomers(customerRows);
     setSites(siteRows);
     setTasks(taskRows);
     setEntries(entryRows);
     setAbsences(absenceRows);
     setMaterials(materialRows);
+    setMaterialReports(materialReportRows);
     setDevices(deviceRows);
     setKeys(keyRows);
     setContacts(contactRows);
   }
 
   const activeEmployees = employees.filter((item) => item.role !== "admin" && item.active !== false);
-  const customers = useMemo(() => customerRowsFromSites(sites), [sites]);
+  const customerList = useMemo(() => customers.length ? customers : customerRowsFromSites(sites), [customers, sites]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return {
       employees: filterRows(employees, q),
       sites: filterRows(sites, q),
-      customers: filterRows(customers, q),
+      customers: filterRows(customerList, q),
       contacts: filterRows(contacts, q),
       tasks: filterRows(tasks, q),
       materials: filterRows(materials, q),
+      materialReports: filterRows(materialReports, q),
       devices: filterRows(devices, q),
       keys: filterRows(keys, q),
       entries: filterRows(entries, q),
       absences: filterRows(absences, q),
     };
-  }, [search, employees, sites, customers, contacts, tasks, materials, devices, keys, entries, absences]);
+  }, [search, employees, sites, customerList, contacts, tasks, materials, materialReports, devices, keys, entries, absences]);
 
   async function insertOrUpdate(table: string, id: string, payload: Row) {
     setSaving(true);
@@ -407,30 +414,26 @@ export default function AdminPage() {
   function openCustomer(row?: Row) {
     setCustomerForm(row ? {
       id: String(row.id || ""),
-      name: String(row.customer_name || row.name || ""),
+      name: String(row.name || row.customer_name || ""),
       customer_number: String(row.customer_number || ""),
-      address: String(row.customer_address || row.address || ""),
-      phone: String(row.customer_phone || row.phone || ""),
-      email: String(row.customer_email || row.email || ""),
-      notes: String(row.customer_notes || row.notes || ""),
+      address: String(row.address || row.customer_address || ""),
+      phone: String(row.phone || row.customer_phone || ""),
+      email: String(row.email || row.customer_email || ""),
+      notes: String(row.notes || row.customer_notes || ""),
+      active: row.active !== false,
     } : emptyCustomer);
     setModal("customer");
   }
 
   async function saveCustomer() {
-    await insertOrUpdate("work_sites", customerForm.id, {
+    await insertOrUpdate("customers", customerForm.id, {
       name: customerForm.name,
-      customer_name: customerForm.name,
       customer_number: customerForm.customer_number || null,
       address: customerForm.address || null,
-      customer_address: customerForm.address || null,
-      customer_phone: customerForm.phone || null,
-      customer_email: customerForm.email || null,
-      customer_notes: customerForm.notes || null,
-      allowed_radius_m: 50,
-      latitude: 0,
-      longitude: 0,
-      active: true,
+      phone: customerForm.phone || null,
+      email: customerForm.email || null,
+      notes: customerForm.notes || null,
+      active: customerForm.active !== false,
     });
   }
 
@@ -464,6 +467,8 @@ export default function AdminPage() {
     setSiteForm(row ? {
       id: String(row.id || ""),
       name: String(row.name || ""),
+      customer_id: String(row.customer_id || ""),
+      customer_name: String(row.customer_name || ""),
       address: String(row.address || ""),
       allowed_radius_m: String(row.allowed_radius_m ?? "50"),
       latitude: String(row.latitude ?? ""),
@@ -475,12 +480,15 @@ export default function AdminPage() {
   }
 
   async function saveSite() {
+    const customer = customerList.find((item) => item.id === siteForm.customer_id);
     await insertOrUpdate("work_sites", siteForm.id, {
       name: siteForm.name,
+      customer_id: siteForm.customer_id || null,
+      customer_name: customer?.name || siteForm.customer_name || null,
       address: siteForm.address,
       allowed_radius_m: numberOrFallback(siteForm.allowed_radius_m, 50),
-      latitude: numberOrFallback(siteForm.latitude, 0),
-      longitude: numberOrFallback(siteForm.longitude, 0),
+      latitude: siteForm.latitude === "" ? null : numberOrFallback(siteForm.latitude, 0),
+      longitude: siteForm.longitude === "" ? null : numberOrFallback(siteForm.longitude, 0),
       notes: siteForm.notes || null,
       active: siteForm.active,
     });
@@ -531,6 +539,8 @@ export default function AdminPage() {
       current_stock: String(row.current_stock ?? "0"),
       min_stock: String(row.min_stock ?? "0"),
       supplier: String(row.supplier || ""),
+      work_site_id: String(row.work_site_id || ""),
+      object_name: String(row.object_name || ""),
       image_url: String(row.image_url || ""),
       notes: String(row.notes || ""),
     } : emptyMaterial);
@@ -538,6 +548,7 @@ export default function AdminPage() {
   }
 
   async function saveMaterial() {
+    const site = sites.find((item) => item.id === materialForm.work_site_id);
     await insertOrUpdate("material_products", materialForm.id, {
       name: materialForm.name,
       category: materialForm.category || null,
@@ -545,9 +556,15 @@ export default function AdminPage() {
       current_stock: Number(materialForm.current_stock || 0),
       min_stock: Number(materialForm.min_stock || 0),
       supplier: materialForm.supplier || null,
+      work_site_id: materialForm.work_site_id || null,
+      object_name: site?.name || materialForm.object_name || null,
       image_url: materialForm.image_url || null,
       notes: materialForm.notes || null,
     });
+  }
+
+  async function resolveMaterialReport(row: Row) {
+    await insertOrUpdate("material_reports", row.id, { status: "done", resolved_at: new Date().toISOString() });
   }
 
   function openDevice(row?: Row) {
@@ -681,6 +698,7 @@ export default function AdminPage() {
   const openTasks = tasks.filter((item) => !item.done).length;
   const openAbsences = absences.filter((item) => !item.status || item.status === "open").length;
   const lowStock = materials.filter((item) => Number(item.current_stock || 0) <= Number(item.min_stock || 0)).length;
+  const openMaterialReports = materialReports.filter((item) => !item.status || item.status === "open").length;
   const currentNav = navItems.find((item) => item.id === tab) || navItems[0];
   const createButtonLabel = getCreateButtonLabel(tab);
 
@@ -801,10 +819,10 @@ export default function AdminPage() {
         <section className="mx-auto max-w-[1500px] px-4 py-6 lg:px-8">
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
-          {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
+          {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
           {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
-          {tab === "kunden" && <Customers rows={filtered.customers} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customers)} />}
+          {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.tasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", tasks)} />}
@@ -821,11 +839,11 @@ export default function AdminPage() {
       {modal === "employeeEdit" && <EmployeeEditModal close={() => setModal(null)} form={employeeEdit} setForm={setEmployeeEdit} save={saveEmployee} saving={saving} />}
       {modal === "customer" && <CustomerModal close={() => setModal(null)} form={customerForm} setForm={setCustomerForm} save={saveCustomer} saving={saving} />}
       {modal === "contact" && <ContactModal close={() => setModal(null)} form={contactForm} setForm={setContactForm} save={saveContact} saving={saving} />}
-      {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} />}
+      {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} customers={customerList} />}
       {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} sites={sites} />}
-      {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} />}
+      {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} sites={sites} />}
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
-      {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customers} />}
+      {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
       {modal === "absence" && <AbsenceModal close={() => setModal(null)} form={absenceForm} setForm={setAbsenceForm} save={saveAbsence} saving={saving} employees={activeEmployees} />}
     </main>
   );
@@ -944,11 +962,12 @@ function Dashboard(p: any) {
   return (
     <div>
       <PageHeader icon="●" title="Übersicht" sub="Heute startklar machen" />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Metric title="Aktive Mitarbeiter" value={p.employees.length} hint="mit Login verbunden" />
         <Metric title="Offene Aufgaben" value={p.openTasks ?? p.tasks.filter((x: Row) => !x.done).length} hint="noch zu erledigen" />
         <Metric title="Arbeitszeit" value={`${prettyHours(p.workedMinutes)} Std.`} hint="erfasster Zeitraum" />
         <Metric title="Material prüfen" value={p.lowStock} hint="unter Mindestbestand" />
+        <Metric title="Materialmeldungen" value={p.openMaterialReports || 0} hint="von Mitarbeitern offen" />
       </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
         <Card className="p-5">
@@ -1027,7 +1046,7 @@ function Employees(p: any) {
 }
 
 function Customers(p: any) {
-  return <ListPage icon="🏷" title="Kunden" sub="Kundeninformationen, Objekte und Kontakte" rows={p.rows} headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Objekte", "Aktion"]} createLabel="+ Kunde erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.customer_name || r.name}</td><td className="px-4 py-3">{r.customer_number || "-"}</td><td className="px-4 py-3">{r.customer_address || r.address || "-"}</td><td className="px-4 py-3">{r.customer_phone || r.phone || "-"}</td><td className="px-4 py-3">{r.customer_email || r.email || "-"}</td><td className="px-4 py-3">{r.object_count || 1}</td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return <ListPage icon="🏷" title="Kunden" sub="Hauptmaske für Kundenstammdaten" rows={p.rows} headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Objekte", "Aktion"]} createLabel="+ Kunde erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => { const objectCount = p.sites?.filter((site: Row) => site.customer_id === r.id || site.customer_name === r.name).length || r.object_count || 0; return <tr key={r.id}><td className="px-4 py-3 font-black">{r.name || r.customer_name}</td><td className="px-4 py-3">{r.customer_number || "-"}</td><td className="px-4 py-3">{r.address || r.customer_address || "-"}</td><td className="px-4 py-3">{r.phone || r.customer_phone || "-"}</td><td className="px-4 py-3">{r.email || r.customer_email || "-"}</td><td className="px-4 py-3"><Status color={objectCount > 0 ? "blue" : "gray"}>{objectCount}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>; })}</ListPage>;
 }
 
 function Contacts(p: any) {
@@ -1035,7 +1054,7 @@ function Contacts(p: any) {
 }
 
 function Sites(p: any) {
-  return <ListPage icon="🏢" title="Objekte" sub="Objektliste mit GPS-Radius" rows={p.rows} headers={["Objekt", "Adresse", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "-"}</td><td className="px-4 py-3">{r.allowed_radius_m || 50} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td><td className="px-4 py-3">{r.allowed_radius_m || 50} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
 function Tasks(p: any) {
@@ -1043,7 +1062,44 @@ function Tasks(p: any) {
 }
 
 function Materials(p: any) {
-  return <ListPage icon="📦" title="Materialwesen" sub="Artikel, Bestand und Mindestbestand" rows={p.rows} headers={["Artikel", "Kategorie", "Bestand", "Mindestbestand", "Lieferant", "Status", "Aktion"]} createLabel="+ Artikel erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => { const low = Number(r.current_stock || 0) <= Number(r.min_stock || 0); return <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.category || "-"}</td><td className="px-4 py-3">{r.current_stock || 0} {r.unit || "Stück"}</td><td className="px-4 py-3">{r.min_stock || 0}</td><td className="px-4 py-3">{r.supplier || "-"}</td><td className="px-4 py-3"><Status color={low ? "red" : "green"}>{low ? "Nachbestellen" : "OK"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>; })}</ListPage>;
+  const openReports = (p.reports || []).filter((r: Row) => !r.status || r.status === "open");
+  return (
+    <div>
+      <PageHeader icon="📦" title="Materialwesen" sub="Artikel, Bestand, Objektverknüpfung und Mitarbeiter-Meldungen">
+        <Button onClick={p.onExport || p.onCreate}>Exportieren</Button>
+        <Button primary onClick={p.openCreate}>+ Artikel erstellen</Button>
+      </PageHeader>
+
+      <Card className="mb-5 p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-slate-950">Materialmeldungen</h3>
+            <p className="text-sm text-slate-500">Hier sehe ich, welches Material an welchem Objekt leer ist.</p>
+          </div>
+          <Status color={openReports.length ? "red" : "green"}>{openReports.length} offen</Status>
+        </div>
+        {openReports.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-400">Keine offenen Materialmeldungen.</p> : (
+          <div className="space-y-3">
+            {openReports.map((r: Row) => (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-100 bg-red-50 p-4">
+                <div>
+                  <p className="font-black text-red-900">{r.material_name || "Material"}</p>
+                  <p className="text-sm font-semibold text-red-700">Objekt: {r.object_name || "-"}</p>
+                  <p className="text-xs text-red-600">Gemeldet von {r.employee_name || "Mitarbeiter"} · Menge: {r.quantity_requested || 1}</p>
+                  {r.notes && <p className="mt-1 text-sm text-red-700">{r.notes}</p>}
+                </div>
+                <Button primary onClick={() => p.resolveReport(r)}>Erledigt</Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Table headers={["Artikel", "Objekt", "Kategorie", "Bestand", "Mindestbestand", "Lieferant", "Status", "Aktion"]}>
+        {p.rows.length === 0 ? <tr><td colSpan={8}><Empty /></td></tr> : p.rows.map((r: Row) => { const low = Number(r.current_stock || 0) <= Number(r.min_stock || 0); const linkedSite = p.sites?.find((s: Row) => s.id === r.work_site_id); return <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.object_name || linkedSite?.name || "Alle Objekte"}</td><td className="px-4 py-3">{r.category || "-"}</td><td className="px-4 py-3">{r.current_stock || 0} {r.unit || "Stück"}</td><td className="px-4 py-3">{r.min_stock || 0}</td><td className="px-4 py-3">{r.supplier || "-"}</td><td className="px-4 py-3"><Status color={low ? "red" : "green"}>{low ? "Nachbestellen" : "OK"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>; })}
+      </Table>
+    </div>
+  );
 }
 
 function Devices(p: any) {
@@ -1078,7 +1134,6 @@ function ListPage(p: any) {
   return (
     <div>
       <PageHeader icon={p.icon} title={p.title} sub={p.sub}><Button onClick={p.onExport || p.onCreate}>Exportieren</Button><Button primary onClick={p.onCreate}>{p.createLabel}</Button></PageHeader>
-      <div className="mb-4 flex flex-wrap gap-2"><Pill>Informationen</Pill><Pill>Objekte</Pill><Pill>Aufgaben</Pill><Pill>Auswertung</Pill><Pill>Dokumente</Pill></div>
       <Table headers={p.headers}>{p.rows.length === 0 ? <tr><td colSpan={p.headers.length}><Empty /></td></tr> : p.children}</Table>
     </div>
   );
@@ -1126,9 +1181,13 @@ function EmployeeEditModal(p: any) {
 
 function CustomerModal(p: any) { return <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
 function ContactModal(p: any) { return <ModalShell title={p.form.id ? "Kontakt bearbeiten" : "Kontakt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Firma"><Input value={p.form.company} onChange={(e) => p.setForm({ ...p.form, company: e.target.value })} /></Field><Field label="Rolle"><Input value={p.form.role} onChange={(e) => p.setForm({ ...p.form, role: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
-function SiteModal(p: any) { return <ModalShell title={p.form.id ? "Objekt bearbeiten" : "Objekt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Adresse"><Input required value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="GPS-Radius Meter"><Input type="number" value={p.form.allowed_radius_m} onChange={(e) => p.setForm({ ...p.form, allowed_radius_m: e.target.value })} /></Field><Field label="Latitude"><Input value={p.form.latitude} onChange={(e) => p.setForm({ ...p.form, latitude: e.target.value })} /></Field><Field label="Longitude"><Input value={p.form.longitude} onChange={(e) => p.setForm({ ...p.form, longitude: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function SiteModal(p: any) {
+  return <ModalShell title={p.form.id ? "Objekt bearbeiten" : "Objekt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Select value={p.form.customer_id} onChange={(e) => { const customer = p.customers.find((c: Row) => c.id === e.target.value); p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "" }); }}><option value="">Kunde auswählen</option>{p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}</Select></Field><Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Adresse"><Input required value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="GPS-Radius Meter"><Input type="number" value={p.form.allowed_radius_m} onChange={(e) => p.setForm({ ...p.form, allowed_radius_m: e.target.value })} /></Field><Field label="Latitude"><Input value={p.form.latitude} onChange={(e) => p.setForm({ ...p.form, latitude: e.target.value })} /></Field><Field label="Longitude"><Input value={p.form.longitude} onChange={(e) => p.setForm({ ...p.form, longitude: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>;
+}
 function TaskModal(p: any) { return <ModalShell title={p.form.id ? "Aufgabe bearbeiten" : "Neue Aufgabe erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Titel"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} /></Field><Field label="Priorität"><Select value={p.form.priority} onChange={(e) => p.setForm({ ...p.form, priority: e.target.value })}><option>Normal</option><option>Hoch</option><option>Dringend</option></Select></Field><Field label="Datum"><Input type="date" value={p.form.task_date} onChange={(e) => p.setForm({ ...p.form, task_date: e.target.value })} /></Field><Field label="Mitarbeiter"><Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Objekt"><Select value={p.form.work_site_id} onChange={(e) => p.setForm({ ...p.form, work_site_id: e.target.value })}><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Erledigt"><Select value={p.form.done ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, done: e.target.value === "true" })}><option value="false">Offen</option><option value="true">Erledigt</option></Select></Field><Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field><Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field><Field label="Planzeit Minuten"><Input type="number" value={p.form.planned_minutes} onChange={(e) => p.setForm({ ...p.form, planned_minutes: e.target.value })} /></Field><Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
-function MaterialModal(p: any) { return <ModalShell title={p.form.id ? "Artikel bearbeiten" : "Neuen Artikel erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Artikel"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Einheit"><Input value={p.form.unit} onChange={(e) => p.setForm({ ...p.form, unit: e.target.value })} /></Field><Field label="Bestand"><Input type="number" value={p.form.current_stock} onChange={(e) => p.setForm({ ...p.form, current_stock: e.target.value })} /></Field><Field label="Mindestbestand"><Input type="number" value={p.form.min_stock} onChange={(e) => p.setForm({ ...p.form, min_stock: e.target.value })} /></Field><Field label="Lieferant"><Input value={p.form.supplier} onChange={(e) => p.setForm({ ...p.form, supplier: e.target.value })} /></Field><Field label="Bild-URL" wide><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function MaterialModal(p: any) {
+  return <ModalShell title={p.form.id ? "Artikel bearbeiten" : "Neuen Artikel erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Artikel"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Objekt-Verknüpfung"><Select value={p.form.work_site_id} onChange={(e) => { const site = p.sites.find((s: Row) => s.id === e.target.value); p.setForm({ ...p.form, work_site_id: e.target.value, object_name: site?.name || "" }); }}><option value="">Für alle Objekte</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Einheit"><Input value={p.form.unit} onChange={(e) => p.setForm({ ...p.form, unit: e.target.value })} /></Field><Field label="Bestand"><Input type="number" value={p.form.current_stock} onChange={(e) => p.setForm({ ...p.form, current_stock: e.target.value })} /></Field><Field label="Mindestbestand"><Input type="number" value={p.form.min_stock} onChange={(e) => p.setForm({ ...p.form, min_stock: e.target.value })} /></Field><Field label="Lieferant"><Input value={p.form.supplier} onChange={(e) => p.setForm({ ...p.form, supplier: e.target.value })} /></Field><Field label="Bild-URL" wide><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>;
+}
 function DeviceModal(p: any) { return <ModalShell title={p.form.id ? "Gerät bearbeiten" : "Neues Gerät anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Gerätename"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Seriennummer"><Input value={p.form.serial_number} onChange={(e) => p.setForm({ ...p.form, serial_number: e.target.value })} /></Field><Field label="Zugewiesen an"><Select value={p.form.assigned_to} onChange={(e) => p.setForm({ ...p.form, assigned_to: e.target.value })}><option value="">Nicht zugewiesen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Aktiv</option><option>Wartung</option><option>Defekt</option><option>Archiv</option></Select></Field><Field label="Bild-URL"><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
 function KeyModal(p: any) { return <ModalShell title={p.form.id ? "Schlüssel bearbeiten" : "Neuen Schlüssel anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Schlüssel"><Input required value={p.form.key_name} onChange={(e) => p.setForm({ ...p.form, key_name: e.target.value })} /></Field><Field label="Schlüsselnummer"><Input value={p.form.key_number} onChange={(e) => p.setForm({ ...p.form, key_number: e.target.value })} /></Field><Field label="Kunde"><Select value={p.form.customer_name} onChange={(e) => p.setForm({ ...p.form, customer_name: e.target.value })}><option value="">Kunde auswählen</option>{p.customers.map((c: Row) => <option key={c.id} value={c.customer_name || c.name}>{c.customer_name || c.name}</option>)}</Select></Field><Field label="Objekt"><Select value={p.form.object_name} onChange={(e) => p.setForm({ ...p.form, object_name: e.target.value })}><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.name}>{s.name}</option>)}</Select></Field><Field label="Mitarbeiter"><Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Ausgegeben</option><option>Zurückgegeben</option><option>Verloren</option><option>Archiv</option></Select></Field><Field label="Ausgabe"><Input type="date" value={p.form.handover_date} onChange={(e) => p.setForm({ ...p.form, handover_date: e.target.value })} /></Field><Field label="Rückgabe"><Input type="date" value={p.form.return_date} onChange={(e) => p.setForm({ ...p.form, return_date: e.target.value })} /></Field><Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
 function AbsenceModal(p: any) { return <ModalShell title={p.form.id ? "Abwesenheit bearbeiten" : "Abwesenheit erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Mitarbeiter"><Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Art"><Select value={p.form.absence_type} onChange={(e) => p.setForm({ ...p.form, absence_type: e.target.value })}><option>Urlaub</option><option>Krank</option><option>Frei</option><option>Sonstiges</option></Select></Field><Field label="Von"><Input type="date" value={p.form.start_date} onChange={(e) => p.setForm({ ...p.form, start_date: e.target.value })} /></Field><Field label="Bis"><Input type="date" value={p.form.end_date} onChange={(e) => p.setForm({ ...p.form, end_date: e.target.value })} /></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option value="open">Offen</option><option value="approved">Genehmigt</option><option value="rejected">Abgelehnt</option></Select></Field><Field label="Grund" wide><Textarea value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} /></Field></ModalShell>; }

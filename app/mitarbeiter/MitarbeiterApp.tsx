@@ -5,7 +5,7 @@ import type { ReactNode, RefObject } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
-type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "admin";
+type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "material" | "admin";
 
 type EmployeeProfile = {
   id: string;
@@ -26,6 +26,15 @@ type WorkSite = {
   latitude?: number | null;
   longitude?: number | null;
   allowed_radius_m?: number | null;
+};
+
+type MaterialProduct = {
+  id: string;
+  name: string;
+  category?: string | null;
+  unit?: string | null;
+  work_site_id?: string | null;
+  object_name?: string | null;
 };
 
 type Task = {
@@ -125,6 +134,13 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [workSites, setWorkSites] = useState<WorkSite[]>([]);
+  const [materials, setMaterials] = useState<MaterialProduct[]>([]);
+  const [materialSiteId, setMaterialSiteId] = useState("");
+  const [materialProductId, setMaterialProductId] = useState("");
+  const [materialQuantity, setMaterialQuantity] = useState("1");
+  const [materialNotes, setMaterialNotes] = useState("");
+  const [materialSaving, setMaterialSaving] = useState(false);
+  const [materialMessage, setMaterialMessage] = useState("");
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -265,6 +281,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     await Promise.all([
       loadTasks(employeeName),
       loadWorkSites(),
+      loadMaterials(),
       loadTodayEntries(employeeName),
       loadNotifications(employeeName),
       loadUnreadChatCount(employeeName),
@@ -276,6 +293,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   async function loadWorkSites() {
     const { data } = await supabase.from("work_sites").select("*").order("name");
     setWorkSites((data || []) as WorkSite[]);
+  }
+
+  async function loadMaterials() {
+    const { data } = await supabase.from("material_products").select("id,name,category,unit,work_site_id,object_name").order("name");
+    setMaterials((data || []) as MaterialProduct[]);
   }
 
   async function loadTasks(employeeName: string) {
@@ -437,6 +459,50 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     await loadChatMessages(name);
   }
 
+  async function submitMaterialReport() {
+    setMaterialMessage("");
+
+    if (!materialSiteId) {
+      setMaterialMessage("Bitte Objekt auswählen.");
+      return;
+    }
+
+    if (!materialProductId) {
+      setMaterialMessage("Bitte Material auswählen.");
+      return;
+    }
+
+    setMaterialSaving(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+      const response = await fetch("/api/material/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          work_site_id: materialSiteId,
+          material_product_id: materialProductId,
+          quantity_requested: materialQuantity,
+          notes: materialNotes,
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Materialmeldung konnte nicht gesendet werden.");
+
+      setMaterialProductId("");
+      setMaterialQuantity("1");
+      setMaterialNotes("");
+      setMaterialMessage("Meldung gesendet. Ich bekomme sie im Adminbereich unter Material.");
+    } catch (error) {
+      setMaterialMessage(error instanceof Error ? error.message : "Materialmeldung konnte nicht gesendet werden.");
+    } finally {
+      setMaterialSaving(false);
+    }
+  }
+
   async function changeOwnPassword() {
     setMessage("");
     if (newPassword.length < 6) {
@@ -569,6 +635,25 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
           <ProfileScreen profile={profile} workedMinutes={workedMinutes} pauseMinutes={pauseMinutes} notifications={notifications} logout={logout} openTab={openTab} />
         )}
 
+        {activeTab === "material" && (
+          <MaterialReportScreen
+            workSites={workSites}
+            materials={materials}
+            siteId={materialSiteId}
+            setSiteId={setMaterialSiteId}
+            materialId={materialProductId}
+            setMaterialId={setMaterialProductId}
+            quantity={materialQuantity}
+            setQuantity={setMaterialQuantity}
+            notes={materialNotes}
+            setNotes={setMaterialNotes}
+            saving={materialSaving}
+            message={materialMessage}
+            submit={submitMaterialReport}
+            openTab={openTab}
+          />
+        )}
+
         {activeTab === "admin" && (
           <SimplePage title="Admin" openTab={openTab}>
             {role === "admin" ? (
@@ -602,7 +687,7 @@ function HomeScreen(props: {
     { icon: "📊", title: "Einsatzübersicht", text: "Übersicht aller Einsätze für heute", tab: "schedule" as Tab, bg: "bg-blue-50" },
     { icon: "⏱️", title: "Zeiterfassung", text: "Arbeitszeit starten und beenden", tab: "clock" as Tab, bg: "bg-green-50" },
     { icon: "🌴", title: "Abwesenheit", text: "Abwesenheit einreichen und einsehen", tab: "profile" as Tab, bg: "bg-emerald-50" },
-    { icon: "📦", title: "Materialbestellung", text: "Benötigtes Material melden", tab: "chat" as Tab, bg: "bg-orange-50" },
+    { icon: "📦", title: "Materialmeldung", text: "Leeres Material am Objekt melden", tab: "material" as Tab, bg: "bg-orange-50" },
     { icon: "📋", title: "Aufgaben", text: "Aufgaben ansehen und abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
   ];
 
@@ -784,6 +869,57 @@ function ChatScreen(props: { messages: ChatMessage[]; chatText: string; setChatT
           <button type="button" onClick={props.sendChatMessage} className="rounded-2xl bg-blue-600 px-5 text-white font-black">➤</button>
         </div>
         {props.chatError && <p className="mt-2 text-sm font-bold text-red-500">{props.chatError}</p>}
+      </div>
+    </SimplePage>
+  );
+}
+
+function MaterialReportScreen(props: {
+  workSites: WorkSite[];
+  materials: MaterialProduct[];
+  siteId: string;
+  setSiteId: (value: string) => void;
+  materialId: string;
+  setMaterialId: (value: string) => void;
+  quantity: string;
+  setQuantity: (value: string) => void;
+  notes: string;
+  setNotes: (value: string) => void;
+  saving: boolean;
+  message: string;
+  submit: () => void;
+  openTab: (tab: Tab) => void;
+}) {
+  const filteredMaterials = props.materials.filter((item) => !item.work_site_id || item.work_site_id === props.siteId);
+
+  return (
+    <SimplePage title="Material melden" openTab={props.openTab}>
+      <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
+        <p className="text-sm font-bold text-slate-400">Wenn etwas leer ist, melde ich es hier direkt mit Objekt und Material.</p>
+
+        <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-400">Objekt</label>
+        <select value={props.siteId} onChange={(e) => { props.setSiteId(e.target.value); props.setMaterialId(""); }} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none">
+          <option value="">Objekt auswählen</option>
+          {props.workSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+        </select>
+
+        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Material</label>
+        <select value={props.materialId} onChange={(e) => props.setMaterialId(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none">
+          <option value="">Material auswählen</option>
+          {filteredMaterials.map((material) => <option key={material.id} value={material.id}>{material.name}{material.object_name ? ` · ${material.object_name}` : ""}</option>)}
+        </select>
+
+        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Menge</label>
+        <input type="number" min="1" value={props.quantity} onChange={(e) => props.setQuantity(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+
+        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Kommentar</label>
+        <textarea value={props.notes} onChange={(e) => props.setNotes(e.target.value)} placeholder="Zum Beispiel: WC Papier komplett leer" className="mt-2 min-h-28 w-full rounded-2xl bg-slate-50 px-4 py-4 font-semibold outline-none" />
+
+        <button type="button" disabled={props.saving} onClick={props.submit} className="mt-5 w-full rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">
+          {props.saving ? "Wird gesendet..." : "Material melden"}
+        </button>
+
+        {props.message && <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-700">{props.message}</p>}
       </div>
     </SimplePage>
   );

@@ -98,12 +98,8 @@ export async function POST(request: Request) {
 
     const adminCheck = await requireAdmin(request);
 
-    if (adminCheck.error) {
+    if (adminCheck.error || !adminCheck.supabaseAdmin) {
       return adminCheck.error;
-    }
-
-    if (!adminCheck.supabaseAdmin) {
-      return NextResponse.json({ error: "Admin-Verbindung konnte nicht aufgebaut werden." }, { status: 500 });
     }
 
     const supabaseAdmin = adminCheck.supabaseAdmin;
