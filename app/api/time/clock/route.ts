@@ -133,6 +133,20 @@ export async function POST(request: Request) {
 
     if (action === "request_overtime") {
       const overtimeMinutes = Math.max(1, Number(body.overtime_minutes || 15));
+
+      const { data: existingRequest } = await supabaseAdmin
+        .from("admin_notifications")
+        .select("id,status")
+        .eq("employee_name", profile.name)
+        .eq("task_id", task.id)
+        .eq("notification_type", "overtime_request")
+        .eq("status", "open")
+        .maybeSingle();
+
+      if (existingRequest) {
+        return NextResponse.json({ success: true, message: "Für diesen Einsatz wartet bereits eine Überstundenanfrage auf Freigabe." });
+      }
+
       const { error } = await supabaseAdmin.from("admin_notifications").insert([
         {
           employee_name: profile.name,
@@ -187,6 +201,13 @@ export async function POST(request: Request) {
     const worked = workedMinutesFromEntries(entries || []);
     const max = Number(task.max_minutes || task.planned_minutes || 0);
     const autoClockOut = body.reason === "max_time_reached" || body.reason === "left_geofence";
+
+    if ((action === "start" || action === "break_end") && max > 0 && worked >= max) {
+      return NextResponse.json(
+        { error: "Die geplante Arbeitszeit ist erreicht. Bitte zuerst Überstunden anfragen und auf Freigabe warten." },
+        { status: 400 }
+      );
+    }
 
     const nowIso = new Date().toISOString();
     const payload: Row = {

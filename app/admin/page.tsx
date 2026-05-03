@@ -271,12 +271,14 @@ export default function AdminPage() {
     }
   }
 
-  async function selectTable(table: string, orderBy = "created_at", ascending = false, limit?: number) {
+  async function selectTable(table: string, orderBy = "created_at", ascending = false, limit?: number, silentMissing = false) {
     try {
       const json = await adminCall({ action: "select", table, orderBy, ascending, limit });
       return json.data || [];
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : `Daten konnten nicht geladen werden: ${table}`);
+      const text = error instanceof Error ? error.message : `Daten konnten nicht geladen werden: ${table}`;
+      const missingOptionalTable = /Could not find the table|schema cache|does not exist|relation .* does not exist/i.test(text);
+      if (!silentMissing || !missingOptionalTable) setMessage(text);
       return [];
     }
   }
@@ -290,8 +292,8 @@ export default function AdminPage() {
       selectTable("time_entries", "created_at", false, 800),
       selectTable("absence_requests", "start_date", false),
       selectTable("material_products", "name", true),
-      selectTable("material_reports", "created_at", false, 300),
-      selectTable("admin_notifications", "created_at", false, 300),
+      selectTable("material_reports", "created_at", false, 300, true),
+      selectTable("admin_notifications", "created_at", false, 300, true),
       selectTable("equipment_items", "name", true),
       selectTable("key_items", "key_name", true),
       selectTable("customer_contacts", "name", true),
@@ -627,6 +629,8 @@ export default function AdminPage() {
       travel_minutes: Number(taskForm.travel_minutes || 0),
       break_minutes: Number(taskForm.break_minutes || 0),
       notify_employee: taskForm.notify_employee !== false,
+      item_type: tab === "aufgaben" ? "task" : "einsatz",
+      task_type: tab === "aufgaben" ? "task" : "einsatz",
       schedule_type: taskForm.repeat_mode === "repeat" ? "repeat" : "once",
       recurrence_interval: Number(taskForm.recurrence_interval || 1),
       recurrence_unit: taskForm.recurrence_unit || "week",
@@ -804,6 +808,93 @@ export default function AdminPage() {
     await insertOrUpdate("time_entries", row.id, { approved, status: approved ? "approved" : "rejected" });
   }
 
+  async function decideAdminNotification(note: Row, approved: boolean) {
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const isOvertime = note.notification_type === "overtime_request";
+      const overtimeMinutes = Math.max(0, Number(note.overtime_minutes || 0));
+      const status = approved ? "approved" : "rejected";
+      const nowIso = new Date().toISOString();
+
+      if (isOvertime && approved && note.task_id && overtimeMinutes > 0) {
+        const task = tasks.find((item) => item.id === note.task_id);
+        const currentMax = Number(task?.max_minutes || task?.planned_minutes || 0);
+        const alreadyApproved = Number(task?.approved_overtime_minutes || 0);
+
+        await adminCall({
+          action: "update",
+          table: "tasks",
+          id: note.task_id,
+          payload: {
+            approved_overtime_minutes: alreadyApproved + overtimeMinutes,
+            max_minutes: currentMax + overtimeMinutes,
+            overtime_status: "approved",
+          },
+        });
+      }
+
+      if (isOvertime && !approved && note.task_id) {
+        await adminCall({
+          action: "update",
+          table: "tasks",
+          id: note.task_id,
+          payload: { overtime_status: "rejected" },
+        });
+      }
+
+      await adminCall({
+        action: "update",
+        table: "admin_notifications",
+        id: note.id,
+        payload: {
+          status,
+          resolved_at: nowIso,
+          admin_response: approved ? "Genehmigt" : "Abgelehnt",
+          title: isOvertime ? (approved ? "Überstunden genehmigt" : "Überstunden abgelehnt") : note.title,
+          message: isOvertime
+            ? approved
+              ? `Ich habe ${overtimeMinutes} Minuten Überstunden für ${note.site || "den Einsatz"} genehmigt.`
+              : `Ich habe die Überstundenanfrage für ${note.site || "den Einsatz"} abgelehnt.`
+            : note.message,
+        },
+      });
+
+      if (isOvertime) {
+        await adminCall({
+          action: "insert",
+          table: "chat_messages",
+          payload: [{
+            employee_name: note.employee_name,
+            sender_role: "admin",
+            sender_name: "Admin",
+            message: approved
+              ? `Überstunden genehmigt: ${overtimeMinutes} Minuten für ${note.site || "deinen Einsatz"}.`
+              : `Überstunden abgelehnt für ${note.site || "deinen Einsatz"}. Bitte Einsatz beenden oder kurz melden.`,
+            read_by_admin: true,
+            read_by_employee: false,
+          }],
+        });
+      }
+
+      setMessage(isOvertime ? (approved ? "Überstunden genehmigt." : "Überstunden abgelehnt.") : "Meldung erledigt.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Meldung konnte nicht bearbeitet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function closeAdminNotification(note: Row) {
+    await insertOrUpdate("admin_notifications", note.id, {
+      status: "done",
+      resolved_at: new Date().toISOString(),
+      admin_response: "Erledigt",
+    });
+  }
+
   async function sendChat() {
     if (!chatEmployee || !chatText.trim()) {
       setMessage("Bitte Mitarbeiter und Nachricht auswählen.");
@@ -960,7 +1051,7 @@ export default function AdminPage() {
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
-          {tab === "zeiten" && <Times rows={filtered.entries} notifications={filtered.adminNotifications} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+          {tab === "zeiten" && <Times rows={filtered.entries} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
           {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
@@ -1313,24 +1404,59 @@ function Keys(p: any) {
 
 function Times(p: any) {
   const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
+  const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
+  const systemNotifications = openNotifications.filter((item: Row) => item.notification_type !== "overtime_request");
+
   return (
     <div>
-      {openNotifications.length > 0 && (
-        <Card className="mb-5 p-5">
-          <h3 className="mb-3 font-black text-slate-950">Meldungen zur Zeiterfassung</h3>
+      {overtimeRequests.length > 0 && (
+        <Card className="mb-5 border-amber-200 bg-amber-50 p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-black text-amber-950">Überstundenanfragen</h3>
+              <p className="text-sm font-bold text-amber-700">Ich kann hier direkt entscheiden, ob ein Mitarbeiter länger arbeiten darf.</p>
+            </div>
+            <Status color="yellow">{overtimeRequests.length} offen</Status>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
-            {openNotifications.map((note: Row) => (
-              <div key={note.id} className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="font-black text-amber-900">{note.title}</p>
-                <p className="mt-1 text-sm font-bold text-amber-700">{note.message}</p>
-                <p className="mt-2 text-xs text-amber-600">{dateText(note.created_at)} · {note.notification_type || "Meldung"}</p>
+            {overtimeRequests.map((note: Row) => (
+              <div key={note.id} className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-black text-slate-950">{note.employee_name}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-600">{note.site || "Einsatz"} · +{note.overtime_minutes || 0} Min.</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-400">{dateText(note.created_at)} · {note.message}</p>
+                  </div>
+                  <Status color="yellow">wartet</Status>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button primary onClick={() => p.decideNotification(note, true)}>Genehmigen</Button>
+                  <Button danger onClick={() => p.decideNotification(note, false)}>Ablehnen</Button>
+                </div>
               </div>
             ))}
           </div>
         </Card>
       )}
-      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden sehen und freigeben" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
-        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+
+      {systemNotifications.length > 0 && (
+        <Card className="mb-5 p-5">
+          <h3 className="mb-3 font-black text-slate-950">Automatische Meldungen</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            {systemNotifications.map((note: Row) => (
+              <div key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-black text-slate-950">{note.title}</p>
+                <p className="mt-1 text-sm font-bold text-slate-600">{note.message}</p>
+                <p className="mt-2 text-xs text-slate-400">{dateText(note.created_at)} · {note.notification_type || "Meldung"}</p>
+                <div className="mt-3"><Button onClick={() => p.closeNotification(note)}>Erledigt</Button></div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
+        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );

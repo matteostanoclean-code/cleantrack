@@ -5,7 +5,7 @@ import type { ReactNode, RefObject } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
-type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "material" | "admin";
+type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "absence" | "material" | "admin";
 
 type EmployeeProfile = {
   id: string;
@@ -48,6 +48,10 @@ type Task = {
   end_time: string | null;
   max_minutes: number | null;
   planned_minutes: number | null;
+  approved_overtime_minutes?: number | null;
+  overtime_status?: string | null;
+  item_type?: string | null;
+  task_type?: string | null;
   work_site_id: string | null;
 };
 
@@ -188,6 +192,12 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialNotes, setMaterialNotes] = useState("");
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
+  const [absenceType, setAbsenceType] = useState("Urlaub");
+  const [absenceStartDate, setAbsenceStartDate] = useState(todayISO());
+  const [absenceEndDate, setAbsenceEndDate] = useState(todayISO());
+  const [absenceReason, setAbsenceReason] = useState("");
+  const [absenceSaving, setAbsenceSaving] = useState(false);
+  const [absenceMessage, setAbsenceMessage] = useState("");
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -207,14 +217,15 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const name = profile?.name || "";
   const role = profile?.role || "employee";
   const today = todayISO();
-  const todayTasks = useMemo(() => sortTasksByTime(tasks.filter((task) => task.task_date === today)), [tasks, today]);
-  const openTasks = todayTasks.filter((task) => !task.done).length;
-  const doneTasks = todayTasks.filter((task) => task.done).length;
-  const plannedMinutes = todayTasks.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
+  const todayAssignments = useMemo(() => sortTasksByTime(tasks.filter((task) => task.task_date === today && task.item_type !== "task" && task.task_type !== "task")), [tasks, today]);
+  const todayActionTasks = useMemo(() => sortTasksByTime(tasks.filter((task) => task.task_date === today && (task.item_type === "task" || task.task_type === "task"))), [tasks, today]);
+  const openTasks = todayAssignments.filter((task) => !task.done).length;
+  const doneTasks = todayAssignments.filter((task) => task.done).length;
+  const plannedMinutes = todayAssignments.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
   const workedMinutes = useMemo(() => calculateWorkedMinutes(todayEntries), [todayEntries]);
   const pauseMinutes = useMemo(() => calculatePauseMinutes(todayEntries), [todayEntries]);
   const progress = plannedMinutes > 0 ? Math.min(100, Math.round((workedMinutes / plannedMinutes) * 100)) : 0;
-  const selectedTask = todayTasks.find((task) => task.id === selectedTaskId) || todayTasks.find((task) => !task.done) || todayTasks[0] || null;
+  const selectedTask = todayAssignments.find((task) => task.id === selectedTaskId) || todayAssignments.find((task) => !task.done) || todayAssignments[0] || null;
   const selectedSite = selectedTask ? workSites.find((site) => site.id === selectedTask.work_site_id || site.name === selectedTask.site) || null : null;
 
   useEffect(() => {
@@ -602,6 +613,49 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     await loadChatMessages(name);
   }
 
+  async function submitAbsenceRequest() {
+    setAbsenceMessage("");
+
+    if (!absenceStartDate || !absenceEndDate) {
+      setAbsenceMessage("Bitte Start- und Enddatum eintragen.");
+      return;
+    }
+
+    if (new Date(absenceEndDate) < new Date(absenceStartDate)) {
+      setAbsenceMessage("Das Enddatum darf nicht vor dem Startdatum liegen.");
+      return;
+    }
+
+    setAbsenceSaving(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+      const response = await fetch("/api/absence/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          absence_type: absenceType,
+          start_date: absenceStartDate,
+          end_date: absenceEndDate,
+          reason: absenceReason,
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Abwesenheit konnte nicht gesendet werden.");
+
+      setAbsenceReason("");
+      setAbsenceMessage("Abwesenheit wurde eingereicht. Ich sehe sie im Adminbereich unter Abwesenheiten.");
+      if (name) await loadNotifications(name);
+    } catch (error) {
+      setAbsenceMessage(error instanceof Error ? error.message : "Abwesenheit konnte nicht gesendet werden.");
+    } finally {
+      setAbsenceSaving(false);
+    }
+  }
+
   async function submitMaterialReport() {
     setMaterialMessage("");
 
@@ -731,7 +785,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
           <HomeScreen
             name={name}
             avatar={profile?.avatar_url || ""}
-            todayTasks={todayTasks}
+            todayTasks={todayAssignments}
             openTasks={openTasks}
             doneTasks={doneTasks}
             progress={progress}
@@ -744,12 +798,12 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "tasks" && (
-          <TasksScreen tasks={todayTasks} toggleTask={toggleTask} openTab={openTab} />
+          <TasksScreen tasks={todayActionTasks} toggleTask={toggleTask} openTab={openTab} />
         )}
 
         {activeTab === "clock" && (
           <ClockScreen
-            tasks={todayTasks}
+            tasks={todayAssignments}
             entries={todayEntries}
             status={status}
             selectedTaskId={selectedTaskId}
@@ -781,6 +835,23 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
 
         {activeTab === "profile" && (
           <ProfileScreen profile={profile} workedMinutes={workedMinutes} pauseMinutes={pauseMinutes} notifications={notifications} logout={logout} openTab={openTab} />
+        )}
+
+        {activeTab === "absence" && (
+          <AbsenceRequestScreen
+            absenceType={absenceType}
+            setAbsenceType={setAbsenceType}
+            startDate={absenceStartDate}
+            setStartDate={setAbsenceStartDate}
+            endDate={absenceEndDate}
+            setEndDate={setAbsenceEndDate}
+            reason={absenceReason}
+            setReason={setAbsenceReason}
+            saving={absenceSaving}
+            message={absenceMessage}
+            submit={submitAbsenceRequest}
+            openTab={openTab}
+          />
         )}
 
         {activeTab === "material" && (
@@ -834,7 +905,7 @@ function HomeScreen(props: {
   const quickLinks = [
     { icon: "📊", title: "Einsatzübersicht", text: "Übersicht aller Einsätze für heute", tab: "schedule" as Tab, bg: "bg-blue-50" },
     { icon: "⏱️", title: "Zeiterfassung", text: "Arbeitszeit starten und beenden", tab: "clock" as Tab, bg: "bg-green-50" },
-    { icon: "🌴", title: "Abwesenheit", text: "Abwesenheit einreichen und einsehen", tab: "profile" as Tab, bg: "bg-emerald-50" },
+    { icon: "🌴", title: "Abwesenheit", text: "Urlaub oder Krankheit melden", tab: "absence" as Tab, bg: "bg-emerald-50" },
     { icon: "📦", title: "Materialmeldung", text: "Leeres Material am Objekt melden", tab: "material" as Tab, bg: "bg-orange-50" },
     { icon: "📋", title: "Aufgaben", text: "Aufgaben ansehen und abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
   ];
@@ -869,7 +940,7 @@ function HomeScreen(props: {
       </button>
 
       <div className="mt-7 flex items-center justify-between">
-        <h2 className="text-sm font-black">Heutige Aufgaben</h2>
+        <h2 className="text-sm font-black">Heutige Einsätze</h2>
         <div className="flex items-center gap-2 text-xs font-bold text-slate-400"><span>{props.doneTasks}/{props.todayTasks.length}</span><span className="h-1 w-10 rounded-full bg-slate-200"><span className="block h-1 rounded-full bg-blue-500" style={{ width: `${props.todayTasks.length ? (props.doneTasks / props.todayTasks.length) * 100 : 0}%` }} /></span></div>
       </div>
 
@@ -878,12 +949,12 @@ function HomeScreen(props: {
           <>
             <div className="text-4xl">🎉</div>
             <p className="mt-2 font-black">Alles erledigt!</p>
-            <p className="mt-1 text-xs text-slate-400">Ich habe heute keine offenen Aufgaben.</p>
+            <p className="mt-1 text-xs text-slate-400">Ich habe heute keine offenen Einsätze.</p>
           </>
         ) : (
-          <button type="button" onClick={() => props.openTab("tasks")} className="w-full text-left">
-            <p className="font-black">{props.openTasks} Aufgaben offen</p>
-            <p className="mt-1 text-sm text-slate-400">Antippen und Aufgaben bearbeiten.</p>
+          <button type="button" onClick={() => props.openTab("schedule")} className="w-full text-left">
+            <p className="font-black">{props.openTasks} Einsätze offen</p>
+            <p className="mt-1 text-sm text-slate-400">Antippen und Einsätze ansehen.</p>
           </button>
         )}
       </div>
@@ -911,7 +982,7 @@ function TasksScreen({ tasks, toggleTask, openTab }: { tasks: Task[]; toggleTask
         <span className="pb-3">Von mir erstellt</span>
       </div>
       <div className="mt-5 space-y-3">
-        {tasks.length === 0 && <EmptyState text="Keine Aufgaben" />}
+        {tasks.length === 0 && <EmptyState text="Keine separaten Aufgaben. Einsätze findest du unter Einsatzübersicht." />}
         {tasks.map((task) => (
           <button key={task.id} type="button" onClick={() => toggleTask(task)} className="w-full rounded-[22px] bg-white p-4 text-left shadow-sm border border-slate-100">
             <div className="flex items-start gap-3">
@@ -943,7 +1014,9 @@ function ClockScreen(props: {
   requestOvertime: (minutes: number) => void;
   openTab: (tab: Tab) => void;
 }) {
+  const approvedOvertime = Number(props.selectedTask?.approved_overtime_minutes || 0);
   const maxMinutes = Number(props.selectedTask?.max_minutes || props.selectedTask?.planned_minutes || 0);
+  const basePlan = Number(props.selectedTask?.planned_minutes || 0);
   const remaining = maxMinutes ? Math.max(0, maxMinutes - props.workedMinutes) : 0;
   const gpsReady = Boolean(props.selectedSite?.latitude && props.selectedSite?.longitude);
   const canRequestOvertime = Boolean(props.selectedTask && maxMinutes && props.workedMinutes >= maxMinutes);
@@ -961,6 +1034,8 @@ function ClockScreen(props: {
           <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-400">Rest-Planzeit</p><p className="font-black">{formatMinutes(remaining)}</p></div>
         </div>
 
+        {approvedOvertime > 0 && <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-black text-emerald-700">Überstunden genehmigt: +{approvedOvertime} Min. · Gesamtlimit {formatMinutes(maxMinutes || basePlan)}</div>}
+
         <div className="mt-5 rounded-2xl bg-slate-50 p-3">
           <select className="w-full bg-transparent font-bold outline-none" value={props.selectedTaskId} onChange={(e) => props.setSelectedTaskId(e.target.value)}>
             <option value="">Einsatz automatisch wählen</option>
@@ -977,7 +1052,7 @@ function ClockScreen(props: {
           {props.status === "break" && <button type="button" disabled={props.clockSaving} onClick={() => props.createEntry("break_end")} className="col-span-2 rounded-2xl bg-green-600 py-4 text-white font-black disabled:opacity-60">Pause beenden</button>}
         </div>
 
-        {canRequestOvertime && <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="font-black text-amber-800">Planzeit erreicht</p><p className="mt-1 text-sm font-bold text-amber-700">Wenn ich länger brauche, muss ich Überstunden anfragen.</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => props.requestOvertime(15)} className="rounded-xl bg-white py-3 font-black text-amber-700">+15 Min. anfragen</button><button type="button" onClick={() => props.requestOvertime(30)} className="rounded-xl bg-white py-3 font-black text-amber-700">+30 Min. anfragen</button></div></div>}
+        {canRequestOvertime && <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="font-black text-amber-800">Planzeit erreicht</p><p className="mt-1 text-sm font-bold text-amber-700">Wenn ich länger brauche, muss ich Überstunden anfragen. Nach Genehmigung kann ich weiterarbeiten.</p><div className="mt-3 grid grid-cols-3 gap-2"><button type="button" onClick={() => props.requestOvertime(15)} className="rounded-xl bg-white py-3 font-black text-amber-700">+15 Min.</button><button type="button" onClick={() => props.requestOvertime(30)} className="rounded-xl bg-white py-3 font-black text-amber-700">+30 Min.</button><button type="button" onClick={() => props.requestOvertime(60)} className="rounded-xl bg-white py-3 font-black text-amber-700">+60 Min.</button></div></div>}
 
         {props.clockNotice && <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-700">{props.clockNotice}</p>}
         {props.message && <p className="mt-4 text-center text-sm font-bold text-blue-600">{props.message}</p>}
@@ -993,7 +1068,7 @@ function ClockScreen(props: {
 
 function ScheduleScreen({ tasks, openTab }: { tasks: Task[]; openTab: (tab: Tab) => void }) {
   const today = todayISO();
-  const upcoming = sortTasksByTime(tasks.filter((task) => task.task_date >= today));
+  const upcoming = sortTasksByTime(tasks.filter((task) => task.task_date >= today && task.item_type !== "task" && task.task_type !== "task"));
   return (
     <SimplePage title="Einsätze" openTab={openTab} searchPlaceholder="Suchen...">
       <div className="grid gap-2">
@@ -1017,7 +1092,7 @@ function SearchScreen({ tasks, notifications, openTab }: { tasks: Task[]; notifi
   const resultNotes = notifications.filter((note) => `${note.title} ${note.message}`.toLowerCase().includes(q));
   return (
     <SimplePage title="Suche" openTab={openTab}>
-      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Aufgaben, Objekte oder Nachrichten suchen..." className="w-full rounded-2xl bg-white px-4 py-4 font-semibold outline-none shadow-sm border border-slate-100" />
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Einsätze, Aufgaben, Objekte oder Nachrichten suchen..." className="w-full rounded-2xl bg-white px-4 py-4 font-semibold outline-none shadow-sm border border-slate-100" />
       <div className="mt-5 space-y-3">
         {query && resultTasks.map((task) => <div key={task.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{task.title}</p><p className="text-xs text-slate-400">{task.site || "Kein Objekt"}</p></div>)}
         {query && resultNotes.map((note) => <div key={note.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{note.title}</p><p className="text-xs text-slate-400">{note.message}</p></div>)}
@@ -1042,6 +1117,57 @@ function ChatScreen(props: { messages: ChatMessage[]; chatText: string; setChatT
           <button type="button" onClick={props.sendChatMessage} className="rounded-2xl bg-blue-600 px-5 text-white font-black">➤</button>
         </div>
         {props.chatError && <p className="mt-2 text-sm font-bold text-red-500">{props.chatError}</p>}
+      </div>
+    </SimplePage>
+  );
+}
+
+function AbsenceRequestScreen(props: {
+  absenceType: string;
+  setAbsenceType: (value: string) => void;
+  startDate: string;
+  setStartDate: (value: string) => void;
+  endDate: string;
+  setEndDate: (value: string) => void;
+  reason: string;
+  setReason: (value: string) => void;
+  saving: boolean;
+  message: string;
+  submit: () => void;
+  openTab: (tab: Tab) => void;
+}) {
+  return (
+    <SimplePage title="Abwesenheit" openTab={props.openTab}>
+      <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
+        <p className="text-sm font-bold text-slate-400">Hier reiche ich Urlaub, Krankheit oder andere Abwesenheiten ein.</p>
+
+        <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-400">Art der Abwesenheit</label>
+        <select value={props.absenceType} onChange={(e) => props.setAbsenceType(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none">
+          <option value="Urlaub">Urlaub</option>
+          <option value="Krankheit">Krankheit</option>
+          <option value="Unbezahlt">Unbezahlt</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <label>
+            <span className="block text-xs font-black uppercase tracking-wide text-slate-400">Von</span>
+            <input type="date" value={props.startDate} onChange={(e) => props.setStartDate(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+          </label>
+          <label>
+            <span className="block text-xs font-black uppercase tracking-wide text-slate-400">Bis</span>
+            <input type="date" value={props.endDate} onChange={(e) => props.setEndDate(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+          </label>
+        </div>
+
+        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Grund / Hinweis</label>
+        <textarea value={props.reason} onChange={(e) => props.setReason(e.target.value)} placeholder="Zum Beispiel: Urlaub beantragt" className="mt-2 min-h-28 w-full rounded-2xl bg-slate-50 px-4 py-4 font-semibold outline-none" />
+
+        <button type="button" disabled={props.saving} onClick={props.submit} className="mt-5 w-full rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">
+          {props.saving ? "Wird gesendet..." : "Abwesenheit einreichen"}
+        </button>
+
+        {props.message && <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-700">{props.message}</p>}
       </div>
     </SimplePage>
   );
@@ -1115,7 +1241,7 @@ function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: 
       <h2 className="mt-6 mb-3 text-sm font-black">Meine Meldungen</h2>
       <div className="space-y-3">
         {props.notifications.length === 0 && <EmptyState text="Keine Meldungen vorhanden" />}
-        {props.notifications.map((note) => <div key={note.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{note.title}</p><p className="mt-1 text-sm text-slate-500">{note.message}</p></div>)}
+        {props.notifications.map((note) => <div key={note.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><div className="flex items-start justify-between gap-3"><p className="font-black">{note.title}</p><span className={`rounded-full px-3 py-1 text-[11px] font-black ${note.status === "approved" ? "bg-green-100 text-green-700" : note.status === "rejected" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>{note.status || "open"}</span></div><p className="mt-1 text-sm text-slate-500">{note.message}</p></div>)}
       </div>
     </SimplePage>
   );
