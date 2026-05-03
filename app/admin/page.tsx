@@ -48,7 +48,7 @@ function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
 }
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
-const emptyKey = { id: "", key_name: "", key_number: "", customer_name: "", object_name: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
+const emptyKey = { id: "", key_name: "", key_number: "", customer_id: "", customer_name: "", customer_address: "", work_site_id: "", object_name: "", object_address: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
 const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
 
 function euro(value: unknown) {
@@ -92,7 +92,14 @@ function isUuid(value: unknown) {
 }
 
 function customerLabel(row: Row | undefined | null) {
-  return String(row?.name || row?.customer_name || row?.company || "").trim();
+  const label = String(row?.name || row?.customer_name || row?.company || "").trim();
+  if (label) return label;
+  const address = String(row?.address || row?.customer_address || "").trim();
+  return address ? `Kunde ohne Name (${address})` : "";
+}
+
+function customerAddress(row: Row | undefined | null) {
+  return String(row?.address || row?.customer_address || "").trim();
 }
 
 function customerValue(row: Row | undefined | null) {
@@ -276,6 +283,111 @@ function wrapPdfLine(text: string, maxChars: number) {
   }
   if (current) lines.push(current);
   return lines.length ? lines : [""];
+}
+
+
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function printKeyHandoverPdf(data: {
+  employeeName: string;
+  customerAndAddress: string;
+  keyAmount: string;
+  keyNumber: string;
+}) {
+  const issueDate = new Date().toLocaleDateString("de-DE");
+  const html = `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Schlüsselübergabeprotokoll</title>
+  <style>
+    @page { size: A4; margin: 20mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111827; font-size: 12pt; line-height: 1.35; }
+    h1 { font-size: 18pt; margin: 0 0 18px; }
+    h2 { font-size: 13pt; margin: 18px 0 8px; }
+    p { margin: 0 0 8px; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; }
+    th, td { border: 1px solid #111827; padding: 9px 10px; text-align: left; vertical-align: top; }
+    th { font-weight: 700; background: #f3f4f6; }
+    ul { margin: 8px 0 16px 18px; padding: 0; }
+    li { margin: 0 0 7px; }
+    .between { margin-bottom: 14px; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; margin-top: 42px; }
+    .line { border-top: 1px solid #111827; padding-top: 7px; font-size: 10.5pt; }
+    .date { margin-top: 28px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Schlüsselübergabeprotokoll</h1>
+
+  <p class="between"><strong>Zwischen:</strong></p>
+  <p><strong>Arbeitgeber:</strong> Matteo Stano Clean Gebäudereinigung</p>
+  <p><strong>Mitarbeiter:</strong> ${htmlEscape(data.employeeName || "-")}</p>
+
+  <h2>1. Gegenstand der Übergabe</h2>
+  <p>Der Mitarbeiter bestätigt den Erhalt der folgenden Schlüssel für das Objekt ${htmlEscape(data.customerAndAddress || "-")}:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 28%;">Anzahl</th>
+        <th>Schlüsselnummer / Kennzeichnung</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>${htmlEscape(data.keyAmount || "-")}</td>
+        <td>${htmlEscape(data.keyNumber || "-")}</td>
+      </tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. Pflichten des Mitarbeiters</h2>
+  <p>Mit der Übernahme der Schlüssel verpflichtet sich der Mitarbeiter zu folgendem:</p>
+  <ul>
+    <li><strong>Sorgfaltspflicht:</strong> Die Schlüssel sind mit größter Sorgfalt zu verwahren. Eine Weitergabe an unbefugte Dritte ist strikt untersagt.</li>
+    <li><strong>Nachschlüsselverbot:</strong> Es ist dem Mitarbeiter untersagt, eigenmächtig Kopien oder Nachschlüssel anzufertigen oder anfertigen zu lassen.</li>
+    <li><strong>Meldepflicht:</strong> Der Verlust eines Schlüssels ist dem Arbeitgeber unverzüglich (ohne schuldhaftes Zögern) anzuzeigen.</li>
+    <li><strong>Rückgabepflicht:</strong> Bei Beendigung des Arbeitsverhältnisses, oder auf ausdrückliches Verlangen des Arbeitgebers, sind alle überlassenen Schlüssel sofort zurückzugeben. Ein Zurückbehaltungsrecht besteht nicht.</li>
+  </ul>
+
+  <h2>3. Haftung</h2>
+  <p>Bei Verlust oder Beschädigung der Schlüssel durch grobe Fahrlässigkeit oder Vorsatz haftet der Mitarbeiter für die daraus entstehenden Kosten (z. B. Austausch der Schließanlage, Notdienst).</p>
+  <p><strong>Hinweis:</strong> Wir empfehlen dem Mitarbeiter, zu prüfen, ob die private Haftpflichtversicherung den Verlust von "beruflich genutzten Schlüsseln" abdeckt.</p>
+
+  <h2>4. Empfangsbestätigung</h2>
+  <p>Der Mitarbeiter bestätigt durch seine Unterschrift den Erhalt der oben aufgeführten Schlüssel in technisch einwandfreiem Zustand.</p>
+
+  <p class="date">Ort, Datum: Ispringen, ${htmlEscape(issueDate)}</p>
+
+  <div class="signatures">
+    <div class="line">Unterschrift Arbeitgeber</div>
+    <div class="line">Unterschrift Mitarbeiter</div>
+  </div>
+
+  <script>
+    window.addEventListener('load', () => setTimeout(() => window.print(), 250));
+  </script>
+</body>
+</html>`;
+  const printWindow = window.open("", "_blank", "width=900,height=1200");
+  if (!printWindow) {
+    alert("Bitte Pop-ups erlauben, damit das Protokoll geöffnet werden kann.");
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
 }
 
 function downloadKeyHandoverPdf(data: {
@@ -957,12 +1069,18 @@ export default function AdminPage() {
   }
 
   function openKey(row?: Row) {
+    const linkedSite = sites.find((site) => site.id === row?.work_site_id || site.name === row?.object_name);
+    const linkedCustomer = findCustomerByValue(customerList, String(row?.customer_id || row?.customer_name || linkedSite?.customer_id || linkedSite?.customer_name || ""));
     setKeyForm(row ? {
       id: String(row.id || ""),
       key_name: String(row.key_name || ""),
       key_number: String(row.key_number || ""),
-      customer_name: String(row.customer_name || ""),
-      object_name: String(row.object_name || ""),
+      customer_id: String(row.customer_id || linkedCustomer?.id || linkedSite?.customer_id || ""),
+      customer_name: String(row.customer_name || customerLabel(linkedCustomer) || linkedSite?.customer_name || ""),
+      customer_address: String(row.customer_address || customerAddress(linkedCustomer) || linkedSite?.customer_address || ""),
+      work_site_id: String(row.work_site_id || linkedSite?.id || ""),
+      object_name: String(row.object_name || linkedSite?.name || ""),
+      object_address: String(row.object_address || linkedSite?.address || ""),
       employee_name: String(row.employee_name || ""),
       status: String(row.status || "Ausgegeben"),
       handover_date: String(row.handover_date || today),
@@ -973,11 +1091,20 @@ export default function AdminPage() {
   }
 
   async function saveKey() {
+    const site = sites.find((item) => item.id === keyForm.work_site_id || item.name === keyForm.object_name);
+    const customer = findCustomerByValue(customerList, keyForm.customer_id || keyForm.customer_name || site?.customer_id || site?.customer_name || "");
+    const customerName = customerLabel(customer) || keyForm.customer_name || String(site?.customer_name || "").trim() || null;
+    const customerAddr = customerAddress(customer) || keyForm.customer_address || String(site?.customer_address || "").trim() || null;
+
     await insertOrUpdate("key_items", keyForm.id, {
       key_name: keyForm.key_name,
       key_number: keyForm.key_number || null,
-      customer_name: keyForm.customer_name || null,
-      object_name: keyForm.object_name || null,
+      customer_id: isUuid(keyForm.customer_id) ? keyForm.customer_id : isUuid(customer?.id) ? customer?.id : null,
+      customer_name: customerName,
+      customer_address: customerAddr,
+      work_site_id: keyForm.work_site_id || site?.id || null,
+      object_name: site?.name || keyForm.object_name || null,
+      object_address: site?.address || keyForm.object_address || null,
       employee_name: keyForm.employee_name || null,
       status: keyForm.status,
       handover_date: keyForm.handover_date || null,
@@ -987,26 +1114,17 @@ export default function AdminPage() {
   }
 
   function createKeyPdf(row: Row) {
-    const customerName = String(row.customer_name || "").trim();
-    const objectName = String(row.object_name || "").trim();
-    const customer = customerList.find((item) => customerLabel(item).toLowerCase() === customerName.toLowerCase());
-    const site = sites.find((item) => {
-      const siteName = String(item.name || "").trim().toLowerCase();
-      const siteCustomer = String(item.customer_name || item.customer || "").trim().toLowerCase();
-      return (objectName && siteName === objectName.toLowerCase()) || (customerName && siteCustomer === customerName.toLowerCase());
-    });
+    const site = sites.find((item) => item.id === row.work_site_id || item.name === row.object_name);
+    const customer = findCustomerByValue(customerList, String(row.customer_id || row.customer_name || site?.customer_id || site?.customer_name || ""));
+    const customerName = customerLabel(customer) || String(row.customer_name || site?.customer_name || "").trim();
+    const customerAddr = customerAddress(customer) || String(row.customer_address || site?.customer_address || site?.address || row.object_address || "").trim();
+    const customerAndAddress = [customerName, customerAddr].filter(Boolean).join(", ");
 
-    const addressParts = [
-      customerLabel(customer) || customerName || String(site?.customer_name || "").trim(),
-      String(customer?.address || site?.customer_address || site?.address || objectName || "").trim(),
-    ].filter(Boolean);
-
-    downloadKeyHandoverPdf({
+    printKeyHandoverPdf({
       employeeName: String(row.employee_name || "-"),
-      objectAddress: addressParts.join(", ") || "-",
+      customerAndAddress: customerAndAddress || "-",
       keyAmount: String(row.key_name || "-"),
       keyNumber: String(row.key_number || "-"),
-      filename: `schluesseluebergabe-${safeFilename(row.employee_name || row.key_number || row.key_name)}.pdf`,
     });
   }
 
@@ -1340,27 +1458,32 @@ function filterRows(rows: Row[], query: string) {
 
 function customerRowsFromSites(sites: Row[]) {
   const map = new Map<string, Row>();
-  for (const site of sites) {
-    const name = String(site.customer_name || "").trim();
-    if (!name) continue;
-    const key = String(site.customer_id || name).trim();
+  sites.forEach((site) => {
+    const name = String(site.customer_name || site.customer || "").trim();
+    const address = String(site.customer_address || "").trim();
+    if (!name && !address) return;
+    const key = String(site.customer_id || name || address).trim();
     if (!map.has(key)) {
       map.set(key, {
         id: isUuid(site.customer_id) ? site.customer_id : key,
-        name,
-        customer_name: name,
-        address: site.customer_address || "",
+        name: name || "",
+        customer_name: name || "",
+        address,
+        customer_address: address,
         phone: site.customer_phone || "",
         email: site.customer_email || "",
         notes: site.customer_notes || "",
-        active: true,
         object_count: 0,
       });
     }
-    map.get(key)!.object_count += 1;
-  }
-  return [...map.values()];
+    const existing = map.get(key)!;
+    existing.object_count += 1;
+    if (!existing.address && address) existing.address = address;
+    if (!existing.customer_address && address) existing.customer_address = address;
+  });
+  return Array.from(map.values());
 }
+
 
 function PageHeader({ icon, title, sub, children }: { icon: string; title: string; sub?: string; children?: React.ReactNode }) {
   return (
@@ -1404,7 +1527,13 @@ function Table({ headers, children, min = "900px" }: { headers: string[]; childr
 }
 
 function Empty({ text = "Noch keine Daten hinterlegt" }: { text?: string }) {
-  return <div className="flex min-h-[300px] flex-col items-center justify-center text-center text-slate-400"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">×</div><p className="font-bold text-slate-700">{text}</p><p className="text-sm">Klicke oben auf „Neu“, um zu starten.</p></div>;
+  return (
+    <div className="flex min-h-[260px] flex-col items-center justify-center text-center text-slate-400">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">×</div>
+      <p className="font-bold text-slate-700">{text}</p>
+      <p className="text-sm">Klicke oben auf „Neu“, um zu starten.</p>
+    </div>
+  );
 }
 
 function Status({ children, color = "green" }: { children: React.ReactNode; color?: "green" | "blue" | "yellow" | "red" | "gray" }) {
@@ -1636,7 +1765,7 @@ function Devices(p: any) {
 }
 
 function Keys(p: any) {
-  return <ListPage icon="🔑" title="Schlüssel" sub="Schlüsselverwaltung mit Übergabe-PDF" rows={p.rows} headers={["Schlüssel", "Nummer", "Kunde", "Objekt", "Mitarbeiter", "Status", "PDF", "Aktion"]} createLabel="+ Schlüssel erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.key_name}</td><td className="px-4 py-3">{r.key_number || "-"}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.object_name || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.status === "Verloren" ? "red" : r.status === "Zurückgegeben" ? "green" : "blue"}>{r.status || "Ausgegeben"}</Status></td><td className="px-4 py-3"><Button onClick={() => p.pdf(r)}>PDF</Button></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return <ListPage icon="🔑" title="Schlüssel" sub="Schlüsselverwaltung mit Übergabeprotokoll" rows={p.rows} headers={["Anzahl", "Schlüsselnummer", "Kunde", "Objekt", "Mitarbeiter", "Status", "Protokoll", "Aktion"]} createLabel="+ Schlüssel erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.key_name}</td><td className="px-4 py-3">{r.key_number || "-"}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.object_name || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.status === "Verloren" ? "red" : r.status === "Zurückgegeben" ? "green" : "blue"}>{r.status || "Ausgegeben"}</Status></td><td className="px-4 py-3"><Button onClick={() => p.pdf(r)}>Protokoll</Button></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
 function Times(p: any) {
@@ -1792,7 +1921,7 @@ function TaskModal(p: any) {
       ...p.form,
       work_site_id: value,
       site: site?.name || "",
-      customer_id: isUuid(site?.customer_id) ? site?.customer_id : isUuid(customer?.id) ? customer?.id : p.form.customer_id,
+      customer_id: isUuid(site?.customer_id) ? site?.customer_id : customer && isUuid(customer.id) ? customer.id : p.form.customer_id,
       customer_name: site?.customer_name || customerLabel(customer) || p.form.customer_name,
     });
   };
@@ -1919,5 +2048,67 @@ function MaterialModal(p: any) {
   return <ModalShell title={p.form.id ? "Artikel bearbeiten" : "Neuen Artikel erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Artikel"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Objekt-Verknüpfung"><Select value={p.form.work_site_id} onChange={(e) => { const site = p.sites.find((s: Row) => s.id === e.target.value); p.setForm({ ...p.form, work_site_id: e.target.value, object_name: site?.name || "" }); }}><option value="">Für alle Objekte</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Einheit"><Input value={p.form.unit} onChange={(e) => p.setForm({ ...p.form, unit: e.target.value })} /></Field><Field label="Bestand"><Input type="number" value={p.form.current_stock} onChange={(e) => p.setForm({ ...p.form, current_stock: e.target.value })} /></Field><Field label="Mindestbestand"><Input type="number" value={p.form.min_stock} onChange={(e) => p.setForm({ ...p.form, min_stock: e.target.value })} /></Field><Field label="Lieferant"><Input value={p.form.supplier} onChange={(e) => p.setForm({ ...p.form, supplier: e.target.value })} /></Field><Field label="Bild-URL" wide><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>;
 }
 function DeviceModal(p: any) { return <ModalShell title={p.form.id ? "Gerät bearbeiten" : "Neues Gerät anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Gerätename"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Seriennummer"><Input value={p.form.serial_number} onChange={(e) => p.setForm({ ...p.form, serial_number: e.target.value })} /></Field><Field label="Zugewiesen an"><Select value={p.form.assigned_to} onChange={(e) => p.setForm({ ...p.form, assigned_to: e.target.value })}><option value="">Nicht zugewiesen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Aktiv</option><option>Wartung</option><option>Defekt</option><option>Archiv</option></Select></Field><Field label="Bild-URL"><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
-function KeyModal(p: any) { return <ModalShell title={p.form.id ? "Schlüssel bearbeiten" : "Neuen Schlüssel anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Schlüssel"><Input required value={p.form.key_name} onChange={(e) => p.setForm({ ...p.form, key_name: e.target.value })} /></Field><Field label="Schlüsselnummer"><Input value={p.form.key_number} onChange={(e) => p.setForm({ ...p.form, key_number: e.target.value })} /></Field><Field label="Kunde"><Select value={p.form.customer_name} onChange={(e) => p.setForm({ ...p.form, customer_name: e.target.value })}><option value="">Kunde auswählen</option>{p.customers.map((c: Row) => <option key={c.id} value={c.customer_name || c.name}>{c.customer_name || c.name}</option>)}</Select></Field><Field label="Objekt"><Select value={p.form.object_name} onChange={(e) => p.setForm({ ...p.form, object_name: e.target.value })}><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.name}>{s.name}</option>)}</Select></Field><Field label="Mitarbeiter"><Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Ausgegeben</option><option>Zurückgegeben</option><option>Verloren</option><option>Archiv</option></Select></Field><Field label="Ausgabe"><Input type="date" value={p.form.handover_date} onChange={(e) => p.setForm({ ...p.form, handover_date: e.target.value })} /></Field><Field label="Rückgabe"><Input type="date" value={p.form.return_date} onChange={(e) => p.setForm({ ...p.form, return_date: e.target.value })} /></Field><Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function KeyModal(p: any) {
+  const selectedCustomer = findCustomerByValue(p.customers, p.form.customer_id || p.form.customer_name || "");
+  const selectedCustomerValue = selectedCustomer ? customerValue(selectedCustomer) : p.form.customer_id || p.form.customer_name || "";
+  const filteredSites = p.form.customer_id || p.form.customer_name
+    ? p.sites.filter((site: Row) => siteBelongsToCustomer(site, p.form.customer_id || p.form.customer_name, p.customers))
+    : p.sites;
+
+  const selectCustomer = (value: string) => {
+    const customer = findCustomerByValue(p.customers, value);
+    p.setForm({
+      ...p.form,
+      customer_id: isUuid(value) ? value : isUuid(customer?.id) ? customer?.id : "",
+      customer_name: customerLabel(customer) || value,
+      customer_address: customerAddress(customer),
+      work_site_id: "",
+      object_name: "",
+      object_address: "",
+    });
+  };
+
+  const selectSite = (value: string) => {
+    const site = p.sites.find((s: Row) => s.id === value);
+    const customer = findCustomerByValue(p.customers, site?.customer_id || site?.customer_name || p.form.customer_id || p.form.customer_name || "");
+    p.setForm({
+      ...p.form,
+      work_site_id: value,
+      object_name: site?.name || "",
+      object_address: site?.address || "",
+      customer_id: isUuid(site?.customer_id) ? site.customer_id : customer && isUuid(customer.id) ? customer.id : p.form.customer_id,
+      customer_name: site?.customer_name || customerLabel(customer) || p.form.customer_name,
+      customer_address: site?.customer_address || customerAddress(customer) || p.form.customer_address,
+    });
+  };
+
+  return (
+    <ModalShell title={p.form.id ? "Schlüssel bearbeiten" : "Neuen Schlüssel anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+      <Field label="Anzahl Schlüssel"><Input required value={p.form.key_name} onChange={(e) => p.setForm({ ...p.form, key_name: e.target.value })} placeholder="z. B. 1" /></Field>
+      <Field label="Schlüsselnummer / Kennzeichnung"><Input value={p.form.key_number} onChange={(e) => p.setForm({ ...p.form, key_number: e.target.value })} placeholder="z. B. 12345" /></Field>
+      <Field label="Kunde">
+        <Select value={selectedCustomerValue} onChange={(e) => selectCustomer(e.target.value)}>
+          <option value="">Kunde auswählen</option>
+          {p.customers.filter((c: Row) => customerLabel(c)).map((c: Row) => <option key={customerValue(c)} value={customerValue(c)}>{customerLabel(c)}{customerAddress(c) ? ` · ${customerAddress(c)}` : ""}</option>)}
+        </Select>
+      </Field>
+      <Field label="Objekt / Standort">
+        <Select value={p.form.work_site_id} onChange={(e) => selectSite(e.target.value)}>
+          <option value="">Objekt auswählen</option>
+          {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.address ? ` · ${s.address}` : ""}</option>)}
+        </Select>
+      </Field>
+      <Field label="Mitarbeiter">
+        <Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
+          <option value="">Mitarbeiter auswählen</option>
+          {p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}
+        </Select>
+      </Field>
+      <Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Ausgegeben</option><option>Zurückgegeben</option><option>Verloren</option><option>Archiv</option></Select></Field>
+      <Field label="Ausgabe"><Input type="date" value={p.form.handover_date} onChange={(e) => p.setForm({ ...p.form, handover_date: e.target.value })} /></Field>
+      <Field label="Rückgabe"><Input type="date" value={p.form.return_date} onChange={(e) => p.setForm({ ...p.form, return_date: e.target.value })} /></Field>
+      <Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
+    </ModalShell>
+  );
+}
 function AbsenceModal(p: any) { return <ModalShell title={p.form.id ? "Abwesenheit bearbeiten" : "Abwesenheit erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Mitarbeiter"><Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Art"><Select value={p.form.absence_type} onChange={(e) => p.setForm({ ...p.form, absence_type: e.target.value })}><option>Urlaub</option><option>Krank</option><option>Frei</option><option>Sonstiges</option></Select></Field><Field label="Von"><Input type="date" value={p.form.start_date} onChange={(e) => p.setForm({ ...p.form, start_date: e.target.value })} /></Field><Field label="Bis"><Input type="date" value={p.form.end_date} onChange={(e) => p.setForm({ ...p.form, end_date: e.target.value })} /></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option value="open">Offen</option><option value="approved">Genehmigt</option><option value="rejected">Abgelehnt</option></Select></Field><Field label="Grund" wide><Textarea value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} /></Field></ModalShell>; }
