@@ -125,6 +125,16 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     if (isEmpty(cleaned.customer_name) && !isEmpty(cleaned.name)) cleaned.customer_name = null;
   }
 
+
+  if (table === "tasks") {
+    if (isEmpty(cleaned.customer_id)) cleaned.customer_id = null;
+    if (isEmpty(cleaned.customer_name)) cleaned.customer_name = null;
+    if (isEmpty(cleaned.work_site_id)) cleaned.work_site_id = null;
+    if (isEmpty(cleaned.employee_name)) cleaned.employee_name = null;
+    cleaned.planned_minutes = numericValue(cleaned.planned_minutes, 0);
+    cleaned.max_minutes = numericValue(cleaned.max_minutes, Number(cleaned.planned_minutes || 0));
+  }
+
   if (table === "material_products") {
     if (isEmpty(cleaned.work_site_id)) cleaned.work_site_id = null;
     if (isEmpty(cleaned.object_name)) cleaned.object_name = null;

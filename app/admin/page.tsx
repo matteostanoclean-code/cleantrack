@@ -28,7 +28,7 @@ const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_num
 const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
 const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
-const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false };
+const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false };
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_name: "", object_name: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
@@ -143,6 +143,7 @@ export default function AdminPage() {
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState<Tab>("dashboard");
   const [modal, setModal] = useState<ModalType>(null);
@@ -463,6 +464,32 @@ export default function AdminPage() {
     });
   }
 
+  async function geocodeSiteAddress() {
+    const address = siteForm.address.trim();
+    if (!address) {
+      setMessage("Bitte zuerst eine Objekt-Adresse eintragen.");
+      return;
+    }
+
+    setGeocoding(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "GPS-Daten konnten nicht ermittelt werden.");
+      setSiteForm((old) => ({ ...old, latitude: String(json.latitude ?? ""), longitude: String(json.longitude ?? "") }));
+      setMessage("GPS-Daten wurden übernommen.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "GPS-Daten konnten nicht ermittelt werden.");
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
   function openSite(row?: Row) {
     setSiteForm(row ? {
       id: String(row.id || ""),
@@ -495,25 +522,35 @@ export default function AdminPage() {
   }
 
   function openTask(row?: Row) {
-    setTaskForm(row ? {
+    if (!row) {
+      setTaskForm(emptyTask);
+      setModal("task");
+      return;
+    }
+
+    const linkedSite = sites.find((site) => site.id === row.work_site_id || site.name === row.site);
+    setTaskForm({
       id: String(row.id || ""),
       title: String(row.title || "Unterhaltsreinigung"),
       task_date: String(row.task_date || today),
       start_time: String(row.start_time || "08:00"),
       end_time: String(row.end_time || "10:00"),
       planned_minutes: String(row.planned_minutes || row.max_minutes || minutes(row.start_time, row.end_time) || "120"),
-      site: String(row.site || ""),
-      work_site_id: String(row.work_site_id || ""),
+      customer_id: String(row.customer_id || linkedSite?.customer_id || ""),
+      customer_name: String(row.customer_name || linkedSite?.customer_name || ""),
+      site: String(row.site || linkedSite?.name || ""),
+      work_site_id: String(row.work_site_id || linkedSite?.id || ""),
       employee_name: String(row.employee_name || ""),
       priority: String(row.priority || "Normal"),
       notes: String(row.notes || ""),
       done: Boolean(row.done),
-    } : emptyTask);
+    });
     setModal("task");
   }
 
   async function saveTask() {
     const site = sites.find((item) => item.id === taskForm.work_site_id);
+    const customer = customerList.find((item) => item.id === taskForm.customer_id) || customerList.find((item) => item.name === site?.customer_name);
     await insertOrUpdate("tasks", taskForm.id, {
       title: taskForm.title,
       task_date: taskForm.task_date,
@@ -521,7 +558,9 @@ export default function AdminPage() {
       end_time: taskForm.end_time,
       planned_minutes: Number(taskForm.planned_minutes || 0),
       max_minutes: Number(taskForm.planned_minutes || 0),
-      employee_name: taskForm.employee_name,
+      employee_name: taskForm.employee_name || null,
+      customer_id: taskForm.customer_id || site?.customer_id || null,
+      customer_name: customer?.name || site?.customer_name || taskForm.customer_name || null,
       site: site?.name || taskForm.site,
       work_site_id: taskForm.work_site_id || null,
       priority: taskForm.priority,
@@ -786,13 +825,7 @@ export default function AdminPage() {
               {createButtonLabel}
             </button>
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {navItems.map((item) => (
-              <button key={item.id} type="button" onClick={() => setTab(item.id)} className={tab === item.id ? "shrink-0 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-black text-white" : "shrink-0 rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600"}>
-                {item.icon} {item.label}
-              </button>
-            ))}
-          </div>
+          <p className="mt-3 text-sm font-semibold text-slate-400 lg:hidden">Navigation läuft über die linke Seitenleiste am Desktop.</p>
         </div>
 
         <header className="sticky top-0 z-10 hidden border-b border-slate-200 bg-white/95 px-8 py-5 shadow-sm backdrop-blur lg:block">
@@ -820,13 +853,13 @@ export default function AdminPage() {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
+          {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} customers={customerList} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.tasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", tasks)} />}
-          {tab === "material" && <Materials rows={filtered.materials} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} exportRows={() => downloadCsv("material.csv", materials)} />}
+          {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
           {tab === "zeiten" && <Times rows={filtered.entries} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
@@ -839,8 +872,8 @@ export default function AdminPage() {
       {modal === "employeeEdit" && <EmployeeEditModal close={() => setModal(null)} form={employeeEdit} setForm={setEmployeeEdit} save={saveEmployee} saving={saving} />}
       {modal === "customer" && <CustomerModal close={() => setModal(null)} form={customerForm} setForm={setCustomerForm} save={saveCustomer} saving={saving} />}
       {modal === "contact" && <ContactModal close={() => setModal(null)} form={contactForm} setForm={setContactForm} save={saveContact} saving={saving} />}
-      {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} customers={customerList} />}
-      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} sites={sites} />}
+      {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} customers={customerList} geocode={geocodeSiteAddress} geocoding={geocoding} />}
+      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} />}
       {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} sites={sites} />}
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
       {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
@@ -866,8 +899,9 @@ const navItems: { id: Tab; icon: string; label: string }[] = [
 ];
 
 function getCreateButtonLabel(tab: Tab) {
-  if (tab === "dashboard") return "+ Aufgabe";
-  if (tab === "planung" || tab === "aufgaben") return "+ Aufgabe";
+  if (tab === "dashboard") return "+ Einsatz";
+  if (tab === "planung") return "+ Einsatz";
+  if (tab === "aufgaben") return "+ Aufgabe";
   if (tab === "mitarbeiter") return "+ Mitarbeiter";
   if (tab === "kunden") return "+ Kunde";
   if (tab === "kontakte") return "+ Kontakt";
@@ -1008,25 +1042,94 @@ function Planning(p: any) {
     d.setDate(d.getDate() + i);
     return d.toISOString().slice(0, 10);
   });
+  const unassigned = p.tasks.filter((task: Row) => !task.employee_name).length;
+  const missingGps = p.sites.filter((site: Row) => !site.latitude || !site.longitude).length;
+  const todayPlanned = p.tasks.filter((task: Row) => task.task_date === today).length;
+
   return (
     <div>
-      <PageHeader icon="▦" title="Einsatzplan" sub="Kalenderansicht für die nächsten Tage"><Button primary onClick={() => p.openTask()}>+ Auftrag planen</Button></PageHeader>
-      <div className="grid gap-4 xl:grid-cols-7">
-        {days.map((day) => (
-          <Card key={day} className="min-h-[420px] p-3">
-            <p className="mb-3 text-sm font-black text-slate-700">{dateText(day)}</p>
-            <div className="space-y-2">
-              {p.tasks.filter((task: Row) => task.task_date === day).map((task: Row) => (
-                <button key={task.id} type="button" onClick={() => p.editTask(task)} className="w-full rounded-xl border-l-4 border-blue-500 bg-blue-50 p-3 text-left text-sm hover:bg-blue-100">
-                  <p className="font-black">{task.start_time} · {task.title}</p>
-                  <p className="text-slate-500">{task.employee_name || "Ohne Mitarbeiter"}</p>
-                  <p className="text-slate-500">{task.site || "Ohne Objekt"}</p>
-                </button>
-              ))}
-            </div>
-          </Card>
-        ))}
+      <PageHeader icon="▦" title="Einsatzplanung" sub="Ich plane hier Kunde → Objekt → Mitarbeiter → Datum und Uhrzeit.">
+        <Button onClick={() => p.openTask()}>+ Einsatz anlegen</Button>
+      </PageHeader>
+
+      <div className="mb-5 grid gap-4 md:grid-cols-3">
+        <Metric title="Heute geplant" value={todayPlanned} hint="Einsätze für heute" />
+        <Metric title="Nicht zugewiesen" value={unassigned} hint="ohne Mitarbeiter" />
+        <Metric title="GPS fehlt" value={missingGps} hint="Objekte ohne Standortdaten" />
       </div>
+
+      {missingGps > 0 && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+          Bei {missingGps} Objekt(en) fehlen GPS-Daten. Diese Objekte kann ich zwar planen, aber die spätere Standortprüfung ist erst sauber möglich, wenn Latitude und Longitude eingetragen sind.
+        </div>
+      )}
+
+      <div className="mb-5 grid gap-5 xl:grid-cols-[1fr_360px]">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-black text-slate-950">Wochenplan</h3>
+              <p className="text-sm text-slate-500">Die nächsten 7 Tage nach Objekt und Mitarbeiter.</p>
+            </div>
+            <Button primary onClick={() => p.openTask()}>Einsatz erstellen</Button>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-7">
+            {days.map((day) => {
+              const dayTasks = p.tasks.filter((task: Row) => task.task_date === day);
+              return (
+                <Card key={day} className="min-h-[360px] p-3">
+                  <p className="mb-3 text-sm font-black text-slate-700">{dateText(day)}</p>
+                  <div className="space-y-2">
+                    {dayTasks.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-400">Keine Einsätze</p>}
+                    {dayTasks.map((task: Row) => {
+                      const site = p.sites.find((item: Row) => item.id === task.work_site_id || item.name === task.site);
+                      const gpsOk = Boolean(site?.latitude && site?.longitude);
+                      return (
+                        <button key={task.id} type="button" onClick={() => p.editTask(task)} className="w-full rounded-xl border-l-4 border-blue-500 bg-blue-50 p-3 text-left text-sm hover:bg-blue-100">
+                          <p className="font-black">{task.start_time || "--:--"} · {task.title}</p>
+                          <p className="text-slate-600">{task.employee_name || "Ohne Mitarbeiter"}</p>
+                          <p className="text-slate-500">{task.site || "Ohne Objekt"}</p>
+                          <p className={gpsOk ? "mt-2 text-xs font-black text-emerald-600" : "mt-2 text-xs font-black text-amber-600"}>{gpsOk ? "GPS bereit" : "GPS fehlt"}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h3 className="font-black text-slate-950">Planungslogik</h3>
+          <div className="mt-4 space-y-3 text-sm">
+            <InfoLine label="Kunden" value={p.customers.length} />
+            <InfoLine label="Objekte" value={p.sites.length} />
+            <InfoLine label="Mitarbeiter" value={p.employees.length} />
+            <InfoLine label="Offene Einsätze" value={p.tasks.filter((task: Row) => !task.done).length} />
+          </div>
+          <button type="button" onClick={() => p.openTask()} className="mt-5 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Neuen Einsatz planen</button>
+        </Card>
+      </div>
+
+      <Table headers={["Datum", "Zeit", "Kunde", "Objekt", "Mitarbeiter", "GPS", "Status", "Aktion"]}>
+        {p.tasks.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine Einsätze geplant" /></td></tr> : p.tasks.map((task: Row) => {
+          const site = p.sites.find((item: Row) => item.id === task.work_site_id || item.name === task.site);
+          const gpsOk = Boolean(site?.latitude && site?.longitude);
+          return (
+            <tr key={task.id}>
+              <td className="px-4 py-3">{dateText(task.task_date)}</td>
+              <td className="px-4 py-3 font-bold">{task.start_time || "--:--"} - {task.end_time || "--:--"}</td>
+              <td className="px-4 py-3">{task.customer_name || site?.customer_name || "-"}</td>
+              <td className="px-4 py-3 font-black">{task.site || site?.name || "-"}</td>
+              <td className="px-4 py-3">{task.employee_name || "Nicht zugewiesen"}</td>
+              <td className="px-4 py-3"><Status color={gpsOk ? "green" : "yellow"}>{gpsOk ? "bereit" : "fehlt"}</Status></td>
+              <td className="px-4 py-3"><Status color={task.done ? "green" : "gray"}>{task.done ? "Erledigt" : "Offen"}</Status></td>
+              <td className="px-4 py-3"><Actions edit={() => p.editTask(task)} del={() => p.deleteTask(task)} /></td>
+            </tr>
+          );
+        })}
+      </Table>
     </div>
   );
 }
@@ -1182,9 +1285,72 @@ function EmployeeEditModal(p: any) {
 function CustomerModal(p: any) { return <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
 function ContactModal(p: any) { return <ModalShell title={p.form.id ? "Kontakt bearbeiten" : "Kontakt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Firma"><Input value={p.form.company} onChange={(e) => p.setForm({ ...p.form, company: e.target.value })} /></Field><Field label="Rolle"><Input value={p.form.role} onChange={(e) => p.setForm({ ...p.form, role: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
 function SiteModal(p: any) {
-  return <ModalShell title={p.form.id ? "Objekt bearbeiten" : "Objekt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Select value={p.form.customer_id} onChange={(e) => { const customer = p.customers.find((c: Row) => c.id === e.target.value); p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "" }); }}><option value="">Kunde auswählen</option>{p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}</Select></Field><Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Adresse"><Input required value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="GPS-Radius Meter"><Input type="number" value={p.form.allowed_radius_m} onChange={(e) => p.setForm({ ...p.form, allowed_radius_m: e.target.value })} /></Field><Field label="Latitude"><Input value={p.form.latitude} onChange={(e) => p.setForm({ ...p.form, latitude: e.target.value })} /></Field><Field label="Longitude"><Input value={p.form.longitude} onChange={(e) => p.setForm({ ...p.form, longitude: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>;
+  return (
+    <ModalShell title={p.form.id ? "Objekt bearbeiten" : "Objekt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+      <Field label="Kunde">
+        <Select value={p.form.customer_id} onChange={(e) => { const customer = p.customers.find((c: Row) => c.id === e.target.value); p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "" }); }}>
+          <option value="">Kunde auswählen</option>
+          {p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}
+        </Select>
+      </Field>
+      <Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field>
+      <Field label="Adresse" wide><Input required value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field>
+      <Field label="GPS-Radius Meter"><Input type="number" value={p.form.allowed_radius_m} onChange={(e) => p.setForm({ ...p.form, allowed_radius_m: e.target.value })} /></Field>
+      <Field label="GPS automatisch holen"><button type="button" onClick={p.geocode} disabled={p.geocoding} className="field text-left font-black text-blue-700 disabled:opacity-60">{p.geocoding ? "GPS wird gesucht..." : "GPS aus Adresse holen"}</button></Field>
+      <Field label="Latitude"><Input value={p.form.latitude} onChange={(e) => p.setForm({ ...p.form, latitude: e.target.value })} /></Field>
+      <Field label="Longitude"><Input value={p.form.longitude} onChange={(e) => p.setForm({ ...p.form, longitude: e.target.value })} /></Field>
+      <Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field>
+      <Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
+    </ModalShell>
+  );
 }
-function TaskModal(p: any) { return <ModalShell title={p.form.id ? "Aufgabe bearbeiten" : "Neue Aufgabe erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Titel"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} /></Field><Field label="Priorität"><Select value={p.form.priority} onChange={(e) => p.setForm({ ...p.form, priority: e.target.value })}><option>Normal</option><option>Hoch</option><option>Dringend</option></Select></Field><Field label="Datum"><Input type="date" value={p.form.task_date} onChange={(e) => p.setForm({ ...p.form, task_date: e.target.value })} /></Field><Field label="Mitarbeiter"><Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Objekt"><Select value={p.form.work_site_id} onChange={(e) => p.setForm({ ...p.form, work_site_id: e.target.value })}><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Erledigt"><Select value={p.form.done ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, done: e.target.value === "true" })}><option value="false">Offen</option><option value="true">Erledigt</option></Select></Field><Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field><Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field><Field label="Planzeit Minuten"><Input type="number" value={p.form.planned_minutes} onChange={(e) => p.setForm({ ...p.form, planned_minutes: e.target.value })} /></Field><Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+
+function TaskModal(p: any) {
+  const selectedCustomerId = p.form.customer_id;
+  const filteredSites = selectedCustomerId ? p.sites.filter((site: Row) => site.customer_id === selectedCustomerId || site.customer_name === p.customers.find((c: Row) => c.id === selectedCustomerId)?.name) : p.sites;
+  const selectedSite = p.sites.find((site: Row) => site.id === p.form.work_site_id);
+  const gpsReady = Boolean(selectedSite?.latitude && selectedSite?.longitude);
+
+  return (
+    <ModalShell title={p.form.id ? "Einsatz bearbeiten" : "Neuen Einsatz planen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+      <Field label="Kunde">
+        <Select value={p.form.customer_id} onChange={(e) => {
+          const customer = p.customers.find((c: Row) => c.id === e.target.value);
+          p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "", work_site_id: "", site: "" });
+        }}>
+          <option value="">Kunde auswählen</option>
+          {p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}
+        </Select>
+      </Field>
+      <Field label="Objekt / Standort">
+        <Select required value={p.form.work_site_id} onChange={(e) => {
+          const site = p.sites.find((s: Row) => s.id === e.target.value);
+          const customer = p.customers.find((c: Row) => c.id === site?.customer_id || c.name === site?.customer_name);
+          p.setForm({ ...p.form, work_site_id: e.target.value, site: site?.name || "", customer_id: site?.customer_id || customer?.id || p.form.customer_id, customer_name: site?.customer_name || customer?.name || p.form.customer_name });
+        }}>
+          <option value="">Objekt auswählen</option>
+          {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.customer_name ? ` · ${s.customer_name}` : ""}</option>)}
+        </Select>
+      </Field>
+      <Field label="Mitarbeiter">
+        <Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
+          <option value="">Mitarbeiter auswählen</option>
+          {p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}
+        </Select>
+      </Field>
+      <Field label="Datum"><Input type="date" value={p.form.task_date} onChange={(e) => p.setForm({ ...p.form, task_date: e.target.value })} /></Field>
+      <Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field>
+      <Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field>
+      <Field label="Planzeit Minuten"><Input type="number" value={p.form.planned_minutes} onChange={(e) => p.setForm({ ...p.form, planned_minutes: e.target.value })} /></Field>
+      <Field label="Leistung / Aufgabe"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} /></Field>
+      <Field label="Priorität"><Select value={p.form.priority} onChange={(e) => p.setForm({ ...p.form, priority: e.target.value })}><option>Normal</option><option>Hoch</option><option>Dringend</option></Select></Field>
+      <Field label="Status"><Select value={p.form.done ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, done: e.target.value === "true" })}><option value="false">Offen</option><option value="true">Erledigt</option></Select></Field>
+      <Field label="GPS-Status"><div className={`field font-black ${gpsReady ? "text-emerald-700" : "text-amber-700"}`}>{p.form.work_site_id ? (gpsReady ? "GPS-Daten vorhanden" : "GPS fehlt beim Objekt") : "Objekt auswählen"}</div></Field>
+      <Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
+    </ModalShell>
+  );
+}
+
 function MaterialModal(p: any) {
   return <ModalShell title={p.form.id ? "Artikel bearbeiten" : "Neuen Artikel erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Artikel"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Objekt-Verknüpfung"><Select value={p.form.work_site_id} onChange={(e) => { const site = p.sites.find((s: Row) => s.id === e.target.value); p.setForm({ ...p.form, work_site_id: e.target.value, object_name: site?.name || "" }); }}><option value="">Für alle Objekte</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Einheit"><Input value={p.form.unit} onChange={(e) => p.setForm({ ...p.form, unit: e.target.value })} /></Field><Field label="Bestand"><Input type="number" value={p.form.current_stock} onChange={(e) => p.setForm({ ...p.form, current_stock: e.target.value })} /></Field><Field label="Mindestbestand"><Input type="number" value={p.form.min_stock} onChange={(e) => p.setForm({ ...p.form, min_stock: e.target.value })} /></Field><Field label="Lieferant"><Input value={p.form.supplier} onChange={(e) => p.setForm({ ...p.form, supplier: e.target.value })} /></Field><Field label="Bild-URL" wide><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>;
 }
