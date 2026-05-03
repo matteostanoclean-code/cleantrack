@@ -31,6 +31,7 @@ async function requireAdmin(request: Request): Promise<{ error: NextResponse | n
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
 
   if (userError || !userData.user) {
@@ -44,7 +45,7 @@ async function requireAdmin(request: Request): Promise<{ error: NextResponse | n
     .from("employee_profiles")
     .select("role")
     .eq("auth_user_id", userData.user.id)
-    .single();
+    .maybeSingle();
 
   if (profileError || profile?.role !== "admin") {
     return {
@@ -61,11 +62,11 @@ function nullableText(value: unknown) {
   return text || null;
 }
 
-function nullableNumber(value: unknown) {
+function numberValue(value: unknown, fallback = 0) {
   const text = String(value ?? "").trim().replace(",", ".");
-  if (!text) return null;
+  if (!text) return fallback;
   const number = Number(text);
-  return Number.isFinite(number) ? number : null;
+  return Number.isFinite(number) ? number : fallback;
 }
 
 export async function POST(request: Request) {
@@ -95,12 +96,14 @@ export async function POST(request: Request) {
     if ("phone" in body) update.phone = nullableText(body.phone);
     if ("employee_number" in body) update.employee_number = nullableText(body.employee_number);
     if ("address" in body) update.address = nullableText(body.address);
-    if ("hourly_rate" in body) update.hourly_rate = nullableNumber(body.hourly_rate) ?? 0;
+    if ("hourly_rate" in body) update.hourly_rate = numberValue(body.hourly_rate, 0);
+
     if ("vacation_days" in body) {
-      const days = nullableNumber(body.vacation_days) ?? 0;
+      const days = numberValue(body.vacation_days, 0);
       update.vacation_days = days;
       update.annual_vacation_days = days;
     }
+
     if ("active" in body) update.active = Boolean(body.active);
 
     const { data, error } = await adminCheck.supabaseAdmin
@@ -108,10 +111,14 @@ export async function POST(request: Request) {
       .update(update)
       .eq("id", id)
       .select("*")
-      .single();
+      .maybeSingle();
 
     if (error) {
       return NextResponse.json({ error: error.message || "Mitarbeiter konnte nicht gespeichert werden." }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: "Mitarbeiter wurde nicht gefunden. Bitte Seite neu laden." }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, employee: data });

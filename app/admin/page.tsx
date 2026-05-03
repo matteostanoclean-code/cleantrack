@@ -69,6 +69,14 @@ function dateText(value?: string) {
   return new Date(value).toLocaleDateString("de-DE");
 }
 
+function numberOrFallback(value: unknown, fallback: number) {
+  const text = String(value ?? "").trim().replace(",", ".");
+  if (!text) return fallback;
+  const num = Number(text);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+
 function downloadCsv(filename: string, rows: Row[]) {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
@@ -318,7 +326,8 @@ export default function AdminPage() {
       if (!response.ok) throw new Error(json.error || "Einladung konnte nicht erstellt werden.");
       setInviteLink(json.inviteLink || "");
       setWhatsappLink(json.whatsappLink || "");
-      setMessage("Einladung erstellt. Link kopieren oder per WhatsApp senden.");
+      setMessage("Einladung erstellt. Der Mitarbeiter steht jetzt als Passiv in der Liste und kann den Link aktivieren.");
+      await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Einladung fehlgeschlagen.");
     } finally {
@@ -349,7 +358,8 @@ export default function AdminPage() {
   }
 
   async function saveEmployee() {
-    await insertOrUpdate("employee_profiles", employeeEdit.id, {
+    await updateEmployeeProfile({
+      id: employeeEdit.id,
       name: employeeEdit.name,
       email: employeeEdit.email || null,
       phone: employeeEdit.phone || null,
@@ -357,9 +367,41 @@ export default function AdminPage() {
       address: employeeEdit.address || null,
       hourly_rate: Number(employeeEdit.hourly_rate || 0),
       vacation_days: Number(employeeEdit.vacation_days || 0),
-      annual_vacation_days: Number(employeeEdit.vacation_days || 0),
       active: employeeEdit.active,
-    });
+    }, "Mitarbeiter gespeichert.");
+  }
+
+  async function updateEmployeeProfile(payload: Row, successText = "Mitarbeiter aktualisiert.") {
+    setSaving(true);
+    setMessage("");
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Bitte neu einloggen. Die Sitzung fehlt.");
+
+      const response = await fetch("/api/admin/update-employee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Mitarbeiter konnte nicht gespeichert werden.");
+
+      if (json.employee?.id) {
+        setEmployees((old) => old.map((item) => item.id === json.employee.id ? { ...item, ...json.employee } : item));
+      }
+      setModal(null);
+      setMessage(successText);
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Mitarbeiter konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setEmployeeActive(row: Row, active: boolean) {
+    await updateEmployeeProfile({ id: row.id, name: row.name, active }, active ? "Mitarbeiter aktiviert." : "Mitarbeiter deaktiviert.");
   }
 
   function openCustomer(row?: Row) {
@@ -385,6 +427,9 @@ export default function AdminPage() {
       customer_phone: customerForm.phone || null,
       customer_email: customerForm.email || null,
       customer_notes: customerForm.notes || null,
+      allowed_radius_m: 50,
+      latitude: 0,
+      longitude: 0,
       active: true,
     });
   }
@@ -433,9 +478,9 @@ export default function AdminPage() {
     await insertOrUpdate("work_sites", siteForm.id, {
       name: siteForm.name,
       address: siteForm.address,
-      allowed_radius_m: Number(siteForm.allowed_radius_m || 50),
-      latitude: siteForm.latitude ? Number(siteForm.latitude) : null,
-      longitude: siteForm.longitude ? Number(siteForm.longitude) : null,
+      allowed_radius_m: numberOrFallback(siteForm.allowed_radius_m, 50),
+      latitude: numberOrFallback(siteForm.latitude, 0),
+      longitude: numberOrFallback(siteForm.longitude, 0),
       notes: siteForm.notes || null,
       active: siteForm.active,
     });
@@ -758,7 +803,7 @@ export default function AdminPage() {
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
           {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
-          {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} deactivate={(row: Row) => insertOrUpdate("employee_profiles", row.id, { active: false })} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
+          {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customers)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
@@ -975,7 +1020,7 @@ function Employees(p: any) {
       <Table headers={["Name", "Nummer", "Kontakt", "Arbeitszeit", "Urlaub", "Kosten", "Status", "Aktion"]}>{p.rows.length === 0 ? <tr><td colSpan={8}><Empty /></td></tr> : p.rows.map((e: Row) => {
         const entryMinutes = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + Number(x.worked_minutes || x.planned_minutes || 0), 0);
         const cost = (entryMinutes / 60) * Number(e.hourly_rate || 0);
-        return <tr key={e.id}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(e.name)}</div><div><p className="font-black">{e.name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td><td className="px-4 py-3">{e.employee_number || "-"}</td><td className="px-4 py-3">{e.phone || "-"}</td><td className="px-4 py-3 font-bold">{prettyHours(entryMinutes)} Std.</td><td className="px-4 py-3">{e.vacation_days || e.annual_vacation_days || 0} Tage</td><td className="px-4 py-3 font-bold">{euro(cost)}</td><td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><div className="flex gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active !== false && <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td></tr>;
+        return <tr key={e.id}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(e.name)}</div><div><p className="font-black">{e.name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td><td className="px-4 py-3">{e.employee_number || "-"}</td><td className="px-4 py-3">{e.phone || "-"}</td><td className="px-4 py-3 font-bold">{prettyHours(entryMinutes)} Std.</td><td className="px-4 py-3">{e.vacation_days || e.annual_vacation_days || 0} Tage</td><td className="px-4 py-3 font-bold">{euro(cost)}</td><td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active === false ? <Button primary onClick={() => p.activate(e)}>Aktivieren</Button> : <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td></tr>;
       })}</Table>
     </div>
   );

@@ -91,24 +91,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: profileError } = await supabaseAdmin
+    const { data: existingProfile } = await supabaseAdmin
       .from("employee_profiles")
-      .insert([
-        {
-          auth_user_id: createdUser.user.id,
-          name: invite.name,
-          email: invite.email,
-          phone: invite.phone || null,
-          role: "employee",
-          must_change_password: false,
-        },
-      ]);
+      .select("id")
+      .eq("email", invite.email)
+      .maybeSingle();
 
-    if (profileError) {
+    const profilePayload = {
+      auth_user_id: createdUser.user.id,
+      name: invite.name,
+      email: invite.email,
+      phone: invite.phone || null,
+      role: "employee",
+      active: true,
+      must_change_password: false,
+    };
+
+    const profileResult = existingProfile?.id
+      ? await supabaseAdmin.from("employee_profiles").update(profilePayload).eq("id", existingProfile.id)
+      : await supabaseAdmin.from("employee_profiles").insert([profilePayload]);
+
+    if (profileResult.error) {
       return NextResponse.json(
         {
           error:
-            profileError.message ||
+            profileResult.error.message ||
             "Mitarbeiterprofil konnte nicht erstellt werden.",
         },
         { status: 500 }

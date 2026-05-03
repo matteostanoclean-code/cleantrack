@@ -95,6 +95,48 @@ function cleanFilter(filters: unknown) {
   return filters as Record<string, unknown>;
 }
 
+function isEmpty(value: unknown) {
+  return value === undefined || value === null || String(value).trim() === "";
+}
+
+function numericValue(value: unknown, fallback: number) {
+  if (isEmpty(value)) return fallback;
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function sanitizeRow(table: string, row: Record<string, unknown>) {
+  const cleaned = { ...row };
+
+  if (table === "work_sites") {
+    // Einige bestehende CleanTrack-Datenbanken haben latitude/longitude noch als NOT NULL.
+    // Damit Kunden und Objekte trotzdem direkt speicherbar sind, setzen wir einen neutralen Fallback.
+    if (isEmpty(cleaned.latitude)) cleaned.latitude = 0;
+    if (isEmpty(cleaned.longitude)) cleaned.longitude = 0;
+    cleaned.allowed_radius_m = numericValue(cleaned.allowed_radius_m, 50);
+    if (!("active" in cleaned)) cleaned.active = true;
+    if (isEmpty(cleaned.customer_name) && !isEmpty(cleaned.name)) cleaned.customer_name = cleaned.name;
+  }
+
+  if (table === "customer_contacts" && !("active" in cleaned)) {
+    cleaned.active = true;
+  }
+
+  if (table === "employee_profiles") {
+    if (isEmpty(cleaned.role)) cleaned.role = "employee";
+    if (!("active" in cleaned)) cleaned.active = true;
+  }
+
+  return cleaned;
+}
+
+function sanitizePayload(table: string, payload: unknown) {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => sanitizeRow(table, (item || {}) as Record<string, unknown>));
+  }
+  return sanitizeRow(table, (payload || {}) as Record<string, unknown>);
+}
+
 export async function POST(request: Request) {
   try {
     const adminCheck = await requireAdmin(request);
@@ -131,7 +173,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "insert") {
-      const payload = body.payload;
+      const payload = sanitizePayload(table, body.payload);
       const { data, error } = await supabaseAdmin.from(table).insert(payload).select("*");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, data });
@@ -140,7 +182,8 @@ export async function POST(request: Request) {
     if (action === "update") {
       const id = String(body.id || "").trim();
       if (!id) return NextResponse.json({ error: "ID fehlt." }, { status: 400 });
-      const { data, error } = await supabaseAdmin.from(table).update(body.payload || {}).eq("id", id).select("*");
+      const payload = sanitizePayload(table, body.payload || {});
+      const { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select("*");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, data });
     }

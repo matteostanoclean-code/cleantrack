@@ -150,6 +150,43 @@ export async function POST(request: Request) {
       );
     }
 
+    const { data: existingProfile } = await supabaseAdmin
+      .from("employee_profiles")
+      .select("id, active, auth_user_id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingProfile?.id) {
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from("employee_profiles")
+        .update({
+          name,
+          phone,
+          role: "employee",
+          must_change_password: existingProfile.auth_user_id ? false : true,
+        })
+        .eq("id", existingProfile.id);
+
+      if (profileUpdateError) {
+        return NextResponse.json({ error: profileUpdateError.message || "Mitarbeiter konnte nicht aktualisiert werden." }, { status: 500 });
+      }
+    } else {
+      const { error: profileInsertError } = await supabaseAdmin.from("employee_profiles").insert([
+        {
+          name,
+          email,
+          phone,
+          role: "employee",
+          active: false,
+          must_change_password: true,
+        },
+      ]);
+
+      if (profileInsertError) {
+        return NextResponse.json({ error: profileInsertError.message || "Mitarbeiter konnte nicht in der Liste angelegt werden." }, { status: 500 });
+      }
+    }
+
     const baseUrl =
       process.env.NEXT_PUBLIC_SITE_URL ||
       request.headers.get("origin") ||
