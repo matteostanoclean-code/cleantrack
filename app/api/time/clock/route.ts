@@ -117,6 +117,63 @@ async function requireEmployee(request: Request) {
   return { error: null, supabaseAdmin, profile };
 }
 
+
+export async function GET(request: Request) {
+  try {
+    const auth = await requireEmployee(request);
+    if (auth.error) return auth.error;
+    const supabaseAdmin = auth.supabaseAdmin;
+    const profile = auth.profile;
+    if (!supabaseAdmin || !profile) {
+      return NextResponse.json({ error: "Mitarbeiter konnte nicht geladen werden." }, { status: 500 });
+    }
+
+    const { start, end, workDate } = todayRange();
+
+    const { data: createdRows, error: createdError } = await supabaseAdmin
+      .from("time_entries")
+      .select("*")
+      .eq("employee_name", profile.name)
+      .gte("created_at", start)
+      .lte("created_at", end)
+      .order("created_at", { ascending: false });
+
+    if (createdError) {
+      return NextResponse.json({ error: createdError.message }, { status: 500 });
+    }
+
+    const { data: workDateRows } = await supabaseAdmin
+      .from("time_entries")
+      .select("*")
+      .eq("employee_name", profile.name)
+      .eq("work_date", workDate)
+      .order("created_at", { ascending: false });
+
+    const map = new Map<string, Row>();
+    for (const row of [...(createdRows || []), ...(workDateRows || [])]) {
+      if (row?.id) map.set(String(row.id), row);
+    }
+
+    const entries = [...map.values()].sort((a, b) => new Date(b.created_at || b.check_in_at || 0).getTime() - new Date(a.created_at || a.check_in_at || 0).getTime());
+    const state = currentClockState(entries);
+    const worked_minutes = workedMinutesFromEntries(entries);
+
+    return NextResponse.json({
+      success: true,
+      entries,
+      state,
+      worked_minutes,
+      work_date: workDate,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Serverfehler beim Laden der Zeiten." },
+      { status: 500 }
+    );
+  }
+}
+
+
 export async function POST(request: Request) {
   try {
     const auth = await requireEmployee(request);

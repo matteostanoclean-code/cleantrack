@@ -285,15 +285,16 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }, [activeTab, chatMessages]);
 
   useEffect(() => {
-    const last = todayEntries[0];
+    const clockActions = new Set(["start", "break_start", "break_end", "end", "check_out"]);
+    const last = todayEntries.find((entry) => clockActions.has(String(entry.action || "")));
     if (!last) {
       setStatus("none");
       return;
     }
 
     if (last.action === "start" || last.action === "break_end") setStatus("working");
-    if (last.action === "break_start") setStatus("break");
-    if (last.action === "end") setStatus("none");
+    else if (last.action === "break_start") setStatus("break");
+    else setStatus("none");
   }, [todayEntries]);
 
   useEffect(() => {
@@ -429,16 +430,32 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
   async function loadTodayEntries(employeeName: string) {
-    const start = `${todayISO()}T00:00:00`;
-    const end = `${todayISO()}T23:59:59`;
-    const { data } = await supabase
-      .from("time_entries")
-      .select("*")
-      .eq("employee_name", employeeName)
-      .gte("created_at", start)
-      .lte("created_at", end)
-      .order("created_at", { ascending: false });
-    setTodayEntries((data || []) as TimeEntry[]);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt.");
+
+      const response = await fetch("/api/time/clock", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Zeiten konnten nicht geladen werden.");
+
+      setTodayEntries((json.entries || []) as TimeEntry[]);
+    } catch {
+      const start = `${todayISO()}T00:00:00`;
+      const end = `${todayISO()}T23:59:59`;
+      const { data } = await supabase
+        .from("time_entries")
+        .select("*")
+        .eq("employee_name", employeeName)
+        .gte("created_at", start)
+        .lte("created_at", end)
+        .order("created_at", { ascending: false });
+      setTodayEntries((data || []) as TimeEntry[]);
+    }
   }
 
   async function loadNotifications(employeeName: string) {
