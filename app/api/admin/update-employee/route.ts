@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+type SupabaseAdmin = any;
+
 function getEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -15,6 +17,45 @@ function getBearerToken(request: Request) {
   const authHeader = request.headers.get("authorization") || "";
   if (!authHeader.startsWith("Bearer ")) return "";
   return authHeader.replace("Bearer ", "").trim();
+}
+
+function normalizeEmail(value: unknown) {
+  const email = String(value ?? "").trim().toLowerCase();
+  return email || null;
+}
+
+function nullableText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  const text = String(value ?? "").trim().replace(",", ".");
+  if (!text) return fallback;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+async function findAuthUserByEmail(supabaseAdmin: SupabaseAdmin, email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage: 1000,
+    });
+
+    if (error) throw error;
+
+    const user = data.users.find(
+      (item: any) => String(item.email || "").trim().toLowerCase() === normalizedEmail
+    );
+
+    if (user) return user;
+    if (data.users.length < 1000) break;
+  }
+
+  return null;
 }
 
 async function requireAdmin(request: Request): Promise<{ error: NextResponse | null; supabaseAdmin: any }> {
@@ -41,13 +82,13 @@ async function requireAdmin(request: Request): Promise<{ error: NextResponse | n
     };
   }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
+  const { data: profile } = await supabaseAdmin
     .from("employee_profiles")
     .select("role")
     .eq("auth_user_id", userData.user.id)
     .maybeSingle();
 
-  if (profileError || profile?.role !== "admin") {
+  if (profile?.role !== "admin") {
     return {
       error: NextResponse.json({ error: "Kein Zugriff. Nur Admins dürfen Mitarbeiter bearbeiten." }, { status: 403 }),
       supabaseAdmin: null,
@@ -57,31 +98,32 @@ async function requireAdmin(request: Request): Promise<{ error: NextResponse | n
   return { error: null, supabaseAdmin };
 }
 
-function nullableText(value: unknown) {
-  const text = String(value ?? "").trim();
-  return text || null;
-}
-
-function numberValue(value: unknown, fallback = 0) {
-  const text = String(value ?? "").trim().replace(",", ".");
-  if (!text) return fallback;
-  const number = Number(text);
-  return Number.isFinite(number) ? number : fallback;
-}
-
 export async function POST(request: Request) {
   try {
     const adminCheck = await requireAdmin(request);
     if (adminCheck.error) return adminCheck.error;
-    if (!adminCheck.supabaseAdmin) {
-      return NextResponse.json({ error: "Admin-Verbindung konnte nicht aufgebaut werden." }, { status: 500 });
-    }
 
+    const supabaseAdmin = adminCheck.supabaseAdmin;
     const body = await request.json();
+
     const id = String(body.id || "").trim();
 
     if (!id) {
       return NextResponse.json({ error: "Mitarbeiter-ID fehlt." }, { status: 400 });
+    }
+
+    const { data: currentEmployee, error: currentError } = await supabaseAdmin
+      .from("employee_profiles")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (currentError) {
+      return NextResponse.json({ error: currentError.message }, { status: 500 });
+    }
+
+    if (!currentEmployee) {
+      return NextResponse.json({ error: "Mitarbeiter wurde nicht gefunden." }, { status: 404 });
     }
 
     const update: Record<string, unknown> = {};
@@ -92,7 +134,7 @@ export async function POST(request: Request) {
       update.name = name;
     }
 
-    if ("email" in body) update.email = nullableText(body.email)?.toLowerCase() || null;
+    if ("email" in body) update.email = normalizeEmail(body.email);
     if ("phone" in body) update.phone = nullableText(body.phone);
     if ("employee_number" in body) update.employee_number = nullableText(body.employee_number);
     if ("address" in body) update.address = nullableText(body.address);
@@ -104,9 +146,51 @@ export async function POST(request: Request) {
       update.annual_vacation_days = days;
     }
 
-    if ("active" in body) update.active = Boolean(body.active);
+    if ("active" in body) {
+      update.active = body.active === true || body.active === "true";
+    }
 
-    const { data, error } = await adminCheck.supabaseAdmin
+    const nextEmail = String(update.email || currentEmployee.email || "").trim().toLowerCase();
+    const nextName = String(update.name || currentEmployee.name || "").trim();
+    const nextPhone = String(update.phone || currentEmployee.phone || "").trim() || null;
+
+    if (nextEmail) {
+      let authUserId = currentEmployee.auth_user_id || null;
+
+      if (!authUserId) {
+        const existingAuthUser = await findAuthUserByEmail(supabaseAdmin, nextEmail);
+        if (existingAuthUser?.id) {
+          authUserId = existingAuthUser.id;
+          update.auth_user_id = existingAuthUser.id;
+        }
+      }
+
+      if (authUserId) {
+        const authUpdate: any = {
+          user_metadata: {
+            name: nextName,
+            phone: nextPhone,
+            role: currentEmployee.role || "employee",
+          },
+        };
+
+        if (nextEmail !== String(currentEmployee.email || "").trim().toLowerCase()) {
+          authUpdate.email = nextEmail;
+          authUpdate.email_confirm = true;
+        }
+
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
+          authUserId,
+          authUpdate
+        );
+
+        if (authUpdateError) {
+          return NextResponse.json({ error: authUpdateError.message }, { status: 500 });
+        }
+      }
+    }
+
+    const { data, error } = await supabaseAdmin
       .from("employee_profiles")
       .update(update)
       .eq("id", id)
@@ -114,17 +198,13 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message || "Mitarbeiter konnte nicht gespeichert werden." }, { status: 500 });
-    }
-
-    if (!data) {
-      return NextResponse.json({ error: "Mitarbeiter wurde nicht gefunden. Bitte Seite neu laden." }, { status: 404 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, employee: data });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Serverfehler beim Speichern des Mitarbeiters." },
+      { error: error instanceof Error ? error.message : "Serverfehler beim Speichern." },
       { status: 500 }
     );
   }
