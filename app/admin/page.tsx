@@ -243,7 +243,8 @@ function dayShort(date: string) {
 }
 
 function taskDuration(task: Row) {
-  return Number(task.planned_minutes || task.max_minutes || minutes(task.start_time, task.end_time) || 0);
+  const planned = Number(task.planned_minutes ?? 0);
+  return Number.isFinite(planned) ? Math.max(0, planned) : 0;
 }
 
 function normalizedStatus(value: unknown) {
@@ -723,6 +724,7 @@ function downloadKeyHandoverPdf(data: {
 
 export default function AdminPage() {
   const [allowed, setAllowed] = useState(false);
+  const [adminProfile, setAdminProfile] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
@@ -769,9 +771,8 @@ export default function AdminPage() {
   }, [allowed]);
 
   useEffect(() => {
-    if (taskForm.start_time && taskForm.end_time && !taskForm.id) {
-      setTaskForm((old) => ({ ...old, planned_minutes: String(minutes(old.start_time, old.end_time) || old.planned_minutes) }));
-    }
+    // Die Planzeit ist bewusst unabhängig vom Von-Bis-Zeitfenster.
+    // Von/Bis ist nur das Zeitfenster, in dem der Mitarbeiter einstempeln darf.
   }, [taskForm.start_time, taskForm.end_time, taskForm.id]);
 
   async function adminCall(body: Row) {
@@ -792,10 +793,12 @@ export default function AdminPage() {
   async function checkAdmin() {
     setLoading(true);
     try {
-      await adminCall({ action: "ping" });
+      const json = await adminCall({ action: "ping" });
+      setAdminProfile(json.profile || null);
       setAllowed(true);
     } catch (error) {
       setAllowed(false);
+      setAdminProfile(null);
       setMessage(error instanceof Error ? error.message : "Kein Zugriff.");
     } finally {
       setLoading(false);
@@ -845,6 +848,21 @@ export default function AdminPage() {
 
   const activeEmployees = employees.filter((item) => item.role !== "admin" && item.active !== false);
   const customerList = useMemo(() => customers.length ? customers : customerRowsFromSites(sites), [customers, sites]);
+  const currentRole = String(adminProfile?.role || "").trim().toLowerCase();
+  const isAdminRole = currentRole === "admin";
+  const isObjectLeaderRole = currentRole === "objektleiter" || currentRole === "object_lead" || currentRole === "objectleader";
+  const allowedTabs = useMemo(() => {
+    if (isAdminRole) return navItems.map((item) => item.id);
+    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "zeiten", "abwesenheiten", "chat"] as Tab[];
+    return [] as Tab[];
+  }, [isAdminRole, isObjectLeaderRole]);
+  const visibleNavItems = navItems.filter((item) => allowedTabs.includes(item.id));
+  useEffect(() => {
+    if (allowed && allowedTabs.length > 0 && !allowedTabs.includes(tab)) {
+      setTab(allowedTabs[0]);
+    }
+  }, [allowed, allowedTabs, tab]);
+
   const assignmentRows = useMemo(() => tasks.filter((task) => task.item_type !== "task" && task.task_type !== "task"), [tasks]);
   const actionTaskRows = useMemo(() => tasks.filter((task) => task.item_type === "task" || task.task_type === "task"), [tasks]);
   const filtered = useMemo(() => {
@@ -1694,10 +1712,23 @@ export default function AdminPage() {
   const openAbsences = absences.filter((item) => !item.status || item.status === "open").length;
   const lowStock = materials.filter((item) => Number(item.current_stock || 0) <= Number(item.min_stock || 0)).length;
   const openMaterialReports = materialReports.filter((item) => !item.status || item.status === "open").length;
-  const currentNav = navItems.find((item) => item.id === tab) || navItems[0];
+  function canCreateInTab(tabName: Tab) {
+    if (isAdminRole) return true;
+    if (isObjectLeaderRole) {
+      return ["planung", "aufgaben", "meldungen", "material", "zeiten", "abwesenheiten", "chat"].includes(tabName);
+    }
+    return false;
+  }
+
+  const currentNav = visibleNavItems.find((item) => item.id === tab) || visibleNavItems[0] || navItems[0];
   const createButtonLabel = getCreateButtonLabel(tab);
+  const canUsePrimaryAction = canCreateInTab(tab);
 
   function runPrimaryAction() {
+    if (!canUsePrimaryAction) {
+      setMessage("Für diese Aktion fehlt der Zugriff.");
+      return;
+    }
     if (tab === "mitarbeiter") return openEmployee();
     if (tab === "kunden") return openCustomer();
     if (tab === "kontakte") return openContact();
@@ -1741,7 +1772,7 @@ export default function AdminPage() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto pr-1">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -1778,7 +1809,7 @@ export default function AdminPage() {
                 <h1 className="font-black text-slate-950">{currentNav.label}</h1>
               </div>
             </div>
-            <button type="button" onClick={runPrimaryAction} className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-700">
+            <button type="button" onClick={runPrimaryAction} disabled={!canUsePrimaryAction} className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
               {createButtonLabel}
             </button>
           </div>
@@ -1799,7 +1830,7 @@ export default function AdminPage() {
               <button type="button" onClick={loadAll} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50">
                 Aktualisieren
               </button>
-              <button type="button" onClick={runPrimaryAction} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700">
+              <button type="button" onClick={runPrimaryAction} disabled={!canUsePrimaryAction} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
                 {createButtonLabel}
               </button>
             </div>

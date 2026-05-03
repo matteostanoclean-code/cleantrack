@@ -74,9 +74,12 @@ async function requireAdmin(request: Request): Promise<AdminResult> {
     .eq("auth_user_id", userData.user.id)
     .single();
 
-  if (profileError || profile?.role !== "admin") {
+  const role = String(profile?.role || "").trim().toLowerCase();
+  const allowedRole = role === "admin" || role === "objektleiter" || role === "object_lead" || role === "objectleader";
+
+  if (profileError || !allowedRole) {
     return {
-      error: NextResponse.json({ error: "Kein Zugriff. Nur Admins dürfen diesen Bereich nutzen." }, { status: 403 }),
+      error: NextResponse.json({ error: "Kein Zugriff. Nur Admins oder Objektleiter dürfen diesen Bereich nutzen." }, { status: 403 }),
       supabaseAdmin: null,
       profile: null,
     };
@@ -96,6 +99,74 @@ function checkTable(table: unknown) {
 function cleanFilter(filters: unknown) {
   if (!filters || typeof filters !== "object" || Array.isArray(filters)) return {} as Record<string, unknown>;
   return filters as Record<string, unknown>;
+}
+
+function roleKey(profile: Record<string, unknown> | null) {
+  return String(profile?.role || "").trim().toLowerCase();
+}
+
+function isAdmin(profile: Record<string, unknown> | null) {
+  return roleKey(profile) === "admin";
+}
+
+function isObjectLeader(profile: Record<string, unknown> | null) {
+  const role = roleKey(profile);
+  return role === "objektleiter" || role === "object_lead" || role === "objectleader";
+}
+
+const objectLeaderReadableTables = new Set([
+  "employee_profiles",
+  "customers",
+  "work_sites",
+  "tasks",
+  "time_entries",
+  "absence_requests",
+  "material_products",
+  "material_reports",
+  "admin_notifications",
+  "customer_contacts",
+  "chat_messages",
+  "equipment_items",
+]);
+
+const objectLeaderWritableTables = new Set([
+  "tasks",
+  "time_entries",
+  "absence_requests",
+  "material_products",
+  "material_reports",
+  "admin_notifications",
+  "chat_messages",
+]);
+
+function ensurePermission(profile: Record<string, unknown> | null, action: string, table: string) {
+  if (isAdmin(profile)) return;
+
+  if (!isObjectLeader(profile)) {
+    throw new Error("Kein Zugriff. Nur Admins oder Objektleiter dürfen diesen Bereich nutzen.");
+  }
+
+  if (action === "select" && objectLeaderReadableTables.has(table)) return;
+  if ((action === "insert" || action === "update") && objectLeaderWritableTables.has(table)) return;
+
+  throw new Error("Für diese Aktion fehlt die Berechtigung.");
+}
+
+function stripSensitiveRows(profile: Record<string, unknown> | null, table: string, rows: unknown[]) {
+  if (isAdmin(profile) || table !== "employee_profiles") return rows;
+
+  return rows.map((item) => {
+    const row = { ...(item as Record<string, unknown>) };
+    delete row.hourly_rate;
+    delete row.salary;
+    delete row.vacation_days;
+    delete row.annual_vacation_days;
+    delete row.address;
+    delete row.phone;
+    delete row.email;
+    delete row.auth_user_id;
+    return row;
+  });
 }
 
 function isEmpty(value: unknown) {
@@ -180,6 +251,7 @@ export async function POST(request: Request) {
 
     const table = checkTable(body.table);
     const supabaseAdmin = adminCheck.supabaseAdmin;
+    ensurePermission(adminCheck.profile, action, table);
 
     if (action === "select") {
       let query = supabaseAdmin.from(table).select(String(body.select || "*"));
@@ -210,7 +282,7 @@ export async function POST(request: Request) {
       }
 
       if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
-      return NextResponse.json({ success: true, data: result.data || [] });
+      return NextResponse.json({ success: true, data: stripSensitiveRows(adminCheck.profile, table, result.data || []) });
     }
 
     if (action === "insert") {
