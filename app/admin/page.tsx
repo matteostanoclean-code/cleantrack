@@ -2694,28 +2694,124 @@ function payrollDate(value: Row) {
   return String(value.work_date || value.check_in_at || value.created_at || "");
 }
 
-function workedEntryMinutes(row: Row) {
-  const worked = Number(row.worked_minutes || 0);
-  if (worked > 0) return worked;
+function entryAction(row: Row) {
+  return String(row.action || row.entry_type || "").trim().toLowerCase();
+}
+
+function isApprovedEntry(row: Row) {
+  const status = normalizedStatus(row.status);
+  return row.approved === true || status === "approved" || status === "freigegeben";
+}
+
+function isClockStart(row: Row) {
+  const action = entryAction(row);
+  return action === "start" || action === "break_end" || action === "check_in";
+}
+
+function isClockStop(row: Row) {
+  const action = entryAction(row);
+  return action === "break_start" || action === "end" || action === "check_out" || action === "auto_clock_out";
+}
+
+function isManualOrAbsence(row: Row) {
+  const action = entryAction(row);
+  return action === "manual" || action === "absence" || String(row.entry_type || "").toLowerCase() === "absence";
+}
+
+function isReviewableTimeRow(row: Row) {
+  const action = entryAction(row);
+  return isManualOrAbsence(row) || action === "end" || action === "check_out" || action === "auto_clock_out" || Boolean(row.check_out_at) || Number(row.worked_minutes || row.payroll_minutes || 0) > 0;
+}
+
+function rowTime(row: Row) {
+  return new Date(row.created_at || row.check_in_at || row.check_out_at || 0);
+}
+
+function singleRowMinutes(row: Row, payrollOnly = false) {
+  const reason = String(row.reason || row.absence_type || "").toLowerCase();
+  if (String(row.entry_type || "") === "absence" && reason.includes("unbezahlt")) return 0;
+
   const payroll = Number(row.payroll_minutes || 0);
   if (payroll > 0) return payroll;
-  if (String(row.entry_type || row.action || "") === "manual") return Number(row.planned_minutes || 0);
+
+  if (!payrollOnly) {
+    const worked = Number(row.worked_minutes || 0);
+    if (worked > 0) return worked;
+  }
+
+  if (row.check_in_at && row.check_out_at) {
+    const minutes = Math.round((new Date(row.check_out_at).getTime() - new Date(row.check_in_at).getTime()) / 60000);
+    if (minutes > 0) return minutes;
+  }
+
+  if (isManualOrAbsence(row)) return Number(row.planned_minutes || 0);
   return 0;
+}
+
+function clockedMinutesFromRows(rows: Row[]) {
+  const chronological = [...rows].sort((a, b) => rowTime(a).getTime() - rowTime(b).getTime());
+  let total = 0;
+  let lastStart: Date | null = null;
+
+  for (const row of chronological) {
+    if (isManualOrAbsence(row)) continue;
+
+    if (row.check_in_at && row.check_out_at) {
+      const minutes = Math.round((new Date(row.check_out_at).getTime() - new Date(row.check_in_at).getTime()) / 60000);
+      if (minutes > 0) total += minutes;
+      continue;
+    }
+
+    const current = rowTime(row);
+    if (isClockStart(row)) lastStart = current;
+
+    if (isClockStop(row) && lastStart) {
+      const minutes = Math.round((current.getTime() - lastStart.getTime()) / 60000);
+      if (minutes > 0) total += minutes;
+      lastStart = null;
+    }
+  }
+
+  return total;
+}
+
+function workedEntryMinutes(row: Row) {
+  return singleRowMinutes(row, false);
 }
 
 function payableMinutes(row: Row) {
-  const reason = String(row.reason || row.absence_type || "").toLowerCase();
-  if (String(row.entry_type || "") === "absence" && reason.includes("unbezahlt")) return 0;
-  const payroll = Number(row.payroll_minutes || 0);
-  if (payroll > 0) return payroll;
-  const worked = Number(row.worked_minutes || 0);
-  if (worked > 0) return worked;
-  if (["manual", "absence"].includes(String(row.entry_type || row.action || ""))) return Number(row.planned_minutes || 0);
-  return 0;
+  return singleRowMinutes(row, true);
+}
+
+function totalWorkedMinutes(rows: Row[]) {
+  const manualAndAbsence = rows.filter(isManualOrAbsence).reduce((sum, row) => sum + singleRowMinutes(row, false), 0);
+  return manualAndAbsence + clockedMinutesFromRows(rows);
+}
+
+function totalPayableMinutes(rows: Row[]) {
+  const manualAndAbsence = rows.filter(isManualOrAbsence).reduce((sum, row) => sum + singleRowMinutes(row, true), 0);
+  return manualAndAbsence + clockedMinutesFromRows(rows);
+}
+
+function sessionKey(row: Row) {
+  return [row.employee_name || "", row.task_id || "manual", timeEntryDate(row) || dateOnly(row.created_at)].join("|");
+}
+
+function approvedPayrollRows(allRows: Row[]) {
+  const approvedSessionKeys = new Set(
+    allRows
+      .filter((row) => isApprovedEntry(row) && isReviewableTimeRow(row))
+      .map(sessionKey)
+  );
+
+  return allRows.filter((row) => {
+    if (isManualOrAbsence(row)) return isApprovedEntry(row);
+    return approvedSessionKeys.has(sessionKey(row));
+  });
 }
 
 function timeEntryDate(row: Row) {
-  return dateOnly(row.work_date || row.check_in_at || row.created_at);
+  return dateOnly(row.work_date || row.check_in_at || row.check_out_at || row.created_at);
 }
 
 function DailyClosing(p: any) {
@@ -2728,8 +2824,8 @@ function DailyClosing(p: any) {
       .filter((task: Row) => String(task.employee_name || "") === employeeName)
       .reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
     const employeeEntries = dayEntries.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
-    const actual = employeeEntries.reduce((sum: number, entry: Row) => sum + workedEntryMinutes(entry), 0);
-    const wage = employeeEntries.reduce((sum: number, entry: Row) => sum + payableMinutes(entry), 0);
+    const actual = totalWorkedMinutes(employeeEntries);
+    const wage = totalPayableMinutes(employeeEntries);
     const absence = employeeAbsenceForDate(p.absences || [], employeeName, p.selectedDay);
     const approvedAbsence = absence && absenceIsBlocking(absence);
     const diff = wage - planned;
@@ -2801,17 +2897,19 @@ function Times(p: any) {
   const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
   const monthRows = (p.rows || []).filter((row: Row) => monthFromValue(payrollDate(row)) === selectedMonth);
-  const approvedRows = monthRows.filter((row: Row) => row.approved === true || row.status === "approved");
-  const openRows = monthRows.filter((row: Row) => !(row.approved === true || row.status === "approved") && row.status !== "rejected");
+  const reviewRows = monthRows.filter(isReviewableTimeRow).filter((row: Row) => !(isManualOrAbsence(row) && singleRowMinutes(row) <= 0 && !String(row.reason || row.absence_type || "").toLowerCase().includes("unbezahlt")));
+  const approvedRows = reviewRows.filter(isApprovedEntry);
+  const openRows = reviewRows.filter((row: Row) => !isApprovedEntry(row) && normalizedStatus(row.status) !== "rejected");
+  const approvedSessionRows = approvedPayrollRows(monthRows);
 
   const payrollRows = (p.employees || [])
     .map((employee: Row) => {
-      const employeeEntries = approvedRows.filter((entry: Row) => String(entry.employee_name || "") === String(employee.name || ""));
-      const totalMinutes = employeeEntries.reduce((sum: number, entry: Row) => sum + payableMinutes(entry), 0);
+      const employeeRows = approvedSessionRows.filter((entry: Row) => String(entry.employee_name || "") === String(employee.name || ""));
+      const totalMinutes = totalPayableMinutes(employeeRows);
       const hourlyRate = Number(employee.hourly_rate || 0);
       return {
         employee_name: employee.name || "-",
-        entries: employeeEntries.length,
+        entries: employeeRows.filter(isReviewableTimeRow).length,
         minutes: totalMinutes,
         hours: Number((totalMinutes / 60).toFixed(2)),
         hourly_rate: hourlyRate,
@@ -2820,7 +2918,7 @@ function Times(p: any) {
     })
     .filter((row: Row) => row.minutes > 0);
 
-  const totalApprovedMinutes = approvedRows.reduce((sum: number, row: Row) => sum + payableMinutes(row), 0);
+  const totalApprovedMinutes = payrollRows.reduce((sum: number, row: Row) => sum + Number(row.minutes || 0), 0);
   const totalAmount = payrollRows.reduce((sum: number, row: Row) => sum + Number(row.amount || 0), 0);
 
   function exportPayroll() {
@@ -2933,8 +3031,8 @@ function Times(p: any) {
         </div>
       </Card>
 
-      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Lohnzeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
-        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(workedEntryMinutes(r))} Std.</td><td className="px-4 py-3 font-bold">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={reviewRows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Lohnzeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
+        {reviewRows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(workedEntryMinutes(r))} Std.</td><td className="px-4 py-3 font-bold">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );

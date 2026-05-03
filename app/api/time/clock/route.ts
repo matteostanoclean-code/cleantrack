@@ -157,7 +157,7 @@ export async function GET(request: Request) {
     const entries = [...map.values()].sort((a, b) => new Date(b.created_at || b.check_in_at || 0).getTime() - new Date(a.created_at || a.check_in_at || 0).getTime());
     const state = currentClockState(entries);
     const worked_minutes = workedMinutesFromEntries(entries);
-    const payroll_minutes = entries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || entry.worked_minutes || 0), 0);
+    const payroll_minutes = Math.max(worked_minutes, entries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || entry.worked_minutes || 0), 0));
 
     return NextResponse.json({
       success: true,

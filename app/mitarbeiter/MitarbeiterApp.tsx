@@ -274,7 +274,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const plannedMinutes = todayAssignments.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
   const calculatedWorkedMinutes = useMemo(() => calculateWorkedMinutes(todayEntries), [todayEntries, status]);
   const workedMinutes = Math.max(calculatedWorkedMinutes, serverWorkedMinutes);
-  const payrollMinutesToday = Math.max(serverPayrollMinutes, todayEntries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || 0), 0));
+  const payrollMinutesToday = Math.max(serverPayrollMinutes, todayEntries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || entry.worked_minutes || 0), 0), calculatedWorkedMinutes);
   const pauseMinutes = useMemo(() => calculatePauseMinutes(todayEntries), [todayEntries, status]);
   const progress = plannedMinutes > 0 ? Math.min(100, Math.round((workedMinutes / plannedMinutes) * 100)) : 0;
   const selectedTask = todayAssignments.find((task) => task.id === selectedTaskId) || todayAssignments.find((task) => !task.done) || todayAssignments[0] || null;
@@ -547,40 +547,60 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     setUnreadChatCount(0);
   }
 
+  function entryAction(entry: TimeEntry) {
+    return String(entry.action || "").trim().toLowerCase();
+  }
+
+  function entryTime(entry: TimeEntry) {
+    return new Date(entry.created_at || entry.check_in_at || entry.check_out_at || new Date().toISOString());
+  }
+
   function calculateWorkedMinutes(entries: TimeEntry[]) {
-    const directTotal = entries.reduce((sum, entry) => sum + Number(entry.worked_minutes || 0), 0);
-    const chronological = [...entries].sort((a, b) => new Date(a.created_at || a.check_in_at || "").getTime() - new Date(b.created_at || b.check_in_at || "").getTime());
+    const directTotal = entries.reduce((sum, entry) => sum + Number(entry.worked_minutes || entry.payroll_minutes || 0), 0);
+    const chronological = [...entries].sort((a, b) => entryTime(a).getTime() - entryTime(b).getTime());
     let total = 0;
     let lastStart: Date | null = null;
 
     for (const entry of chronological) {
-      const time = new Date(entry.created_at || entry.check_in_at || new Date().toISOString());
+      const action = entryAction(entry);
+
       if (entry.check_in_at && entry.check_out_at) {
-        total += Math.max(0, Math.round((new Date(entry.check_out_at).getTime() - new Date(entry.check_in_at).getTime()) / 60000));
+        const minutes = Math.round((new Date(entry.check_out_at).getTime() - new Date(entry.check_in_at).getTime()) / 60000);
+        if (minutes > 0) total += minutes;
         continue;
       }
-      if (entry.action === "start" || entry.action === "break_end") lastStart = time;
-      if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
-        total += Math.max(0, Math.round((time.getTime() - lastStart.getTime()) / 60000));
+
+      const time = entryTime(entry);
+      if (action === "start" || action === "break_end" || action === "check_in") lastStart = time;
+
+      if ((action === "break_start" || action === "end" || action === "check_out" || action === "auto_clock_out") && lastStart) {
+        const minutes = Math.round((time.getTime() - lastStart.getTime()) / 60000);
+        if (minutes > 0) total += minutes;
         lastStart = null;
+      }
+
+      if ((action === "manual" || action === "absence") && Number(entry.planned_minutes || 0) > 0) {
+        total += Number(entry.planned_minutes || 0);
       }
     }
 
     if (lastStart && status === "working") {
       total += Math.max(0, Math.round((Date.now() - lastStart.getTime()) / 60000));
     }
+
     return Math.max(total, directTotal);
   }
 
   function calculatePauseMinutes(entries: TimeEntry[]) {
-    const chronological = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const chronological = [...entries].sort((a, b) => entryTime(a).getTime() - entryTime(b).getTime());
     let total = 0;
     let lastBreak: Date | null = null;
 
     for (const entry of chronological) {
-      const time = new Date(entry.created_at);
-      if (entry.action === "break_start") lastBreak = time;
-      if (entry.action === "break_end" && lastBreak) {
+      const time = entryTime(entry);
+      const action = entryAction(entry);
+      if (action === "break_start") lastBreak = time;
+      if (action === "break_end" && lastBreak) {
         total += Math.max(0, Math.round((time.getTime() - lastBreak.getTime()) / 60000));
         lastBreak = null;
       }
