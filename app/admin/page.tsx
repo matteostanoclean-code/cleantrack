@@ -1152,6 +1152,66 @@ export default function AdminPage() {
     });
   }
 
+  async function decideAbsence(row: Row, status: string) {
+    const approved = status === "approved";
+    const label = approved ? "genehmigt" : "abgelehnt";
+    const employeeName = String(row.employee_name || "").trim();
+    const type = String(row.absence_type || "Abwesenheit").trim();
+    const period = `${dateText(row.start_date)} bis ${dateText(row.end_date)}`;
+    const title = approved ? "Abwesenheit genehmigt" : "Abwesenheit abgelehnt";
+    const messageText = `Dein Antrag ${type} vom ${period} wurde ${label}.`;
+
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({
+        action: "update",
+        table: "absence_requests",
+        id: row.id,
+        payload: {
+          status,
+          decided_at: new Date().toISOString(),
+          admin_response: approved ? "Genehmigt" : "Abgelehnt",
+        },
+      });
+
+      if (employeeName) {
+        await adminCall({
+          action: "insert",
+          table: "admin_notifications",
+          payload: [{
+            employee_name: employeeName,
+            title,
+            message: messageText,
+            notification_type: "absence_decision",
+            status: approved ? "approved" : "rejected",
+            absence_request_id: row.id,
+          }],
+        });
+
+        await adminCall({
+          action: "insert",
+          table: "chat_messages",
+          payload: [{
+            employee_name: employeeName,
+            sender_role: "admin",
+            sender_name: "Admin",
+            message: messageText,
+            read_by_admin: true,
+            read_by_employee: false,
+          }],
+        });
+      }
+
+      setMessage(`Abwesenheit ${label}. Mitarbeiter wurde benachrichtigt.`);
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Abwesenheit konnte nicht bearbeitet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function approveEntry(row: Row, approved: boolean) {
     await insertOrUpdate("time_entries", row.id, { approved, status: approved ? "approved" : "rejected" });
   }
@@ -1400,7 +1460,7 @@ export default function AdminPage() {
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
           {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
-          {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
+          {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={decideAbsence} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
       </div>

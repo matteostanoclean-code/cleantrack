@@ -82,6 +82,17 @@ type AdminNotification = {
   created_at: string;
 };
 
+type AbsenceRequest = {
+  id: string;
+  employee_name: string;
+  absence_type: string;
+  start_date: string;
+  end_date: string;
+  reason?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type TimeEntry = {
   id: string;
   employee_name: string;
@@ -204,6 +215,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [absenceReason, setAbsenceReason] = useState("");
   const [absenceSaving, setAbsenceSaving] = useState(false);
   const [absenceMessage, setAbsenceMessage] = useState("");
+  const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -258,6 +270,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         if (activeTab === "chat") loadChatMessages(name);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "time_entries" }, () => loadTodayEntries(name))
+      .on("postgres_changes", { event: "*", schema: "public", table: "absence_requests" }, () => loadAbsenceRequests(name))
       .subscribe();
 
     return () => {
@@ -387,6 +400,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       loadWorkSites(),
       loadMaterials(),
       loadTodayEntries(employeeName),
+      loadAbsenceRequests(employeeName),
       loadNotifications(employeeName),
       loadUnreadChatCount(employeeName),
       activeTab === "chat" ? loadChatMessages(employeeName) : Promise.resolve(),
@@ -435,6 +449,16 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       .order("created_at", { ascending: false })
       .limit(20);
     setNotifications((data || []) as AdminNotification[]);
+  }
+
+  async function loadAbsenceRequests(employeeName: string) {
+    const { data } = await supabase
+      .from("absence_requests")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setAbsenceRequests((data || []) as AbsenceRequest[]);
   }
 
   async function loadUnreadChatCount(employeeName: string) {
@@ -677,7 +701,10 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
 
       setAbsenceReason("");
       setAbsenceMessage("Abwesenheit wurde eingereicht. Ich sehe sie im Adminbereich unter Abwesenheiten.");
-      if (name) await loadNotifications(name);
+      if (name) {
+        await loadAbsenceRequests(name);
+        await loadNotifications(name);
+      }
     } catch (error) {
       setAbsenceMessage(error instanceof Error ? error.message : "Abwesenheit konnte nicht gesendet werden.");
     } finally {
@@ -903,6 +930,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             setReason={setAbsenceReason}
             saving={absenceSaving}
             message={absenceMessage}
+            requests={absenceRequests}
             submit={submitAbsenceRequest}
             openTab={openTab}
           />
@@ -1328,6 +1356,7 @@ function AbsenceRequestScreen(props: {
   setReason: (value: string) => void;
   saving: boolean;
   message: string;
+  requests: AbsenceRequest[];
   submit: () => void;
   openTab: (tab: Tab) => void;
 }) {
@@ -1363,6 +1392,28 @@ function AbsenceRequestScreen(props: {
         </button>
 
         {props.message && <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-700">{props.message}</p>}
+      </div>
+
+      <h2 className="mt-6 mb-3 text-sm font-black">Meine Anträge</h2>
+      <div className="space-y-3">
+        {props.requests.length === 0 && <EmptyState text="Noch keine Abwesenheit eingereicht" />}
+        {props.requests.map((item) => {
+          const status = item.status || "open";
+          const statusClass = status === "approved" ? "bg-green-100 text-green-700" : status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700";
+          const statusLabel = status === "approved" ? "Genehmigt" : status === "rejected" ? "Abgelehnt" : "Offen";
+          return (
+            <div key={item.id} className="rounded-[22px] bg-white p-4 shadow-sm border border-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-black">{item.absence_type}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">{new Date(item.start_date).toLocaleDateString("de-DE")} bis {new Date(item.end_date).toLocaleDateString("de-DE")}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-black ${statusClass}`}>{statusLabel}</span>
+              </div>
+              {item.reason && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-600">{item.reason}</p>}
+            </div>
+          );
+        })}
       </div>
     </SimplePage>
   );
