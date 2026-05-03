@@ -190,6 +190,99 @@ function buildScheduleDates(form: Row) {
 }
 
 
+function dateOnly(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.slice(0, 10);
+}
+
+function startOfWeekMonday(value?: string) {
+  const base = value ? new Date(value) : new Date();
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  const day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  return d;
+}
+
+function weekNumber(date: Date) {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNumber = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+function dayShort(date: string) {
+  return new Date(date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+}
+
+function taskDuration(task: Row) {
+  return Number(task.planned_minutes || task.max_minutes || minutes(task.start_time, task.end_time) || 0);
+}
+
+function normalizedStatus(value: unknown) {
+  return String(value || "open").trim().toLowerCase();
+}
+
+function absenceIsBlocking(row: Row) {
+  const status = normalizedStatus(row.status);
+  return ["approved", "genehmigt", "accepted", "akzeptiert"].includes(status);
+}
+
+function absenceIsOpen(row: Row) {
+  const status = normalizedStatus(row.status);
+  return !status || ["open", "offen", "pending", "beantragt"].includes(status);
+}
+
+function absenceCoversDate(absence: Row, date: string) {
+  const start = dateOnly(absence.start_date);
+  const end = dateOnly(absence.end_date || absence.start_date);
+  if (!start) return false;
+  const current = dateOnly(date);
+  return current >= start && current <= (end || start);
+}
+
+function employeeAbsenceForDate(absences: Row[], employeeName: string, date: string) {
+  const name = String(employeeName || "").trim().toLowerCase();
+  if (!name) return null;
+  return absences.find((absence) => String(absence.employee_name || "").trim().toLowerCase() === name && absenceCoversDate(absence, date)) || null;
+}
+
+function findBlockingAbsence(absences: Row[], employeeName: string, dates: string[]) {
+  return dates.map((date) => employeeAbsenceForDate(absences, employeeName, date)).find((absence) => absence && absenceIsBlocking(absence)) || null;
+}
+
+function timeToMinutes(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text || !text.includes(":")) return null;
+  const [h, m] = text.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+function timesOverlap(aStart: unknown, aEnd: unknown, bStart: unknown, bEnd: unknown) {
+  const a1 = timeToMinutes(aStart);
+  const a2 = timeToMinutes(aEnd);
+  const b1 = timeToMinutes(bStart);
+  const b2 = timeToMinutes(bEnd);
+  if (a1 === null || a2 === null || b1 === null || b2 === null) return false;
+  return a1 < b2 && b1 < a2;
+}
+
+function findScheduleConflict(tasks: Row[], form: Row, dates: string[]) {
+  const employee = String(form.employee_name || "").trim().toLowerCase();
+  if (!employee) return null;
+  return tasks.find((task) => {
+    if (String(task.id || "") === String(form.id || "")) return false;
+    const taskEmployee = String(task.employee_name || "").trim().toLowerCase();
+    if (taskEmployee !== employee) return false;
+    if (task.item_type === "task" || task.task_type === "task") return false;
+    if (!dates.includes(dateOnly(task.task_date))) return false;
+    return timesOverlap(form.start_time, form.end_time, task.start_time, task.end_time);
+  }) || null;
+}
+
+
 
 function downloadCsv(filename: string, rows: Row[]) {
   if (!rows.length) return;
@@ -944,6 +1037,19 @@ export default function AdminPage() {
       return;
     }
 
+    const plannedDates = taskForm.id || taskForm.repeat_mode !== "repeat" ? [dateOnly(taskForm.task_date || today)] : buildScheduleDates(taskForm);
+    const absenceConflict = findBlockingAbsence(absences, taskForm.employee_name, plannedDates);
+    if (absenceConflict) {
+      setMessage(`${taskForm.employee_name} ist am ${dateText(absenceConflict.start_date)} bis ${dateText(absenceConflict.end_date || absenceConflict.start_date)} als ${absenceConflict.absence_type || "abwesend"} eingetragen. Einsatz wurde nicht gespeichert.`);
+      return;
+    }
+
+    const scheduleConflict = findScheduleConflict(assignmentRows, taskForm, plannedDates);
+    if (scheduleConflict) {
+      setMessage(`${taskForm.employee_name} hat am ${dateText(scheduleConflict.task_date)} bereits einen Einsatz von ${scheduleConflict.start_time || "--:--"} bis ${scheduleConflict.end_time || "--:--"}. Einsatz wurde nicht gespeichert.`);
+      return;
+    }
+
     const basePayload = {
       title: taskForm.title,
       start_time: taskForm.start_time,
@@ -977,7 +1083,7 @@ export default function AdminPage() {
       return;
     }
 
-    const dates = buildScheduleDates(taskForm);
+    const dates = plannedDates;
     const recurrenceGroupId = crypto.randomUUID();
     setSaving(true);
     setMessage("");
@@ -1452,7 +1558,7 @@ export default function AdminPage() {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
+          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
@@ -1659,99 +1765,228 @@ function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function Planning(p: any) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    return d.toISOString().slice(0, 10);
+  const [weekStart, setWeekStart] = useState(isoDate(startOfWeekMonday()));
+  const [viewMode, setViewMode] = useState<"week" | "day" | "tour">("week");
+  const [employeeFilter, setEmployeeFilter] = useState("");
+  const [siteFilter, setSiteFilter] = useState("");
+  const [localSearch, setLocalSearch] = useState("");
+
+  const baseDate = startOfWeekMonday(weekStart);
+  const days = Array.from({ length: viewMode === "day" ? 1 : 7 }, (_, i) => isoDate(addDays(baseDate, i)));
+  const rangeLabel = `${dateText(days[0])} → ${dateText(days[days.length - 1])}`;
+  const kw = weekNumber(baseDate);
+  const searchText = localSearch.trim().toLowerCase();
+
+  const tasksInRange = p.tasks.filter((task: Row) => {
+    const taskDate = dateOnly(task.task_date || task.due_date);
+    const inRange = days.includes(taskDate);
+    if (!inRange) return false;
+    if (employeeFilter && task.employee_name !== employeeFilter) return false;
+    if (siteFilter && String(task.work_site_id || "") !== siteFilter && String(task.site || "") !== siteFilter) return false;
+    if (!searchText) return true;
+    return JSON.stringify(task).toLowerCase().includes(searchText);
   });
-  const unassigned = p.tasks.filter((task: Row) => !task.employee_name).length;
+
+  const visibleEmployees = p.employees.filter((employee: Row) => {
+    if (employeeFilter && employee.name !== employeeFilter) return false;
+    if (!searchText) return true;
+    return String(employee.name || "").toLowerCase().includes(searchText) || tasksInRange.some((task: Row) => task.employee_name === employee.name);
+  });
+
+  const unassigned = tasksInRange.filter((task: Row) => !task.employee_name).length;
   const missingGps = p.sites.filter((site: Row) => !site.latitude || !site.longitude).length;
-  const todayPlanned = p.tasks.filter((task: Row) => task.task_date === today).length;
+  const absentToday = p.employees.filter((employee: Row) => Boolean(employeeAbsenceForDate(p.absences || [], employee.name, today))).length;
+
+  function jump(offsetDays: number) {
+    setWeekStart(isoDate(addDays(baseDate, offsetDays)));
+  }
+
+  function goToday() {
+    setWeekStart(isoDate(startOfWeekMonday()));
+  }
+
+  function taskSite(task: Row) {
+    return p.sites.find((site: Row) => site.id === task.work_site_id || site.name === task.site);
+  }
+
+  function tasksFor(employee: Row, day: string) {
+    return tasksInRange
+      .filter((task: Row) => task.employee_name === employee.name && dateOnly(task.task_date) === day)
+      .sort((a: Row, b: Row) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
+  }
+
+  function workload(employee: Row) {
+    return tasksInRange
+      .filter((task: Row) => task.employee_name === employee.name)
+      .reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+  }
+
+  const tourGroups = p.sites
+    .map((site: Row) => ({ site, tasks: tasksInRange.filter((task: Row) => task.work_site_id === site.id || task.site === site.name) }))
+    .filter((group: Row) => group.tasks.length > 0);
 
   return (
     <div>
-      <PageHeader icon="▦" title="Einsatzplanung" sub="Ich plane hier Kunde → Objekt → Mitarbeiter → Datum und Uhrzeit.">
-        <Button onClick={() => p.openTask()}>+ Einsatz anlegen</Button>
+      <PageHeader icon="▦" title="Einsatzplanung" sub="Wochenübersicht nach Mitarbeiter, Objekt und Abwesenheit.">
+        <Button onClick={() => p.openTask()} primary>+ Einsatz erstellen</Button>
       </PageHeader>
 
-      <div className="mb-5 grid gap-4 md:grid-cols-3">
-        <Metric title="Heute geplant" value={todayPlanned} hint="Einsätze für heute" />
-        <Metric title="Nicht zugewiesen" value={unassigned} hint="ohne Mitarbeiter" />
-        <Metric title="GPS fehlt" value={missingGps} hint="Objekte ohne Standortdaten" />
+      <div className="mb-4 grid gap-3 xl:grid-cols-[1.4fr_.8fr]">
+        <Card className="p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => jump(viewMode === "day" ? -1 : -7)}>‹</Button>
+            <Button primary onClick={goToday}>Heute</Button>
+            <Button onClick={() => jump(viewMode === "day" ? 1 : 7)}>›</Button>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black text-slate-700">KW {kw} · {rangeLabel}</div>
+            <input type="date" value={weekStart} onChange={(e) => setWeekStart(isoDate(startOfWeekMonday(e.target.value)))} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700" />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="min-w-[260px] rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold outline-none focus:border-blue-500" placeholder="Suchen" />
+            <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">
+              <option value="">Alle Mitarbeiter</option>
+              {p.employees.map((employee: Row) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
+            </select>
+            <select value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">
+              <option value="">Alle Objekte</option>
+              {p.sites.map((site: Row) => <option key={site.id || site.name} value={site.id || site.name}>{site.name}</option>)}
+            </select>
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => setViewMode("day")} className={`rounded-xl px-4 py-2 text-sm font-black ${viewMode === "day" ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-600"}`}>Tag</button>
+            <button type="button" onClick={() => setViewMode("week")} className={`rounded-xl px-4 py-2 text-sm font-black ${viewMode === "week" ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-600"}`}>Woche</button>
+            <button type="button" onClick={() => setViewMode("tour")} className={`rounded-xl px-4 py-2 text-sm font-black ${viewMode === "tour" ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-600"}`}>Touren</button>
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-bold text-slate-500">
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{tasksInRange.length}</p>Einsätze</div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{unassigned}</p>ohne MA</div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{absentToday}</p>abwesend</div>
+          </div>
+        </Card>
       </div>
 
       {missingGps > 0 && (
-        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
-          Bei {missingGps} Objekt(en) fehlen GPS-Daten. Diese Objekte kann ich zwar planen, aber die spätere Standortprüfung ist erst sauber möglich, wenn Latitude und Longitude eingetragen sind.
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+          Bei {missingGps} Objekt(en) fehlen GPS-Daten. Für diese Einsätze ist die spätere Standortprüfung noch nicht sauber möglich.
         </div>
       )}
 
-      <div className="mb-5 grid gap-5 xl:grid-cols-[1fr_360px]">
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h3 className="font-black text-slate-950">Wochenplan</h3>
-              <p className="text-sm text-slate-500">Die nächsten 7 Tage nach Objekt und Mitarbeiter.</p>
+      {viewMode === "tour" ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {tourGroups.length === 0 && <Card className="p-6"><Empty text="Keine Touren in diesem Zeitraum" /></Card>}
+          {tourGroups.map((group: any) => (
+            <Card key={group.site.id || group.site.name} className="p-5">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-black text-slate-950">{group.site.name}</h3>
+                  <p className="text-sm text-slate-500">{group.site.address || group.site.customer_name || "Ohne Adresse"}</p>
+                </div>
+                <Status color={group.site.latitude && group.site.longitude ? "green" : "yellow"}>{group.site.latitude && group.site.longitude ? "GPS" : "GPS fehlt"}</Status>
+              </div>
+              <div className="space-y-2">
+                {group.tasks.map((task: Row) => (
+                  <button key={task.id} type="button" onClick={() => p.editTask(task)} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-blue-300 hover:bg-blue-50">
+                    <p className="font-black text-slate-950">{dateText(task.task_date)} · {task.start_time || "--:--"} → {task.end_time || "--:--"}</p>
+                    <p className="text-sm text-slate-600">{task.employee_name || "Nicht zugewiesen"} · {task.title}</p>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="min-w-[1280px]">
+            <div className="grid border-b border-slate-200 bg-slate-50" style={{ gridTemplateColumns: `260px repeat(${days.length}, minmax(160px, 1fr))` }}>
+              <div className="border-r border-slate-200 p-3 text-sm font-black text-slate-500">Mitarbeiter</div>
+              {days.map((day) => <div key={day} className="border-r border-slate-200 p-3 text-center text-sm font-black text-slate-600 last:border-r-0">{dayShort(day)}</div>)}
             </div>
-            <Button primary onClick={() => p.openTask()}>Einsatz erstellen</Button>
-          </div>
-          <div className="grid gap-4 xl:grid-cols-7">
-            {days.map((day) => {
-              const dayTasks = p.tasks.filter((task: Row) => task.task_date === day);
+
+            {visibleEmployees.map((employee: Row) => {
+              const weekMinutes = workload(employee);
               return (
-                <Card key={day} className="min-h-[360px] p-3">
-                  <p className="mb-3 text-sm font-black text-slate-700">{dateText(day)}</p>
-                  <div className="space-y-2">
-                    {dayTasks.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-400">Keine Einsätze</p>}
-                    {dayTasks.map((task: Row) => {
-                      const site = p.sites.find((item: Row) => item.id === task.work_site_id || item.name === task.site);
-                      const gpsOk = Boolean(site?.latitude && site?.longitude);
-                      return (
-                        <button key={task.id} type="button" onClick={() => p.editTask(task)} className="w-full rounded-xl border-l-4 border-blue-500 bg-blue-50 p-3 text-left text-sm hover:bg-blue-100">
-                          <p className="font-black">{task.start_time || "--:--"} · {task.title}</p>
-                          <p className="text-slate-600">{task.employee_name || "Ohne Mitarbeiter"}</p>
-                          <p className="text-slate-500">{task.site || "Ohne Objekt"}</p>
-                          <p className={gpsOk ? "mt-2 text-xs font-black text-emerald-600" : "mt-2 text-xs font-black text-amber-600"}>{gpsOk ? "GPS bereit" : "GPS fehlt"}</p>
-                        </button>
-                      );
-                    })}
+                <div key={employee.id || employee.name} className="grid min-h-[136px] border-b border-slate-100 last:border-b-0" style={{ gridTemplateColumns: `260px repeat(${days.length}, minmax(160px, 1fr))` }}>
+                  <div className="border-r border-slate-200 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-black text-white">{initials(employee.name || "CT")}</div>
+                      <div className="min-w-0">
+                        <p className="truncate font-black text-slate-950">{employee.name}</p>
+                        <p className="text-xs font-bold text-slate-400">{prettyHours(weekMinutes)} Std. geplant</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="h-2 rounded-full bg-red-400" style={{ width: `${Math.min(100, Math.max(16, weekMinutes / 24))}%` }} />
+                      <div className="h-2 rounded-full bg-red-400" style={{ width: `${Math.min(100, Math.max(16, weekMinutes / 24))}%` }} />
+                    </div>
                   </div>
-                </Card>
+
+                  {days.map((day) => {
+                    const dayTasks = tasksFor(employee, day);
+                    const absence = employeeAbsenceForDate(p.absences || [], employee.name, day);
+                    const blocked = Boolean(absence && absenceIsBlocking(absence));
+                    const openAbsence = Boolean(absence && absenceIsOpen(absence));
+                    return (
+                      <div key={`${employee.id || employee.name}-${day}`} className={`min-h-[136px] border-r border-slate-100 p-2 last:border-r-0 ${blocked ? "bg-orange-50" : openAbsence ? "bg-amber-50/60" : "bg-white"}`}>
+                        {absence && (
+                          <div className={`mb-2 rounded-lg px-3 py-2 text-xs font-black ${blocked ? "bg-orange-500 text-white" : "bg-amber-100 text-amber-700"}`}>
+                            {absence.absence_type || "Abwesend"} · {dateText(absence.start_date)} - {dateText(absence.end_date || absence.start_date)}
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          {dayTasks.map((task: Row) => {
+                            const site = taskSite(task);
+                            const gpsOk = Boolean(site?.latitude && site?.longitude);
+                            const conflict = blocked;
+                            return (
+                              <button key={task.id} type="button" onClick={() => p.editTask(task)} className={`w-full rounded-xl border bg-white p-3 text-left text-xs shadow-sm hover:border-blue-300 ${conflict ? "border-red-300 ring-1 ring-red-200" : "border-slate-200"}`}>
+                                <div className="mb-1 flex items-center justify-between gap-2 text-slate-500">
+                                  <span className="font-bold">{task.start_time || "--:--"} → {task.end_time || "--:--"}</span>
+                                  <span>{gpsOk ? "● GPS" : "GPS fehlt"}</span>
+                                </div>
+                                <p className="truncate font-black text-slate-950">{task.site || site?.name || "Ohne Objekt"}</p>
+                                <p className="mt-1 inline-flex rounded-lg bg-orange-100 px-2 py-1 text-[11px] font-black text-orange-700">{task.title || "Einsatz"}</p>
+                                {conflict && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1 font-black text-red-700">Konflikt: Mitarbeiter abwesend</p>}
+                              </button>
+                            );
+                          })}
+                          {!absence && dayTasks.length === 0 && <div className="min-h-[38px] rounded-xl border border-dashed border-slate-200" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               );
             })}
-          </div>
-        </Card>
 
-        <Card className="p-5">
-          <h3 className="font-black text-slate-950">Planungslogik</h3>
-          <div className="mt-4 space-y-3 text-sm">
-            <InfoLine label="Kunden" value={p.customers.length} />
-            <InfoLine label="Objekte" value={p.sites.length} />
-            <InfoLine label="Mitarbeiter" value={p.employees.length} />
-            <InfoLine label="Offene Einsätze" value={p.tasks.filter((task: Row) => !task.done).length} />
+            {visibleEmployees.length === 0 && <div className="p-8"><Empty text="Keine Mitarbeiter für diese Ansicht" /></div>}
           </div>
-          <button type="button" onClick={() => p.openTask()} className="mt-5 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Neuen Einsatz planen</button>
-        </Card>
+        </div>
+      )}
+
+      <div className="mt-5">
+        <Table headers={["Datum", "Zeitfenster", "Kunde", "Objekt", "Mitarbeiter", "Planzeit", "Hinweis", "Aktion"]}>
+          {p.tasks.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine Einsätze geplant" /></td></tr> : p.tasks.map((task: Row) => {
+            const site = taskSite(task);
+            const gpsOk = Boolean(site?.latitude && site?.longitude);
+            const absence = employeeAbsenceForDate(p.absences || [], task.employee_name, dateOnly(task.task_date));
+            const blocked = Boolean(absence && absenceIsBlocking(absence));
+            return (
+              <tr key={task.id} className={blocked ? "bg-red-50" : ""}>
+                <td className="px-4 py-3">{dateText(task.task_date)}</td>
+                <td className="px-4 py-3 font-bold">{task.start_time || "--:--"} - {task.end_time || "--:--"}</td>
+                <td className="px-4 py-3">{task.customer_name || site?.customer_name || "-"}</td>
+                <td className="px-4 py-3 font-black">{task.site || site?.name || "-"}</td>
+                <td className="px-4 py-3">{task.employee_name || "Nicht zugewiesen"}</td>
+                <td className="px-4 py-3 font-bold">{task.planned_minutes || task.max_minutes || 0} Min.</td>
+                <td className="px-4 py-3">{blocked ? <Status color="red">Abwesenheit</Status> : <Status color={gpsOk ? "green" : "yellow"}>{gpsOk ? "GPS bereit" : "GPS fehlt"}</Status>}</td>
+                <td className="px-4 py-3"><Actions edit={() => p.editTask(task)} del={() => p.deleteTask(task)} /></td>
+              </tr>
+            );
+          })}
+        </Table>
       </div>
-
-      <Table headers={["Datum", "Zeitfenster", "Kunde", "Objekt", "Mitarbeiter", "Planzeit", "GPS", "Aktion"]}>
-        {p.tasks.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine Einsätze geplant" /></td></tr> : p.tasks.map((task: Row) => {
-          const site = p.sites.find((item: Row) => item.id === task.work_site_id || item.name === task.site);
-          const gpsOk = Boolean(site?.latitude && site?.longitude);
-          return (
-            <tr key={task.id}>
-              <td className="px-4 py-3">{dateText(task.task_date)}</td>
-              <td className="px-4 py-3 font-bold">{task.start_time || "--:--"} - {task.end_time || "--:--"}</td>
-              <td className="px-4 py-3">{task.customer_name || site?.customer_name || "-"}</td>
-              <td className="px-4 py-3 font-black">{task.site || site?.name || "-"}</td>
-              <td className="px-4 py-3">{task.employee_name || "Nicht zugewiesen"}</td>
-              <td className="px-4 py-3 font-bold">{task.planned_minutes || task.max_minutes || 0} Min.</td>
-              <td className="px-4 py-3"><Status color={gpsOk ? "green" : "yellow"}>{gpsOk ? "bereit" : "fehlt"}</Status></td>
-              <td className="px-4 py-3"><Actions edit={() => p.editTask(task)} del={() => p.deleteTask(task)} /></td>
-            </tr>
-          );
-        })}
-      </Table>
     </div>
   );
 }
