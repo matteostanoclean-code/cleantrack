@@ -186,6 +186,17 @@ export default function AdminPage() {
   const [employeeInviteLink, setEmployeeInviteLink] = useState("");
   const [employeeWhatsappLink, setEmployeeWhatsappLink] = useState("");
   const [employeeCreating, setEmployeeCreating] = useState(false);
+  const [employeeEditModal, setEmployeeEditModal] = useState(false);
+  const [employeeEditId, setEmployeeEditId] = useState("");
+  const [employeeEditName, setEmployeeEditName] = useState("");
+  const [employeeEditEmail, setEmployeeEditEmail] = useState("");
+  const [employeeEditPhone, setEmployeeEditPhone] = useState("");
+  const [employeeEditNumber, setEmployeeEditNumber] = useState("");
+  const [employeeEditAddress, setEmployeeEditAddress] = useState("");
+  const [employeeEditHourlyRate, setEmployeeEditHourlyRate] = useState("");
+  const [employeeEditVacationDays, setEmployeeEditVacationDays] = useState("");
+  const [employeeEditActive, setEmployeeEditActive] = useState(true);
+  const [employeeSaving, setEmployeeSaving] = useState(false);
 
   const [customerModal, setCustomerModal] = useState(false);
   const [customerId, setCustomerId] = useState("");
@@ -670,6 +681,118 @@ export default function AdminPage() {
     }
   }
 
+
+  function openEditEmployee(employee: Row) {
+    setEmployeeEditId(String(employee.id || ""));
+    setEmployeeEditName(String(employee.name || ""));
+    setEmployeeEditEmail(String(employee.email || ""));
+    setEmployeeEditPhone(String(employee.phone || ""));
+    setEmployeeEditNumber(String(employee.employee_number || ""));
+    setEmployeeEditAddress(String(employee.address || employee.street || ""));
+    setEmployeeEditHourlyRate(String(employee.hourly_rate ?? ""));
+    setEmployeeEditVacationDays(String(employee.vacation_days ?? employee.annual_vacation_days ?? ""));
+    setEmployeeEditActive(employee.active !== false);
+    setEmployeeEditModal(true);
+  }
+
+  async function saveEmployee() {
+    if (!employeeEditId) return;
+    if (!employeeEditName.trim()) {
+      setMessage("Bitte einen Namen eintragen.");
+      return;
+    }
+
+    setEmployeeSaving(true);
+    setMessage("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      if (!token) {
+        setMessage("Bitte als Admin neu einloggen. Die Sitzung fehlt.");
+        return;
+      }
+
+      const response = await fetch("/api/admin/update-employee", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: employeeEditId,
+          name: employeeEditName,
+          email: employeeEditEmail,
+          phone: employeeEditPhone,
+          employee_number: employeeEditNumber,
+          address: employeeEditAddress,
+          hourly_rate: employeeEditHourlyRate,
+          vacation_days: employeeEditVacationDays,
+          active: employeeEditActive,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || "Mitarbeiter konnte nicht gespeichert werden.");
+        return;
+      }
+
+      setEmployeeEditModal(false);
+      setMessage("Mitarbeiter wurde gespeichert.");
+      await loadEmployees();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Fehler beim Speichern.");
+    } finally {
+      setEmployeeSaving(false);
+    }
+  }
+
+  async function deactivateEmployee(employee: Row) {
+    if (!employee?.id) return;
+
+    const ok = window.confirm(`Mitarbeiter "${employee.name}" wirklich deaktivieren?`);
+    if (!ok) return;
+
+    setEmployeeSaving(true);
+    setMessage("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      if (!token) {
+        setMessage("Bitte als Admin neu einloggen. Die Sitzung fehlt.");
+        return;
+      }
+
+      const response = await fetch("/api/admin/update-employee", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: employee.id, active: false }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || "Mitarbeiter konnte nicht deaktiviert werden.");
+        return;
+      }
+
+      setMessage("Mitarbeiter wurde deaktiviert.");
+      await loadEmployees();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Fehler beim Deaktivieren.");
+    } finally {
+      setEmployeeSaving(false);
+    }
+  }
+
   if (loading) return <main className="p-8">Lade...</main>;
   if (!allowed) return <main className="min-h-screen bg-slate-100 p-8"><div className="rounded-2xl bg-white p-8"><h1 className="text-2xl font-bold">Kein Zugriff</h1><p className="text-slate-500">Dieser Bereich ist nur für Administratoren sichtbar.</p></div></main>;
 
@@ -727,7 +850,7 @@ export default function AdminPage() {
           {tab === "zeitfreigabe" && <TimeApproval entries={pendingEntries} approve={(row: any) => approveEntry(row, true)} reject={(row: any) => approveEntry(row, false)} />}
           {tab === "abwesenheiten" && <Absences employees={activeEmployees} absences={absences} absenceEmployee={absenceEmployee} setAbsenceEmployee={setAbsenceEmployee} absenceType={absenceType} setAbsenceType={setAbsenceType} absenceStart={absenceStart} setAbsenceStart={setAbsenceStart} absenceEnd={absenceEnd} setAbsenceEnd={setAbsenceEnd} absenceReason={absenceReason} setAbsenceReason={setAbsenceReason} createAbsence={createAbsence} decideAbsence={decideAbsence} />}
           {tab === "lohn" && <Payroll employees={activeEmployees} entries={entries} />}
-          {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} openCreate={openEmployeeModal} />}
+          {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} openCreate={openEmployeeModal} openEdit={openEditEmployee} deactivate={deactivateEmployee} />}
           {tab === "objekte" && <Objects sites={activeSites} siteId={siteId} siteName={siteName} setSiteName={setSiteName} siteAddress={siteAddress} setSiteAddress={setSiteAddress} siteRadius={siteRadius} setSiteRadius={setSiteRadius} siteLat={siteLat} setSiteLat={setSiteLat} siteLng={siteLng} setSiteLng={setSiteLng} siteNotes={siteNotes} setSiteNotes={setSiteNotes} geo={geocode} geoLoading={geoLoading} saveSite={saveSite} editSite={editSite} deactivate={async (id: string) => { await supabase.from("work_sites").update({ active: false }).eq("id", id); await loadSites(); }} />}
           {tab === "kunden" && <Customers sites={sites} openCustomer={openCustomer} />}
           {tab === "kontakte" && <Contacts contacts={contacts} sites={sites} employees={employees} openContact={openContact} deleteContact={async (r: any) => { await supabase.from("customer_contacts").delete().eq("id", r.id); await loadContacts(); }} />}
@@ -742,6 +865,7 @@ export default function AdminPage() {
       </div>
       {taskModal && <TaskModal close={() => setTaskModal(false)} taskId={taskId} mode={taskMode} setMode={setTaskMode} sites={activeSites} employees={activeEmployees} taskSite={taskSite} setTaskSite={setTaskSite} taskTitle={taskTitle} setTaskTitle={setTaskTitle} taskDate={taskDate} setTaskDate={setTaskDate} taskFrom={taskFrom} setTaskFrom={setTaskFrom} taskTo={taskTo} setTaskTo={setTaskTo} taskDuration={taskDuration} setTaskDuration={setTaskDuration} taskEmployee={taskEmployee} taskRepeatDays={taskRepeatDays} setTaskRepeatDays={setTaskRepeatDays} setTaskEmployee={setTaskEmployee} taskRepeatEnd={taskRepeatEnd} setTaskRepeatEnd={setTaskRepeatEnd} taskRepeatEvery={taskRepeatEvery} setTaskRepeatEvery={setTaskRepeatEvery} taskNotes={taskNotes} setTaskNotes={setTaskNotes} save={saveTask} />}
       {employeeModal && <EmployeeModal close={() => setEmployeeModal(false)} name={employeeName} setName={setEmployeeName} email={employeeEmail} setEmail={setEmployeeEmail} phone={employeePhone} setPhone={setEmployeePhone} inviteLink={employeeInviteLink} whatsappLink={employeeWhatsappLink} loading={employeeCreating} create={createEmployeeInvite} />}
+      {employeeEditModal && <EmployeeEditModal close={() => setEmployeeEditModal(false)} save={saveEmployee} loading={employeeSaving} name={employeeEditName} setName={setEmployeeEditName} email={employeeEditEmail} setEmail={setEmployeeEditEmail} phone={employeeEditPhone} setPhone={setEmployeeEditPhone} number={employeeEditNumber} setNumber={setEmployeeEditNumber} address={employeeEditAddress} setAddress={setEmployeeEditAddress} hourlyRate={employeeEditHourlyRate} setHourlyRate={setEmployeeEditHourlyRate} vacationDays={employeeEditVacationDays} setVacationDays={setEmployeeEditVacationDays} active={employeeEditActive} setActive={setEmployeeEditActive} />}
       {customerModal && <CustomerModal close={() => setCustomerModal(false)} save={saveCustomer} customerId={customerId} customerName={customerName} setCustomerName={setCustomerName} customerNumber={customerNumber} setCustomerNumber={setCustomerNumber} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerEmail={customerEmail} setCustomerEmail={setCustomerEmail} customerNotes={customerNotes} setCustomerNotes={setCustomerNotes} />}
       {contactModal && <ContactModal close={() => setContactModal(false)} save={saveContact} contactId={contactId} contactName={contactName} setContactName={setContactName} contactCompany={contactCompany} setContactCompany={setContactCompany} contactPhone={contactPhone} setContactPhone={setContactPhone} contactEmail={contactEmail} setContactEmail={setContactEmail} contactRole={contactRole} setContactRole={setContactRole} contactNotes={contactNotes} setContactNotes={setContactNotes} />}
     </main>
@@ -1388,7 +1512,7 @@ function Employees(p: any) {
       </Card>
 
       <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Name", "Nummer", "Adresse", "Arbeitszeit", "Urlaub", "Kosten", "Login", "Status"]}>
+      <Table headers={["Name", "Nummer", "Adresse", "Arbeitszeit", "Urlaub", "Kosten", "Login", "Status", "Aktion"]}>
         {p.employees.map((e: Row, i: number) => {
           const minutes = minutesWorkedForEmployee(e.name, p.entries || []);
           const hourly = Number(e.hourly_rate || 0);
@@ -1407,6 +1531,12 @@ function Employees(p: any) {
               <td className="px-4 py-3 font-bold">{cost.toFixed(2)} €</td>
               <td className="px-4 py-3"><span className={e.auth_user_id ? "rounded bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700" : "rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700"}>{e.auth_user_id ? "Aktiviert" : "Noch kein Login"}</span></td>
               <td className="px-4 py-3"><span className={e.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{e.active === false ? "Passiv" : "Aktiv"}</span></td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => p.openEdit(e)} className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100">Bearbeiten</button>
+                  {e.active !== false && <button type="button" onClick={() => p.deactivate(e)} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100">Deaktivieren</button>}
+                </div>
+              </td>
             </tr>
           );
         })}
@@ -1458,6 +1588,64 @@ function EmployeeModal(p: any) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+
+function EmployeeEditModal(p: any) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-blue-600">Mitarbeiter bearbeiten</p>
+            <h2 className="text-2xl font-black text-slate-950">Stammdaten ändern</h2>
+            <p className="mt-1 text-sm text-slate-500">Ich ändere hier Name, Kontakt, Personalnummer, Adresse, Urlaub und Status.</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-full bg-slate-100 px-3 py-2 font-black text-slate-500 hover:bg-slate-200">×</button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Name *</span>
+            <input value={p.name} onChange={(e) => p.setName(e.target.value)} className="field" placeholder="Name" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">E-Mail</span>
+            <input value={p.email} onChange={(e) => p.setEmail(e.target.value)} className="field" placeholder="E-Mail" type="email" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Telefon</span>
+            <input value={p.phone} onChange={(e) => p.setPhone(e.target.value)} className="field" placeholder="Telefon" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Personalnummer</span>
+            <input value={p.number} onChange={(e) => p.setNumber(e.target.value)} className="field" placeholder="z. B. 001" />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Adresse</span>
+            <input value={p.address} onChange={(e) => p.setAddress(e.target.value)} className="field" placeholder="Straße, PLZ Ort" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Stundenlohn</span>
+            <input value={p.hourlyRate} onChange={(e) => p.setHourlyRate(e.target.value)} className="field" placeholder="z. B. 14.50" inputMode="decimal" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Urlaubstage pro Jahr</span>
+            <input value={p.vacationDays} onChange={(e) => p.setVacationDays(e.target.value)} className="field" placeholder="z. B. 24" inputMode="decimal" />
+          </label>
+          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
+            <input type="checkbox" checked={p.active} onChange={(e) => p.setActive(e.target.checked)} className="h-5 w-5" />
+            <span className="font-bold text-slate-700">Mitarbeiter ist aktiv</span>
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <Button onClick={p.close}>Abbrechen</Button>
+          <Button primary onClick={p.save} className={p.loading ? "opacity-70" : ""}>{p.loading ? "Speichert..." : "Änderungen speichern"}</Button>
+        </div>
       </div>
     </div>
   );
