@@ -215,6 +215,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [status, setStatus] = useState<Status>("none");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedActionTask, setSelectedActionTask] = useState<Task | null>(null);
+  const [selectedAssignment, setSelectedAssignment] = useState<Task | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [clockSaving, setClockSaving] = useState(false);
   const [clockNotice, setClockNotice] = useState("");
@@ -858,7 +859,24 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "schedule" && (
-          <ScheduleScreen tasks={tasks} openTab={openTab} />
+          <ScheduleScreen
+            tasks={tasks}
+            workSites={workSites}
+            selectedAssignment={selectedAssignment}
+            openAssignment={setSelectedAssignment}
+            closeAssignment={() => setSelectedAssignment(null)}
+            startAssignment={(task) => {
+              setSelectedTaskId(task.id);
+              setSelectedAssignment(null);
+              openTab("clock");
+            }}
+            reportMaterial={(task) => {
+              if (task.work_site_id) setMaterialSiteId(task.work_site_id);
+              setSelectedAssignment(null);
+              openTab("material");
+            }}
+            openTab={openTab}
+          />
         )}
 
         {activeTab === "search" && (
@@ -1162,20 +1180,101 @@ function ClockScreen(props: {
 }
 
 
-function ScheduleScreen({ tasks, openTab }: { tasks: Task[]; openTab: (tab: Tab) => void }) {
+function ScheduleScreen({
+  tasks,
+  workSites,
+  selectedAssignment,
+  openAssignment,
+  closeAssignment,
+  startAssignment,
+  reportMaterial,
+  openTab,
+}: {
+  tasks: Task[];
+  workSites: WorkSite[];
+  selectedAssignment: Task | null;
+  openAssignment: (task: Task) => void;
+  closeAssignment: () => void;
+  startAssignment: (task: Task) => void;
+  reportMaterial: (task: Task) => void;
+  openTab: (tab: Tab) => void;
+}) {
   const today = todayISO();
   const upcoming = sortTasksByTime(tasks.filter((task) => task.task_date >= today && task.item_type !== "task" && task.task_type !== "task"));
+  const todayItems = upcoming.filter((task) => task.task_date === today);
+  const overdue = tasks.filter((task) => task.task_date < today && task.item_type !== "task" && task.task_type !== "task" && !task.done).length;
+
+  function getSite(task: Task) {
+    return workSites.find((site) => site.id === task.work_site_id || site.name === task.site) || null;
+  }
+
+  if (selectedAssignment) {
+    const site = getSite(selectedAssignment);
+    const gpsReady = Boolean(site?.latitude && site?.longitude);
+    const windowText = `${formatClock(selectedAssignment.start_time)} - ${formatClock(selectedAssignment.end_time)}`;
+
+    return (
+      <SimplePage title="Einsatzdetails" openTab={openTab}>
+        <div className="rounded-[26px] bg-white p-5 shadow-sm border border-slate-100">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Einsatz</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-950">{selectedAssignment.title}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">{selectedAssignment.customer_name || "Kein Kunde hinterlegt"}</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-black ${selectedAssignment.done ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>{selectedAssignment.done ? "Erledigt" : "Geplant"}</span>
+          </div>
+
+          <div className="mt-5 grid gap-3 text-sm">
+            <InfoCard label="Datum" value={new Date(selectedAssignment.task_date).toLocaleDateString("de-DE")} />
+            <InfoCard label="Einstempel-Zeitfenster" value={windowText} />
+            <InfoCard label="Maximale Planzeit" value={formatMinutes(Number(selectedAssignment.max_minutes || selectedAssignment.planned_minutes || 0))} />
+            <InfoCard label="Objekt" value={selectedAssignment.site || site?.name || "Kein Objekt hinterlegt"} />
+            <InfoCard label="Adresse" value={site?.address || "Keine Adresse hinterlegt"} />
+            <InfoCard label="GPS-Prüfung" value={gpsReady ? `Aktiv · Radius ${site?.allowed_radius_m || 50} m` : "GPS fehlt am Objekt"} badgeClass={gpsReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"} />
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">Hinweise / Leistung</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-slate-700">{selectedAssignment.notes || "Keine zusätzlichen Hinweise hinterlegt."}</p>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            <button type="button" onClick={() => startAssignment(selectedAssignment)} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white">Zum Einstempeln</button>
+            <button type="button" onClick={() => reportMaterial(selectedAssignment)} className="w-full rounded-2xl bg-orange-50 py-4 font-black text-orange-700">Material zu diesem Objekt melden</button>
+            <button type="button" onClick={closeAssignment} className="w-full rounded-2xl border border-slate-200 bg-white py-4 font-black text-slate-600">Zurück zu Einsätzen</button>
+          </div>
+        </div>
+      </SimplePage>
+    );
+  }
+
   return (
     <SimplePage title="Einsätze" openTab={openTab} searchPlaceholder="Suchen...">
       <div className="grid gap-2">
-        <StatusBox color="red" title="Nicht zugewiesen" count={0} />
-        <StatusBox color="orange" title="Überfällig" count={0} />
-        <StatusBox color="green" title="Aktiv" count={upcoming.length} />
+        <StatusBox color="red" title="Überfällig" count={overdue} />
+        <StatusBox color="orange" title="Heute" count={todayItems.length} />
+        <StatusBox color="green" title="Anstehend" count={upcoming.length} />
       </div>
       <h2 className="mt-6 mb-3 text-sm font-black">Anstehend</h2>
       <div className="space-y-3">
         {upcoming.length === 0 && <EmptyState text="Keine Einsätze geplant" />}
-        {upcoming.map((task) => <div key={task.id} className="rounded-[22px] bg-white p-4 shadow-sm border border-slate-100"><p className="text-xs font-bold text-slate-400">{new Date(task.task_date).toLocaleDateString("de-DE")} · {formatClock(task.start_time)} - {formatClock(task.end_time)}</p><p className="mt-1 font-black">{task.site || "Kein Objekt"}</p><p className="mt-1 text-sm text-slate-500">{task.title}</p></div>)}
+        {upcoming.map((task) => {
+          const site = getSite(task);
+          const gpsReady = Boolean(site?.latitude && site?.longitude);
+          return (
+            <button key={task.id} type="button" onClick={() => openAssignment(task)} className="w-full rounded-[22px] bg-white p-4 text-left shadow-sm border border-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-slate-400">{new Date(task.task_date).toLocaleDateString("de-DE")} · {formatClock(task.start_time)} - {formatClock(task.end_time)}</p>
+                  <p className="mt-1 truncate font-black">{task.site || site?.name || "Kein Objekt"}</p>
+                  <p className="mt-1 text-sm text-slate-500">{task.title}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-black ${gpsReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{gpsReady ? "GPS" : "GPS fehlt"}</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </SimplePage>
   );
