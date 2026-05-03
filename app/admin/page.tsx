@@ -86,6 +86,44 @@ function dateText(value?: string) {
   return new Date(value).toLocaleDateString("de-DE");
 }
 
+
+function isUuid(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function customerLabel(row: Row | undefined | null) {
+  return String(row?.name || row?.customer_name || row?.company || "").trim();
+}
+
+function customerValue(row: Row | undefined | null) {
+  const id = String(row?.id || "").trim();
+  return isUuid(id) ? id : customerLabel(row);
+}
+
+function findCustomerByValue(customers: Row[], value: string) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return customers.find((customer) => {
+    const id = String(customer.id || "").trim().toLowerCase();
+    const label = customerLabel(customer).toLowerCase();
+    return id === normalized || label === normalized;
+  }) || null;
+}
+
+function siteBelongsToCustomer(site: Row, selectedValue: string, customers: Row[]) {
+  if (!selectedValue) return true;
+  const customer = findCustomerByValue(customers, selectedValue);
+  const selectedLabel = customerLabel(customer).toLowerCase() || String(selectedValue || "").trim().toLowerCase();
+  const selectedId = String(customer?.id || selectedValue || "").trim();
+
+  const siteCustomerId = String(site.customer_id || "").trim();
+  const siteCustomerName = String(site.customer_name || site.customer || "").trim().toLowerCase();
+
+  if (isUuid(selectedId) && siteCustomerId && siteCustomerId === selectedId) return true;
+  if (selectedLabel && siteCustomerName && siteCustomerName === selectedLabel) return true;
+  return false;
+}
+
 function numberOrFallback(value: unknown, fallback: number) {
   const text = String(value ?? "").trim().replace(",", ".");
   if (!text) return fallback;
@@ -588,8 +626,8 @@ export default function AdminPage() {
     const customer = customerList.find((item) => item.id === siteForm.customer_id);
     await insertOrUpdate("work_sites", siteForm.id, {
       name: siteForm.name,
-      customer_id: siteForm.customer_id || null,
-      customer_name: customer?.name || siteForm.customer_name || null,
+      customer_id: isUuid(siteForm.customer_id) ? siteForm.customer_id : null,
+      customer_name: customerLabel(customer) || siteForm.customer_name || null,
       address: siteForm.address,
       allowed_radius_m: numberOrFallback(siteForm.allowed_radius_m, 50),
       latitude: siteForm.latitude === "" ? null : numberOrFallback(siteForm.latitude, 0),
@@ -641,7 +679,9 @@ export default function AdminPage() {
   async function saveTask() {
     const isActionTask = tab === "aufgaben" || taskForm.item_type === "task" || taskForm.task_type === "task";
     const site = sites.find((item) => item.id === taskForm.work_site_id);
-    const customer = customerList.find((item) => item.id === taskForm.customer_id) || customerList.find((item) => item.name === site?.customer_name);
+    const customer = findCustomerByValue(customerList, taskForm.customer_id) || customerList.find((item) => customerLabel(item) === site?.customer_name);
+    const customerIdForDb = isUuid(taskForm.customer_id) ? taskForm.customer_id : isUuid(site?.customer_id) ? site?.customer_id : null;
+    const customerNameForDb = customerLabel(customer) || site?.customer_name || taskForm.customer_name || null;
 
     if (isActionTask) {
       const taskDate = taskForm.due_date || taskForm.task_date || today;
@@ -654,8 +694,8 @@ export default function AdminPage() {
         planned_minutes: 0,
         max_minutes: 0,
         employee_name: taskForm.employee_name || null,
-        customer_id: taskForm.customer_id || site?.customer_id || null,
-        customer_name: customer?.name || site?.customer_name || taskForm.customer_name || null,
+        customer_id: customerIdForDb,
+        customer_name: customerNameForDb,
         site: site?.name || taskForm.site || null,
         work_site_id: taskForm.work_site_id || null,
         priority: taskForm.priority || "Mittel",
@@ -679,8 +719,8 @@ export default function AdminPage() {
       planned_minutes: Number(taskForm.planned_minutes || 0),
       max_minutes: Number(taskForm.planned_minutes || 0),
       employee_name: taskForm.employee_name || null,
-      customer_id: taskForm.customer_id || site?.customer_id || null,
-      customer_name: customer?.name || site?.customer_name || taskForm.customer_name || null,
+      customer_id: customerIdForDb,
+      customer_name: customerNameForDb,
       site: site?.name || taskForm.site,
       work_site_id: taskForm.work_site_id || null,
       priority: "Normal",
@@ -1174,16 +1214,23 @@ function filterRows(rows: Row[], query: string) {
 function customerRowsFromSites(sites: Row[]) {
   const map = new Map<string, Row>();
   for (const site of sites) {
-    const name = site.customer_name || site.name;
+    const name = String(site.customer_name || "").trim();
     if (!name) continue;
-    if (!map.has(name)) {
-      map.set(name, {
-        ...site,
+    const key = String(site.customer_id || name).trim();
+    if (!map.has(key)) {
+      map.set(key, {
+        id: isUuid(site.customer_id) ? site.customer_id : key,
+        name,
         customer_name: name,
+        address: site.customer_address || "",
+        phone: site.customer_phone || "",
+        email: site.customer_email || "",
+        notes: site.customer_notes || "",
+        active: true,
         object_count: 0,
       });
     }
-    map.get(name)!.object_count += 1;
+    map.get(key)!.object_count += 1;
   }
   return [...map.values()];
 }
@@ -1597,9 +1644,9 @@ function SiteModal(p: any) {
   return (
     <ModalShell title={p.form.id ? "Objekt bearbeiten" : "Objekt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
       <Field label="Kunde">
-        <Select value={p.form.customer_id} onChange={(e) => { const customer = p.customers.find((c: Row) => c.id === e.target.value); p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "" }); }}>
+        <Select value={p.form.customer_id || p.form.customer_name || ""} onChange={(e) => { const customer = findCustomerByValue(p.customers, e.target.value); p.setForm({ ...p.form, customer_id: isUuid(e.target.value) ? e.target.value : "", customer_name: customerLabel(customer) || e.target.value }); }}>
           <option value="">Kunde auswählen</option>
-          {p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}
+          {p.customers.map((c: Row) => <option key={customerValue(c)} value={customerValue(c)}>{customerLabel(c)}</option>)}
         </Select>
       </Field>
       <Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field>
@@ -1615,8 +1662,30 @@ function SiteModal(p: any) {
 }
 
 function TaskModal(p: any) {
-  const selectedCustomerId = p.form.customer_id;
-  const filteredSites = selectedCustomerId ? p.sites.filter((site: Row) => site.customer_id === selectedCustomerId || site.customer_name === p.customers.find((c: Row) => c.id === selectedCustomerId)?.name) : p.sites;
+  const selectedCustomerValue = String(p.form.customer_id || p.form.customer_name || "");
+  const selectedCustomer = findCustomerByValue(p.customers, selectedCustomerValue);
+  const filteredSites = selectedCustomerValue ? p.sites.filter((site: Row) => siteBelongsToCustomer(site, selectedCustomerValue, p.customers)) : p.sites;
+  const selectCustomer = (value: string) => {
+    const customer = findCustomerByValue(p.customers, value);
+    p.setForm({
+      ...p.form,
+      customer_id: isUuid(value) ? value : "",
+      customer_name: customerLabel(customer) || value,
+      work_site_id: "",
+      site: "",
+    });
+  };
+  const selectSite = (value: string) => {
+    const site = p.sites.find((s: Row) => s.id === value);
+    const customer = findCustomerByValue(p.customers, site?.customer_id || site?.customer_name || p.form.customer_id);
+    p.setForm({
+      ...p.form,
+      work_site_id: value,
+      site: site?.name || "",
+      customer_id: isUuid(site?.customer_id) ? site?.customer_id : isUuid(customer?.id) ? customer?.id : p.form.customer_id,
+      customer_name: site?.customer_name || customerLabel(customer) || p.form.customer_name,
+    });
+  };
   const selectedSite = p.sites.find((site: Row) => site.id === p.form.work_site_id);
   const gpsReady = Boolean(selectedSite?.latitude && selectedSite?.longitude);
   const weekdayLabels = [
@@ -1650,20 +1719,13 @@ function TaskModal(p: any) {
         </div>
 
         <Field label="Kunde">
-          <Select value={p.form.customer_id} onChange={(e) => {
-            const customer = p.customers.find((c: Row) => c.id === e.target.value);
-            p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "", work_site_id: "", site: "" });
-          }}>
+          <Select value={selectedCustomer?.id || p.form.customer_id || p.form.customer_name || ""} onChange={(e) => selectCustomer(e.target.value)}>
             <option value="">Kunde auswählen</option>
-            {p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}
+            {p.customers.map((c: Row) => <option key={customerValue(c)} value={customerValue(c)}>{customerLabel(c)}</option>)}
           </Select>
         </Field>
         <Field label="Objekt">
-          <Select value={p.form.work_site_id} onChange={(e) => {
-            const site = p.sites.find((s: Row) => s.id === e.target.value);
-            const customer = p.customers.find((c: Row) => c.id === site?.customer_id || c.name === site?.customer_name);
-            p.setForm({ ...p.form, work_site_id: e.target.value, site: site?.name || "", customer_id: site?.customer_id || customer?.id || p.form.customer_id, customer_name: site?.customer_name || customer?.name || p.form.customer_name });
-          }}>
+          <Select value={p.form.work_site_id} onChange={(e) => selectSite(e.target.value)}>
             <option value="">Objekt auswählen</option>
             {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.customer_name ? ` · ${s.customer_name}` : ""}</option>)}
           </Select>
@@ -1683,20 +1745,13 @@ function TaskModal(p: any) {
   return (
     <ModalShell title={p.form.id ? "Einsatz bearbeiten" : "Neuen Einsatz planen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
       <Field label="Kunde">
-        <Select value={p.form.customer_id} onChange={(e) => {
-          const customer = p.customers.find((c: Row) => c.id === e.target.value);
-          p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "", work_site_id: "", site: "" });
-        }}>
+        <Select value={selectedCustomer?.id || p.form.customer_id || p.form.customer_name || ""} onChange={(e) => selectCustomer(e.target.value)}>
           <option value="">Kunde auswählen</option>
-          {p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}
+          {p.customers.map((c: Row) => <option key={customerValue(c)} value={customerValue(c)}>{customerLabel(c)}</option>)}
         </Select>
       </Field>
       <Field label="Objekt / Standort">
-        <Select required value={p.form.work_site_id} onChange={(e) => {
-          const site = p.sites.find((s: Row) => s.id === e.target.value);
-          const customer = p.customers.find((c: Row) => c.id === site?.customer_id || c.name === site?.customer_name);
-          p.setForm({ ...p.form, work_site_id: e.target.value, site: site?.name || "", customer_id: site?.customer_id || customer?.id || p.form.customer_id, customer_name: site?.customer_name || customer?.name || p.form.customer_name });
-        }}>
+        <Select required value={p.form.work_site_id} onChange={(e) => selectSite(e.target.value)}>
           <option value="">Objekt auswählen</option>
           {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.customer_name ? ` · ${s.customer_name}` : ""}</option>)}
         </Select>

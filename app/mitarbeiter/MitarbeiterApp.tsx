@@ -50,6 +50,12 @@ type Task = {
   planned_minutes: number | null;
   approved_overtime_minutes?: number | null;
   overtime_status?: string | null;
+  priority?: string | null;
+  task_category?: string | null;
+  due_date?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  customer_name?: string | null;
   item_type?: string | null;
   task_type?: string | null;
   work_site_id: string | null;
@@ -208,6 +214,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
 
   const [status, setStatus] = useState<Status>("none");
   const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [selectedActionTask, setSelectedActionTask] = useState<Task | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [clockSaving, setClockSaving] = useState(false);
   const [clockNotice, setClockNotice] = useState("");
@@ -579,13 +586,34 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
 
-  async function toggleTask(task: Task) {
-    const { error } = await supabase.from("tasks").update({ done: !task.done }).eq("id", task.id);
-    if (error) {
-      setMessage("Aufgabe konnte nicht aktualisiert werden.");
-      return;
+  async function updateActionTask(task: Task, done: boolean) {
+    setMessage("");
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Bitte neu einloggen. Die Sitzung fehlt.");
+
+      const response = await fetch("/api/employee/task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ task_id: task.id, done }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Aufgabe konnte nicht gespeichert werden.");
+
+      const updatedTask = { ...task, ...(json.task || {}), done, status: done ? "done" : "open" };
+      setTasks((old) => old.map((item) => item.id === task.id ? updatedTask : item));
+      setSelectedActionTask(updatedTask);
+      setMessage(done ? "Aufgabe als erledigt markiert." : "Aufgabe wieder geöffnet.");
+      if (name) await loadTasks(name);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Aufgabe konnte nicht gespeichert werden.");
     }
-    if (name) await loadTasks(name);
+  }
+
+  async function toggleTask(task: Task) {
+    await updateActionTask(task, !task.done);
   }
 
   async function sendChatMessage() {
@@ -798,7 +826,15 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "tasks" && (
-          <TasksScreen tasks={todayActionTasks} toggleTask={toggleTask} openTab={openTab} />
+          <TasksScreen
+            tasks={todayActionTasks}
+            selectedTask={selectedActionTask}
+            openTask={setSelectedActionTask}
+            closeTask={() => setSelectedActionTask(null)}
+            toggleTask={toggleTask}
+            openTab={openTab}
+            message={message}
+          />
         )}
 
         {activeTab === "clock" && (
@@ -973,27 +1009,87 @@ function HomeScreen(props: {
   );
 }
 
-function TasksScreen({ tasks, toggleTask, openTab }: { tasks: Task[]; toggleTask: (task: Task) => void; openTab: (tab: Tab) => void }) {
+function priorityClass(priority?: string | null) {
+  if (priority === "Dringend") return "bg-red-100 text-red-700";
+  if (priority === "Hoch") return "bg-amber-100 text-amber-700";
+  if (priority === "Mittel") return "bg-blue-100 text-blue-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+function TasksScreen({ tasks, selectedTask, openTask, closeTask, toggleTask, openTab, message }: { tasks: Task[]; selectedTask: Task | null; openTask: (task: Task) => void; closeTask: () => void; toggleTask: (task: Task) => void; openTab: (tab: Tab) => void; message: string }) {
+  if (selectedTask) {
+    return (
+      <SimplePage title="Aufgabe" openTab={openTab}>
+        <div className="rounded-[26px] bg-white p-5 shadow-sm border border-slate-100">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">{selectedTask.task_category || "Aufgabe"}</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-950">{selectedTask.title}</h2>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-black ${selectedTask.done ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{selectedTask.done ? "Erledigt" : "Offen"}</span>
+          </div>
+
+          <div className="mt-5 grid gap-3 text-sm">
+            <InfoCard label="Priorität" value={selectedTask.priority || "Mittel"} badgeClass={priorityClass(selectedTask.priority)} />
+            <InfoCard label="Fällig" value={selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString("de-DE") : selectedTask.task_date ? new Date(selectedTask.task_date).toLocaleDateString("de-DE") : "-"} />
+            <InfoCard label="Objekt" value={selectedTask.site || "Kein Objekt hinterlegt"} />
+            <InfoCard label="Kunde" value={selectedTask.customer_name || "-"} />
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">Beschreibung</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-slate-700">{selectedTask.notes || "Keine Beschreibung hinterlegt."}</p>
+          </div>
+
+          {message && <div className="mt-4 rounded-2xl bg-blue-50 p-3 text-sm font-black text-blue-800">{message}</div>}
+
+          <div className="mt-5 grid gap-3">
+            <button type="button" onClick={() => toggleTask(selectedTask)} className={`w-full rounded-2xl py-4 font-black text-white ${selectedTask.done ? "bg-slate-700" : "bg-blue-600"}`}>
+              {selectedTask.done ? "Wieder öffnen" : "Als erledigt markieren"}
+            </button>
+            <button type="button" onClick={closeTask} className="w-full rounded-2xl border border-slate-200 bg-white py-4 font-black text-slate-600">Zurück zu Aufgaben</button>
+          </div>
+        </div>
+      </SimplePage>
+    );
+  }
+
   return (
     <SimplePage title="Aufgaben" openTab={openTab} searchPlaceholder="Aufgaben suchen">
       <div className="flex gap-5 border-b border-slate-100 text-sm font-bold text-slate-400">
         <span className="border-b-2 border-blue-500 pb-3 text-blue-600">Alle</span>
         <span className="pb-3">Mir zugewiesen</span>
-        <span className="pb-3">Von mir erstellt</span>
+        <span className="pb-3">Offen</span>
       </div>
       <div className="mt-5 space-y-3">
         {tasks.length === 0 && <EmptyState text="Keine separaten Aufgaben. Einsätze findest du unter Einsatzübersicht." />}
         {tasks.map((task) => (
-          <button key={task.id} type="button" onClick={() => toggleTask(task)} className="w-full rounded-[22px] bg-white p-4 text-left shadow-sm border border-slate-100">
+          <button key={task.id} type="button" onClick={() => openTask(task)} className="w-full rounded-[22px] bg-white p-4 text-left shadow-sm border border-slate-100">
             <div className="flex items-start gap-3">
               <span className={`mt-1 flex h-6 w-6 items-center justify-center rounded-full border ${task.done ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300"}`}>{task.done ? "✓" : ""}</span>
-              <div className="flex-1"><p className="font-black">{task.title}</p><p className="mt-1 text-xs font-semibold text-slate-400">{task.site || "Kein Objekt"}</p><p className="mt-2 text-xs text-slate-500">{formatClock(task.start_time)} - {formatClock(task.end_time)}</p></div>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-black">{task.title}</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${priorityClass(task.priority)}`}>{task.priority || "Mittel"}</span>
+                </div>
+                <p className="mt-1 text-xs font-semibold text-slate-400">{task.site || "Kein Objekt"}</p>
+                <p className="mt-2 text-xs text-slate-500">Fällig: {task.due_date ? new Date(task.due_date).toLocaleDateString("de-DE") : task.task_date ? new Date(task.task_date).toLocaleDateString("de-DE") : "-"}</p>
+              </div>
               <span className={`rounded-full px-3 py-1 text-xs font-black ${task.done ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"}`}>{task.done ? "Erledigt" : "Offen"}</span>
             </div>
           </button>
         ))}
       </div>
     </SimplePage>
+  );
+}
+
+function InfoCard({ label, value, badgeClass }: { label: string; value: string; badgeClass?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+      <span className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</span>
+      <span className={`rounded-full px-3 py-1 text-sm font-black ${badgeClass || "bg-white text-slate-700"}`}>{value}</span>
+    </div>
   );
 }
 
