@@ -17,6 +17,10 @@ type EmployeeProfile = {
   active?: boolean | null;
   avatar_url?: string | null;
   must_change_password?: boolean | null;
+  monthly_hour_limit?: number | null;
+  monthly_hours?: number | null;
+  vacation_days?: number | null;
+  annual_vacation_days?: number | null;
 };
 
 type WorkSite = {
@@ -100,10 +104,15 @@ type TimeEntry = {
   site?: string | null;
   work_site_id?: string | null;
   task_id?: string | null;
-  action: "start" | "break_start" | "break_end" | "end";
+  action: "start" | "break_start" | "break_end" | "end" | "manual" | "absence" | "auto_clock_out";
   created_at: string;
+  check_in_at?: string | null;
+  check_out_at?: string | null;
+  work_date?: string | null;
   auto_clock_out: boolean | null;
   worked_minutes?: number | null;
+  payroll_minutes?: number | null;
+  planned_minutes?: number | null;
   reason?: string | null;
 };
 
@@ -162,6 +171,25 @@ function isNowInsideWindow(start: string | null | undefined, end: string | null 
   return c >= a && c <= b;
 }
 
+function dateRangeDays(startValue?: string | null, endValue?: string | null) {
+  if (!startValue) return 0;
+  const start = new Date(`${startValue.slice(0, 10)}T00:00:00`);
+  const end = new Date(`${(endValue || startValue).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+}
+
+function absenceType(value?: string | null) {
+  return String(value || "").toLowerCase();
+}
+
+function approvedAbsenceDays(requests: AbsenceRequest[], typeNeedle: string) {
+  return requests
+    .filter((item) => ["approved", "genehmigt"].includes(String(item.status || "").toLowerCase()))
+    .filter((item) => absenceType(item.absence_type).includes(typeNeedle))
+    .reduce((sum, item) => sum + dateRangeDays(item.start_date, item.end_date), 0);
+}
+
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
   const r = 6371000;
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -217,6 +245,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [absenceMessage, setAbsenceMessage] = useState("");
   const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
+  const [serverWorkedMinutes, setServerWorkedMinutes] = useState(0);
+  const [serverPayrollMinutes, setServerPayrollMinutes] = useState(0);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatText, setChatText] = useState("");
@@ -242,8 +272,10 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const openTasks = todayAssignments.filter((task) => !task.done).length;
   const doneTasks = todayAssignments.filter((task) => task.done).length;
   const plannedMinutes = todayAssignments.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
-  const workedMinutes = useMemo(() => calculateWorkedMinutes(todayEntries), [todayEntries]);
-  const pauseMinutes = useMemo(() => calculatePauseMinutes(todayEntries), [todayEntries]);
+  const calculatedWorkedMinutes = useMemo(() => calculateWorkedMinutes(todayEntries), [todayEntries, status]);
+  const workedMinutes = Math.max(calculatedWorkedMinutes, serverWorkedMinutes);
+  const payrollMinutesToday = Math.max(serverPayrollMinutes, todayEntries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || 0), 0));
+  const pauseMinutes = useMemo(() => calculatePauseMinutes(todayEntries), [todayEntries, status]);
   const progress = plannedMinutes > 0 ? Math.min(100, Math.round((workedMinutes / plannedMinutes) * 100)) : 0;
   const selectedTask = todayAssignments.find((task) => task.id === selectedTaskId) || todayAssignments.find((task) => !task.done) || todayAssignments[0] || null;
   const selectedSite = selectedTask ? workSites.find((site) => site.id === selectedTask.work_site_id || site.name === selectedTask.site) || null : null;
@@ -311,15 +343,22 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     if (status !== "working" || !selectedTask || !selectedSite?.latitude || !selectedSite?.longitude) return;
     if (!navigator.geolocation) return;
 
-    const radius = Number(selectedSite.allowed_radius_m || 50);
+    const radius = Number(selectedSite.allowed_radius_m || 150);
+    let outsideCount = 0;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         if (autoClockOutRef.current) return;
         const distance = distanceMeters(pos.coords.latitude, pos.coords.longitude, Number(selectedSite.latitude), Number(selectedSite.longitude));
         if (distance > radius) {
-          autoClockOutRef.current = true;
-          createEntry("end", "left_geofence");
-          setClockNotice(`Ich bin ${Math.round(distance)} m vom Objekt entfernt. Die Arbeitszeit wurde automatisch beendet.`);
+          outsideCount += 1;
+          setClockNotice(`GPS-Warnung: ${Math.round(distance)} m entfernt. Ich prüfe erneut, bevor automatisch ausgestempelt wird (${outsideCount}/3).`);
+          if (outsideCount >= 3) {
+            autoClockOutRef.current = true;
+            createEntry("end", "left_geofence");
+            setClockNotice(`Ich bin mehrfach außerhalb des Radius gemessen worden (${Math.round(distance)} m). Die Arbeitszeit wurde automatisch beendet.`);
+          }
+        } else {
+          outsideCount = 0;
         }
       },
       () => undefined,
@@ -444,6 +483,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       if (!response.ok) throw new Error(json.error || "Zeiten konnten nicht geladen werden.");
 
       setTodayEntries((json.entries || []) as TimeEntry[]);
+      setServerWorkedMinutes(Number(json.worked_minutes || 0));
+      setServerPayrollMinutes(Number(json.payroll_minutes || 0));
     } catch {
       const start = `${todayISO()}T00:00:00`;
       const end = `${todayISO()}T23:59:59`;
@@ -455,6 +496,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         .lte("created_at", end)
         .order("created_at", { ascending: false });
       setTodayEntries((data || []) as TimeEntry[]);
+      setServerWorkedMinutes(0);
+      setServerPayrollMinutes(0);
     }
   }
 
@@ -505,12 +548,17 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
   function calculateWorkedMinutes(entries: TimeEntry[]) {
-    const chronological = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const directTotal = entries.reduce((sum, entry) => sum + Number(entry.worked_minutes || 0), 0);
+    const chronological = [...entries].sort((a, b) => new Date(a.created_at || a.check_in_at || "").getTime() - new Date(b.created_at || b.check_in_at || "").getTime());
     let total = 0;
     let lastStart: Date | null = null;
 
     for (const entry of chronological) {
-      const time = new Date(entry.created_at);
+      const time = new Date(entry.created_at || entry.check_in_at || new Date().toISOString());
+      if (entry.check_in_at && entry.check_out_at) {
+        total += Math.max(0, Math.round((new Date(entry.check_out_at).getTime() - new Date(entry.check_in_at).getTime()) / 60000));
+        continue;
+      }
       if (entry.action === "start" || entry.action === "break_end") lastStart = time;
       if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
         total += Math.max(0, Math.round((time.getTime() - lastStart.getTime()) / 60000));
@@ -521,7 +569,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     if (lastStart && status === "working") {
       total += Math.max(0, Math.round((Date.now() - lastStart.getTime()) / 60000));
     }
-    return total;
+    return Math.max(total, directTotal);
   }
 
   function calculatePauseMinutes(entries: TimeEntry[]) {
@@ -892,6 +940,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             selectedTask={selectedTask}
             selectedSite={selectedSite}
             workedMinutes={workedMinutes}
+            payrollMinutes={payrollMinutesToday}
             pauseMinutes={pauseMinutes}
             message={message}
             clockNotice={clockNotice}
@@ -932,7 +981,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "profile" && (
-          <ProfileScreen profile={profile} workedMinutes={workedMinutes} pauseMinutes={pauseMinutes} notifications={notifications} logout={logout} openTab={openTab} />
+          <ProfileScreen profile={profile} workedMinutes={workedMinutes} payrollMinutes={payrollMinutesToday} pauseMinutes={pauseMinutes} notifications={notifications} absenceRequests={absenceRequests} tasks={tasks} todayEntries={todayEntries} logout={logout} openTab={openTab} />
         )}
 
         {activeTab === "absence" && (
@@ -1165,6 +1214,7 @@ function ClockScreen(props: {
   selectedTask: Task | null;
   selectedSite: WorkSite | null;
   workedMinutes: number;
+  payrollMinutes: number;
   pauseMinutes: number;
   message: string;
   clockNotice: string;
@@ -1184,7 +1234,7 @@ function ClockScreen(props: {
     <SimplePage title="Stundenzettel" openTab={props.openTab}>
       <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
         <div className="flex items-end justify-between">
-          <div><p className="text-sm font-bold text-slate-400">Heute geleistet</p><p className="text-4xl font-black">{formatMinutes(props.workedMinutes)}</p></div>
+          <div><p className="text-sm font-bold text-slate-400">Heute geleistet</p><p className="text-4xl font-black">{formatMinutes(props.workedMinutes)}</p><p className="mt-1 text-xs font-bold text-slate-400">Lohnzeit: {formatMinutes(props.payrollMinutes || props.workedMinutes)}</p></div>
           <div className="text-right"><p className="text-sm font-bold text-slate-400">Pause</p><p className="text-xl font-black">{formatMinutes(props.pauseMinutes)}</p></div>
         </div>
 
@@ -1203,7 +1253,7 @@ function ClockScreen(props: {
         </div>
 
         {props.selectedTask && <div className="mt-3 rounded-2xl bg-blue-50 p-3 text-sm font-bold text-blue-800">{props.selectedTask.site || "Objekt"} · {props.selectedTask.title}</div>}
-        <div className={`mt-3 rounded-2xl p-3 text-sm font-black ${gpsReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{gpsReady ? `GPS aktiv · Radius ${props.selectedSite?.allowed_radius_m || 50} m` : "GPS fehlt beim Objekt. Bitte im Adminbereich am Objekt setzen."}</div>
+        <div className={`mt-3 rounded-2xl p-3 text-sm font-black ${gpsReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{gpsReady ? `GPS aktiv · Radius ${props.selectedSite?.allowed_radius_m || 150} m` : "GPS fehlt beim Objekt. Bitte im Adminbereich am Objekt setzen."}</div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           {props.status === "none" && <button type="button" disabled={props.clockSaving} onClick={() => props.createEntry("start")} className="col-span-2 rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">Einstempeln</button>}
@@ -1487,7 +1537,15 @@ function MaterialReportScreen(props: {
   );
 }
 
-function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: number; pauseMinutes: number; notifications: AdminNotification[]; logout: () => void; openTab: (tab: Tab) => void }) {
+function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: number; payrollMinutes: number; pauseMinutes: number; notifications: AdminNotification[]; absenceRequests: AbsenceRequest[]; tasks: Task[]; todayEntries: TimeEntry[]; logout: () => void; openTab: (tab: Tab) => void }) {
+  const vacationTotal = Number(props.profile?.vacation_days ?? props.profile?.annual_vacation_days ?? 0);
+  const vacationTaken = approvedAbsenceDays(props.absenceRequests, "urlaub");
+  const vacationOpen = Math.max(0, vacationTotal - vacationTaken);
+  const sickDays = approvedAbsenceDays(props.absenceRequests, "krank");
+  const monthKey = todayISO().slice(0, 7);
+  const monthPlan = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey).reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+  const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
+
   return (
     <SimplePage title="Profil" openTab={props.openTab}>
       <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
@@ -1496,8 +1554,14 @@ function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: 
           <div><p className="text-xl font-black">{props.profile?.name}</p><p className="text-sm font-bold text-slate-400">{props.profile?.email}</p></div>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <InfoBox label="Arbeitszeit" value={formatMinutes(props.workedMinutes)} />
+          <InfoBox label="Heute geleistet" value={formatMinutes(props.workedMinutes)} />
+          <InfoBox label="Lohnzeit heute" value={formatMinutes(props.payrollMinutes || props.workedMinutes)} />
           <InfoBox label="Pause" value={formatMinutes(props.pauseMinutes)} />
+          <InfoBox label="Monat geplant" value={formatMinutes(monthPlan)} />
+          <InfoBox label="Monatslimit" value={monthLimit ? formatMinutes(monthLimit) : "-"} />
+          <InfoBox label="Urlaub offen" value={`${vacationOpen} Tage`} />
+          <InfoBox label="Urlaub genommen" value={`${vacationTaken} / ${vacationTotal} Tage`} />
+          <InfoBox label="Kranktage" value={`${sickDays} Tage`} />
         </div>
         <button type="button" onClick={props.logout} className="mt-5 w-full rounded-2xl bg-red-50 py-4 text-red-600 font-black">Abmelden</button>
       </div>

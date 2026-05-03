@@ -191,7 +191,7 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     // Damit Kunden und Objekte trotzdem direkt speicherbar sind, setzen wir einen neutralen Fallback.
     if (isEmpty(cleaned.latitude)) cleaned.latitude = 0;
     if (isEmpty(cleaned.longitude)) cleaned.longitude = 0;
-    cleaned.allowed_radius_m = numericValue(cleaned.allowed_radius_m, 50);
+    cleaned.allowed_radius_m = numericValue(cleaned.allowed_radius_m, 150);
     if (!("active" in cleaned)) cleaned.active = true;
     if (isEmpty(cleaned.customer_name) && !isEmpty(cleaned.name)) cleaned.customer_name = null;
   }

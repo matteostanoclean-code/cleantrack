@@ -157,12 +157,14 @@ export async function GET(request: Request) {
     const entries = [...map.values()].sort((a, b) => new Date(b.created_at || b.check_in_at || 0).getTime() - new Date(a.created_at || a.check_in_at || 0).getTime());
     const state = currentClockState(entries);
     const worked_minutes = workedMinutesFromEntries(entries);
+    const payroll_minutes = entries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || entry.worked_minutes || 0), 0);
 
     return NextResponse.json({
       success: true,
       entries,
       state,
       worked_minutes,
+      payroll_minutes,
       work_date: workDate,
     });
   } catch (error) {
@@ -255,7 +257,7 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "GPS konnte nicht gelesen werden. Bitte Standortfreigabe erlauben." }, { status: 400 });
         }
         const distance = distanceMeters(latitude, longitude, Number(site.latitude), Number(site.longitude));
-        const radius = Number(site.allowed_radius_m || 50);
+        const radius = Number(site.allowed_radius_m || 150);
         if (distance > radius) {
           return NextResponse.json({ error: `Du bist ${Math.round(distance)} m vom Objekt entfernt. Erlaubt sind ${radius} m.` }, { status: 400 });
         }

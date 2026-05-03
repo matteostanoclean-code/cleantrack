@@ -54,7 +54,7 @@ const emptyEmployeeInvite = { name: "", email: "", phone: "" };
 const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", monthly_hour_limit: "0", vacation_days: "0", active: true };
 const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
-const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", monthly_hour_quota: "0", latitude: "", longitude: "", notes: "", active: true };
+const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "150", monthly_hour_quota: "0", latitude: "", longitude: "", notes: "", active: true };
 const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false, paid_minutes: "120" };
 
 function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
@@ -2504,7 +2504,7 @@ function Contacts(p: any) {
 }
 
 function Sites(p: any) {
-  return <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "Kontingent", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3 font-bold">{Number(r.monthly_hour_quota || 0) ? `${r.monthly_hour_quota} Std./Monat` : "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td><td className="px-4 py-3">{r.allowed_radius_m || 50} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "Kontingent", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3 font-bold">{Number(r.monthly_hour_quota || 0) ? `${r.monthly_hour_quota} Std./Monat` : "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td><td className="px-4 py-3">{r.allowed_radius_m || 150} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
 function Tasks(p: any) {
@@ -2694,8 +2694,24 @@ function payrollDate(value: Row) {
   return String(value.work_date || value.check_in_at || value.created_at || "");
 }
 
+function workedEntryMinutes(row: Row) {
+  const worked = Number(row.worked_minutes || 0);
+  if (worked > 0) return worked;
+  const payroll = Number(row.payroll_minutes || 0);
+  if (payroll > 0) return payroll;
+  if (String(row.entry_type || row.action || "") === "manual") return Number(row.planned_minutes || 0);
+  return 0;
+}
+
 function payableMinutes(row: Row) {
-  return Number(row.payroll_minutes ?? row.worked_minutes ?? row.planned_minutes ?? 0);
+  const reason = String(row.reason || row.absence_type || "").toLowerCase();
+  if (String(row.entry_type || "") === "absence" && reason.includes("unbezahlt")) return 0;
+  const payroll = Number(row.payroll_minutes || 0);
+  if (payroll > 0) return payroll;
+  const worked = Number(row.worked_minutes || 0);
+  if (worked > 0) return worked;
+  if (["manual", "absence"].includes(String(row.entry_type || row.action || ""))) return Number(row.planned_minutes || 0);
+  return 0;
 }
 
 function timeEntryDate(row: Row) {
@@ -2712,10 +2728,11 @@ function DailyClosing(p: any) {
       .filter((task: Row) => String(task.employee_name || "") === employeeName)
       .reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
     const employeeEntries = dayEntries.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
-    const actual = employeeEntries.reduce((sum: number, entry: Row) => sum + payableMinutes(entry), 0);
+    const actual = employeeEntries.reduce((sum: number, entry: Row) => sum + workedEntryMinutes(entry), 0);
+    const wage = employeeEntries.reduce((sum: number, entry: Row) => sum + payableMinutes(entry), 0);
     const absence = employeeAbsenceForDate(p.absences || [], employeeName, p.selectedDay);
     const approvedAbsence = absence && absenceIsBlocking(absence);
-    const diff = actual - planned;
+    const diff = wage - planned;
     let status = "OK";
     let color: "green" | "yellow" | "red" | "gray" = "green";
 
@@ -2736,7 +2753,7 @@ function DailyClosing(p: any) {
       color = "yellow";
     }
 
-    return { employee, planned, actual, diff, status, color, entries: employeeEntries };
+    return { employee, planned, actual, wage, diff, status, color, entries: employeeEntries };
   });
 
   async function approveEntries(entries: Row[]) {
@@ -2764,7 +2781,7 @@ function DailyClosing(p: any) {
               <tr key={row.employee.id || row.employee.name}>
                 <td className="px-4 py-3 font-black">{row.employee.name}</td>
                 <td className="px-4 py-3 font-bold">{prettyHours(row.planned)} Std.</td>
-                <td className="px-4 py-3 font-bold">{prettyHours(row.actual)} Std.</td>
+                <td className="px-4 py-3 font-bold"><p>{prettyHours(row.actual)} Std.</p><p className="text-xs font-bold text-slate-400">Lohn: {prettyHours(row.wage)} Std.</p></td>
                 <td className={`px-4 py-3 font-black ${row.diff < 0 ? "text-red-600" : row.diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>{row.diff === 0 ? "0:00" : `${row.diff > 0 ? "+" : "-"}${prettyHours(Math.abs(row.diff))}`} Std.</td>
                 <td className="px-4 py-3"><Status color={row.color}>{row.status}</Status></td>
                 <td className="px-4 py-3"><Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button></td>
@@ -2916,8 +2933,8 @@ function Times(p: any) {
         </div>
       </Card>
 
-      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
-        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Lohnzeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
+        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(workedEntryMinutes(r))} Std.</td><td className="px-4 py-3 font-bold">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );
