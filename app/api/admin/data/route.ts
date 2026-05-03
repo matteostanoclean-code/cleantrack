@@ -198,12 +198,18 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
 
 
   if (table === "tasks") {
+    if (isEmpty(cleaned.title)) cleaned.title = "Unterhaltsreinigung";
     if (isEmpty(cleaned.customer_id)) cleaned.customer_id = null;
     if (isEmpty(cleaned.customer_name)) cleaned.customer_name = null;
     if (isEmpty(cleaned.work_site_id)) cleaned.work_site_id = null;
     if (isEmpty(cleaned.employee_name)) cleaned.employee_name = null;
+    if (isEmpty(cleaned.priority)) cleaned.priority = "Normal";
+    if (isEmpty(cleaned.status)) cleaned.status = "open";
+    if (isEmpty(cleaned.task_category)) cleaned.task_category = cleaned.item_type === "task" || cleaned.task_type === "task" ? "Sonstiges" : "Einsatz";
     cleaned.planned_minutes = numericValue(cleaned.planned_minutes, 0);
     cleaned.max_minutes = numericValue(cleaned.max_minutes, Number(cleaned.planned_minutes || 0));
+    if (Number(cleaned.planned_minutes || 0) <= 0 && Number(cleaned.max_minutes || 0) > 0) cleaned.planned_minutes = cleaned.max_minutes;
+    if (Number(cleaned.max_minutes || 0) <= 0 && Number(cleaned.planned_minutes || 0) > 0) cleaned.max_minutes = cleaned.planned_minutes;
   }
 
   if (table === "material_products") {
@@ -241,6 +247,41 @@ function sanitizePayload(table: string, payload: unknown) {
     return payload.map((item: unknown) => sanitizeRow(table, (item || {}) as Record<string, unknown>));
   }
   return sanitizeRow(table, (payload || {}) as Record<string, unknown>);
+}
+
+function isSchemaColumnError(error: unknown) {
+  const message = String((error as { message?: string })?.message || error || "");
+  return /column .* does not exist|schema cache|Could not find .* column|Could not find/i.test(message);
+}
+
+function fallbackTaskRow(row: Record<string, unknown>) {
+  const planned = numericValue(row.planned_minutes, numericValue(row.max_minutes, 0));
+  return {
+    title: isEmpty(row.title) ? "Unterhaltsreinigung" : row.title,
+    task_date: row.task_date || row.due_date || null,
+    start_time: row.start_time || null,
+    end_time: row.end_time || null,
+    max_minutes: planned,
+    planned_minutes: planned,
+    employee_name: isEmpty(row.employee_name) ? null : row.employee_name,
+    site: isEmpty(row.site) ? null : row.site,
+    work_site_id: isEmpty(row.work_site_id) ? null : row.work_site_id,
+    priority: isEmpty(row.priority) ? "Normal" : row.priority,
+    notes: isEmpty(row.notes) ? null : row.notes,
+    done: row.done === true,
+    recurrence_group_id: isEmpty(row.recurrence_group_id) ? null : row.recurrence_group_id,
+  };
+}
+
+function fallbackTaskPayload(payload: unknown) {
+  if (Array.isArray(payload)) {
+    return payload.map((item: unknown) => fallbackTaskRow((item || {}) as Record<string, unknown>));
+  }
+  return fallbackTaskRow((payload || {}) as Record<string, unknown>);
+}
+
+function canRetryTaskSchema(table: string, error: unknown) {
+  return table === "tasks" && isSchemaColumnError(error);
 }
 
 export async function POST(request: Request) {
@@ -296,7 +337,13 @@ export async function POST(request: Request) {
 
     if (action === "insert") {
       const payload = sanitizePayload(table, body.payload);
-      const { data, error } = await supabaseAdmin.from(table).insert(payload).select("*");
+      let { data, error } = await supabaseAdmin.from(table).insert(payload).select("*");
+      if (error && canRetryTaskSchema(table, error)) {
+        const retryPayload = fallbackTaskPayload(payload);
+        const retry = await supabaseAdmin.from(table).insert(retryPayload).select("*");
+        data = retry.data;
+        error = retry.error;
+      }
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, data });
     }
@@ -305,7 +352,13 @@ export async function POST(request: Request) {
       const id = String(body.id || "").trim();
       if (!id) return NextResponse.json({ error: "ID fehlt." }, { status: 400 });
       const payload = sanitizePayload(table, body.payload || {});
-      const { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select("*");
+      let { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select("*");
+      if (error && canRetryTaskSchema(table, error)) {
+        const retryPayload = fallbackTaskPayload(payload);
+        const retry = await supabaseAdmin.from(table).update(retryPayload).eq("id", id).select("*");
+        data = retry.data;
+        error = retry.error;
+      }
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, data });
     }

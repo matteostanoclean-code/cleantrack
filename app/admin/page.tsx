@@ -415,6 +415,11 @@ function formatHours(value: unknown) {
   return `${h}:${String(m).padStart(2, "0")}h`;
 }
 
+function taskPlanLabel(task: Row) {
+  const planned = taskDuration(task);
+  return planned > 0 ? formatHours(planned) : "fehlt";
+}
+
 function employeeMonthlyLimit(employee: Row) {
   return Number(employee.monthly_hour_limit || employee.monthly_hours || employee.monthly_limit_minutes || 0);
 }
@@ -1268,7 +1273,7 @@ const basePayload = {
       site: site?.name || taskForm.site,
       work_site_id: taskForm.work_site_id || null,
       priority: "Normal",
-      task_category: null,
+      task_category: "Einsatz",
       status: "open",
       notes: taskForm.notes || null,
       done: false,
@@ -2318,6 +2323,7 @@ function Planning(p: any) {
                               </div>
                               <p className="truncate font-black text-slate-950">{task.site || site?.name || "Ohne Objekt"}</p>
                               <p className="mt-1 inline-flex rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-700">{task.title || "Einsatz"}</p>
+                              <p className="mt-2 text-[11px] font-black text-slate-500">Planzeit: {taskPlanLabel(task)}</p>
                               <ReassignSelect task={task} employees={p.employees} onChange={p.reassignTask} />
                             </button>
                           );
@@ -2387,6 +2393,7 @@ function Planning(p: any) {
                                 </div>
                                 <p className="truncate font-black text-slate-950">{task.site || site?.name || "Ohne Objekt"}</p>
                                 <p className="mt-1 inline-flex rounded-lg bg-orange-100 px-2 py-1 text-[11px] font-black text-orange-700">{task.title || "Einsatz"}</p>
+                                <p className="mt-2 text-[11px] font-black text-slate-500">Planzeit: {taskPlanLabel(task)}</p>
                                 {conflict && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1 font-black text-red-700">Konflikt: Mitarbeiter abwesend</p>}
                                 <ReassignSelect task={task} employees={p.employees} onChange={p.reassignTask} />
                               </button>
@@ -2420,7 +2427,7 @@ function Planning(p: any) {
                 <td className="px-4 py-3">{task.customer_name || site?.customer_name || "-"}</td>
                 <td className="px-4 py-3 font-black">{task.site || site?.name || "-"}</td>
                 <td className="px-4 py-3">{task.employee_name || "Nicht zugewiesen"}</td>
-                <td className="px-4 py-3 font-bold">{task.planned_minutes || task.max_minutes || 0} Min.</td>
+                <td className="px-4 py-3 font-bold">{taskDuration(task) ? `${taskDuration(task)} Min.` : "fehlt"}</td>
                 <td className="px-4 py-3">{blocked ? <Status color="red">Abwesenheit</Status> : <Status color={gpsOk ? "green" : "yellow"}>{gpsOk ? "GPS bereit" : "GPS fehlt"}</Status>}</td>
                 <td className="px-4 py-3"><Actions edit={() => p.editTask(task)} del={() => p.deleteTask(task)} /></td>
               </tr>
