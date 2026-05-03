@@ -274,6 +274,80 @@ function employeeAbsenceForDate(absences: Row[], employeeName: string, date: str
   return absences.find((absence) => String(absence.employee_name || "").trim().toLowerCase() === name && absenceCoversDate(absence, date)) || null;
 }
 
+function dateRangeInclusive(startValue: unknown, endValue: unknown) {
+  const startText = dateOnly(startValue);
+  const endText = dateOnly(endValue || startValue);
+  if (!startText) return [] as string[];
+
+  const start = parseLocalDate(startText);
+  const end = parseLocalDate(endText || startText);
+  const dates: string[] = [];
+  let cursor = new Date(start);
+
+  while (cursor <= end && dates.length < 370) {
+    dates.push(isoDate(cursor));
+    cursor = addDays(cursor, 1);
+  }
+
+  return dates;
+}
+
+function absenceTypeKey(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
+}
+
+function isVacationAbsence(row: Row) {
+  const type = absenceTypeKey(row.absence_type);
+  return type.includes("urlaub");
+}
+
+function isSickAbsence(row: Row) {
+  const type = absenceTypeKey(row.absence_type);
+  return type.includes("krank");
+}
+
+function isUnpaidAbsence(row: Row) {
+  const type = absenceTypeKey(row.absence_type);
+  return type.includes("unbezahlt");
+}
+
+function isPaidFreeAbsence(row: Row) {
+  const type = absenceTypeKey(row.absence_type);
+  return type.includes("bezahlt") || type.includes("frei bezahlt") || type.includes("bezahlt frei");
+}
+
+function isPaidAbsence(row: Row) {
+  return isVacationAbsence(row) || isSickAbsence(row) || isPaidFreeAbsence(row);
+}
+
+function absenceDayCount(absences: Row[], employeeName: string, predicate: (row: Row) => boolean) {
+  const name = String(employeeName || "").trim().toLowerCase();
+  if (!name) return 0;
+
+  return absences
+    .filter((absence) => String(absence.employee_name || "").trim().toLowerCase() === name)
+    .filter(absenceIsBlocking)
+    .filter(predicate)
+    .reduce((sum, absence) => sum + dateRangeInclusive(absence.start_date, absence.end_date || absence.start_date).length, 0);
+}
+
+function plannedMinutesForEmployeeDate(tasks: Row[], employeeName: string, date: string) {
+  const name = String(employeeName || "").trim().toLowerCase();
+  if (!name) return 0;
+
+  return tasks
+    .filter((task) => task.item_type !== "task" && task.task_type !== "task")
+    .filter((task) => String(task.employee_name || "").trim().toLowerCase() === name)
+    .filter((task) => dateOnly(task.task_date || task.due_date) === dateOnly(date))
+    .reduce((sum, task) => sum + taskDuration(task), 0);
+}
+
 function findBlockingAbsence(absences: Row[], employeeName: string, dates: string[]) {
   return dates.map((date) => employeeAbsenceForDate(absences, employeeName, date)).find((absence) => absence && absenceIsBlocking(absence)) || null;
 }
@@ -1409,6 +1483,57 @@ export default function AdminPage() {
         },
       });
 
+      if (approved && employeeName) {
+        const absenceDates = dateRangeInclusive(row.start_date, row.end_date || row.start_date);
+        const existingAbsenceEntries = entries.filter((entry: Row) => String(entry.absence_request_id || "") === String(row.id || ""));
+        const payload = absenceDates
+          .filter((date) => !existingAbsenceEntries.some((entry: Row) => dateOnly(entry.work_date || entry.created_at) === date))
+          .map((date) => {
+            const plannedMinutes = plannedMinutesForEmployeeDate(assignmentRows, employeeName, date);
+            const payrollMinutes = isUnpaidAbsence(row) ? 0 : plannedMinutes;
+            return {
+              employee_name: employeeName,
+              work_date: date,
+              absence_request_id: row.id,
+              entry_type: "absence",
+              absence_type: type,
+              action: "absence",
+              status: "approved",
+              approved: true,
+              planned_minutes: plannedMinutes,
+              worked_minutes: 0,
+              payroll_minutes: payrollMinutes,
+              reason: isUnpaidAbsence(row) ? "Unbezahlt Frei" : type,
+              notes: `${type}: ${payrollMinutes > 0 ? "Planzeit gutgeschrieben" : "0:00 Stunden gutgeschrieben"}`,
+            };
+          });
+
+        if (payload.length > 0) {
+          await adminCall({
+            action: "insert",
+            table: "time_entries",
+            payload,
+          });
+        }
+      }
+
+      if (!approved && row.id) {
+        const existingAbsenceEntries = entries.filter((entry: Row) => String(entry.absence_request_id || "") === String(row.id || ""));
+        for (const entry of existingAbsenceEntries) {
+          await adminCall({
+            action: "update",
+            table: "time_entries",
+            id: entry.id,
+            payload: {
+              status: "rejected",
+              approved: false,
+              payroll_minutes: 0,
+              worked_minutes: 0,
+            },
+          });
+        }
+      }
+
       if (employeeName) {
         await adminCall({
           action: "insert",
@@ -2210,10 +2335,14 @@ function Employees(p: any) {
     <div>
       <PageHeader icon="👥" title="Mitarbeiter" sub={`${p.rows.length} Datensätze`}><Button onClick={p.exportRows}>Exportieren</Button><Button primary onClick={p.openCreate}>+ Mitarbeiter anlegen</Button></PageHeader>
       <div className="mb-5 grid gap-4 md:grid-cols-3"><Metric title="Aktive Mitarbeiter" value={p.rows.filter((x: Row) => x.active !== false).length} hint="im System" /><Metric title="Mit Login verbunden" value={p.rows.filter((x: Row) => x.auth_user_id).length} hint="Supabase Auth" /><Metric title="Abwesenheiten" value={p.absences.length} hint="gesamt" /></div>
-      <Table headers={["Name", "Nummer", "Kontakt", "Arbeitszeit", "Urlaub", "Kosten", "Status", "Aktion"]}>{p.rows.length === 0 ? <tr><td colSpan={8}><Empty /></td></tr> : p.rows.map((e: Row) => {
-        const entryMinutes = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + Number(x.worked_minutes || x.planned_minutes || 0), 0);
+      <Table headers={["Name", "Nummer", "Kontakt", "Arbeitszeit", "Urlaub", "Krank", "Kosten", "Status", "Aktion"]}>{p.rows.length === 0 ? <tr><td colSpan={9}><Empty /></td></tr> : p.rows.map((e: Row) => {
+        const entryMinutes = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + payableMinutes(x), 0);
         const cost = (entryMinutes / 60) * Number(e.hourly_rate || 0);
-        return <tr key={e.id}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(e.name)}</div><div><p className="font-black">{e.name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td><td className="px-4 py-3">{e.employee_number || "-"}</td><td className="px-4 py-3">{e.phone || "-"}</td><td className="px-4 py-3 font-bold">{prettyHours(entryMinutes)} Std.</td><td className="px-4 py-3">{e.vacation_days || e.annual_vacation_days || 0} Tage</td><td className="px-4 py-3 font-bold">{euro(cost)}</td><td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active === false ? <Button primary onClick={() => p.activate(e)}>Aktivieren</Button> : <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td></tr>;
+        const vacationTotal = Number(e.vacation_days ?? e.annual_vacation_days ?? 0);
+        const vacationTaken = absenceDayCount(p.absences || [], e.name, isVacationAbsence);
+        const vacationOpen = Math.max(0, vacationTotal - vacationTaken);
+        const sickTaken = absenceDayCount(p.absences || [], e.name, isSickAbsence);
+        return <tr key={e.id}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(e.name)}</div><div><p className="font-black">{e.name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td><td className="px-4 py-3">{e.employee_number || "-"}</td><td className="px-4 py-3">{e.phone || "-"}</td><td className="px-4 py-3 font-bold">{prettyHours(entryMinutes)} Std.</td><td className="px-4 py-3"><p className="font-black">{vacationTaken} / {vacationTotal} Tage</p><p className="text-xs font-bold text-slate-500">{vacationOpen} offen</p></td><td className="px-4 py-3 font-bold">{sickTaken} Tage</td><td className="px-4 py-3 font-bold">{euro(cost)}</td><td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active === false ? <Button primary onClick={() => p.activate(e)}>Aktivieren</Button> : <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td></tr>;
       })}</Table>
     </div>
   );
@@ -2419,7 +2548,7 @@ function payrollDate(value: Row) {
 }
 
 function payableMinutes(row: Row) {
-  return Number(row.worked_minutes || row.planned_minutes || 0);
+  return Number(row.payroll_minutes ?? row.worked_minutes ?? row.planned_minutes ?? 0);
 }
 
 function Times(p: any) {
@@ -2538,7 +2667,7 @@ function Times(p: any) {
       </Card>
 
       <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
-        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );
@@ -2929,4 +3058,4 @@ function KeyModal(p: any) {
     </ModalShell>
   );
 }
-function AbsenceModal(p: any) { return <ModalShell title={p.form.id ? "Abwesenheit bearbeiten" : "Abwesenheit erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Mitarbeiter"><Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Art"><Select value={p.form.absence_type} onChange={(e) => p.setForm({ ...p.form, absence_type: e.target.value })}><option>Urlaub</option><option>Krank</option><option>Frei</option><option>Sonstiges</option></Select></Field><Field label="Von"><Input type="date" value={p.form.start_date} onChange={(e) => p.setForm({ ...p.form, start_date: e.target.value })} /></Field><Field label="Bis"><Input type="date" value={p.form.end_date} onChange={(e) => p.setForm({ ...p.form, end_date: e.target.value })} /></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option value="open">Offen</option><option value="approved">Genehmigt</option><option value="rejected">Abgelehnt</option></Select></Field><Field label="Grund" wide><Textarea value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} /></Field></ModalShell>; }
+function AbsenceModal(p: any) { return <ModalShell title={p.form.id ? "Abwesenheit bearbeiten" : "Abwesenheit erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Mitarbeiter"><Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Art"><Select value={p.form.absence_type} onChange={(e) => p.setForm({ ...p.form, absence_type: e.target.value })}><option>Urlaub</option><option>Krank</option><option>Bezahlt Frei</option><option>Unbezahlt Frei</option><option>Sonstiges</option></Select></Field><Field label="Von"><Input type="date" value={p.form.start_date} onChange={(e) => p.setForm({ ...p.form, start_date: e.target.value })} /></Field><Field label="Bis"><Input type="date" value={p.form.end_date} onChange={(e) => p.setForm({ ...p.form, end_date: e.target.value })} /></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option value="open">Offen</option><option value="approved">Genehmigt</option><option value="rejected">Abgelehnt</option></Select></Field><Field label="Grund" wide><Textarea value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} /></Field></ModalShell>; }
