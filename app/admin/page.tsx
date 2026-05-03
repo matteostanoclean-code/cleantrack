@@ -1,58 +1,89 @@
-
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type Tab = "planung" | "zeitfreigabe" | "abwesenheiten" | "lohn" | "mitarbeiter" | "objekte" | "kunden" | "kontakte" | "auswertung" | "aufgaben" | "material" | "geraete" | "schluessel" | "faktura" | "hilfe" | "einstellungen" | "chat";
+type Tab =
+  | "dashboard"
+  | "planung"
+  | "mitarbeiter"
+  | "kunden"
+  | "kontakte"
+  | "objekte"
+  | "aufgaben"
+  | "material"
+  | "geraete"
+  | "schluessel"
+  | "zeiten"
+  | "abwesenheiten"
+  | "chat";
+
 type Row = Record<string, any>;
-type RepeatMode = "single" | "repeat";
+type ModalType = "employeeInvite" | "employeeEdit" | "customer" | "contact" | "site" | "task" | "material" | "device" | "key" | "absence" | null;
 
-const today = new Date().toISOString().split("T")[0];
+const today = new Date().toISOString().slice(0, 10);
 
-function iso(date: Date) {
-  return date.toISOString().split("T")[0];
+const emptyEmployeeInvite = { name: "", email: "", phone: "" };
+const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", vacation_days: "0", active: true };
+const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "" };
+const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
+const emptySite = { id: "", name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
+const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false };
+const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", image_url: "", notes: "" };
+const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
+const emptyKey = { id: "", key_name: "", key_number: "", customer_name: "", object_name: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
+const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
+
+function euro(value: unknown) {
+  return `${Number(value || 0).toFixed(2)} €`;
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "CT";
 }
 
-function weekStart(date: Date) {
-  const copy = new Date(date);
-  const day = copy.getDay() === 0 ? 7 : copy.getDay();
-  copy.setDate(copy.getDate() - day + 1);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
-
-function mins(start?: string, end?: string) {
+function minutes(start?: string, end?: string) {
   if (!start || !end) return 0;
   const [sh, sm] = start.split(":").map(Number);
   const [eh, em] = end.split(":").map(Number);
-  let a = sh * 60 + sm;
-  let b = eh * 60 + em;
+  let a = (sh || 0) * 60 + (sm || 0);
+  let b = (eh || 0) * 60 + (em || 0);
   if (b < a) b += 1440;
   return Math.max(0, b - a);
 }
 
-function hours(minutes: number) {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+function prettyHours(value: unknown) {
+  const total = Number(value || 0);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
-function initials(name: string) {
-  return name.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join("") || "?";
+function dateText(value?: string) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("de-DE");
 }
 
-
-function closeAdminDropdowns() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("cleantrack-close-dropdowns"));
-  }
+function downloadCsv(filename: string, rows: Row[]) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(";"),
+    ...rows.map((row) => headers.map((key) => `"${String(row[key] ?? "").replace(/"/g, '""')}"`).join(";")),
+  ].join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function cleanPdfText(value: string) {
@@ -86,7 +117,9 @@ function downloadPdf(title: string, lines: string[], filename: string) {
   }
   const xref = pdf.length;
   pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((o) => { pdf += `${String(o).padStart(10, "0")} 00000 n \n`; });
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
   pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   const url = URL.createObjectURL(new Blob([pdf], { type: "application/pdf" }));
   const a = document.createElement("a");
@@ -101,10 +134,13 @@ function downloadPdf(title: string, lines: string[], filename: string) {
 export default function AdminPage() {
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("planung");
-  const [search, setSearch] = useState("");
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [tab, setTab] = useState<Tab>("dashboard");
+  const [modal, setModal] = useState<ModalType>(null);
+  const [search, setSearch] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [whatsappLink, setWhatsappLink] = useState("");
 
   const [employees, setEmployees] = useState<Row[]>([]);
   const [sites, setSites] = useState<Row[]>([]);
@@ -112,871 +148,641 @@ export default function AdminPage() {
   const [entries, setEntries] = useState<Row[]>([]);
   const [absences, setAbsences] = useState<Row[]>([]);
   const [materials, setMaterials] = useState<Row[]>([]);
-  const [equipment, setEquipment] = useState<Row[]>([]);
+  const [devices, setDevices] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
   const [contacts, setContacts] = useState<Row[]>([]);
   const [chatMessages, setChatMessages] = useState<Row[]>([]);
 
-  const [taskModal, setTaskModal] = useState(false);
-  const [taskId, setTaskId] = useState("");
-  const [taskMode, setTaskMode] = useState<RepeatMode>("single");
-  const [taskSite, setTaskSite] = useState("");
-  const [taskTitle, setTaskTitle] = useState("Unterhaltsreinigung");
-  const [taskDate, setTaskDate] = useState(today);
-  const [taskFrom, setTaskFrom] = useState("08:00");
-  const [taskTo, setTaskTo] = useState("10:00");
-  const [taskDuration, setTaskDuration] = useState("120");
-  const [taskEmployee, setTaskEmployee] = useState("");
-  const [taskRepeatDays, setTaskRepeatDays] = useState<number[]>([new Date(today).getDay() || 7]);
-  const [taskRepeatEnd, setTaskRepeatEnd] = useState("");
-  const [taskRepeatEvery, setTaskRepeatEvery] = useState("1");
-  const [taskNotes, setTaskNotes] = useState("");
-
-  const [siteId, setSiteId] = useState("");
-  const [siteName, setSiteName] = useState("");
-  const [siteAddress, setSiteAddress] = useState("");
-  const [siteRadius, setSiteRadius] = useState("50");
-  const [siteLat, setSiteLat] = useState("");
-  const [siteLng, setSiteLng] = useState("");
-  const [siteNotes, setSiteNotes] = useState("");
-  const [geoLoading, setGeoLoading] = useState(false);
-
-  const [materialId, setMaterialId] = useState("");
-  const [materialName, setMaterialName] = useState("");
-  const [materialCategory, setMaterialCategory] = useState("");
-  const [materialUnit, setMaterialUnit] = useState("Stück");
-  const [materialStock, setMaterialStock] = useState("0");
-  const [materialMinStock, setMaterialMinStock] = useState("0");
-  const [materialImage, setMaterialImage] = useState("");
-  const [materialNotes, setMaterialNotes] = useState("");
-
-  const [deviceId, setDeviceId] = useState("");
-  const [deviceName, setDeviceName] = useState("");
-  const [deviceCategory, setDeviceCategory] = useState("");
-  const [deviceSerial, setDeviceSerial] = useState("");
-  const [deviceEmployee, setDeviceEmployee] = useState("");
-  const [deviceStatus, setDeviceStatus] = useState("Aktiv");
-  const [deviceImage, setDeviceImage] = useState("");
-  const [deviceNotes, setDeviceNotes] = useState("");
-
-  const [keyId, setKeyId] = useState("");
-  const [keyName, setKeyName] = useState("");
-  const [keyNumber, setKeyNumber] = useState("");
-  const [keyCustomer, setKeyCustomer] = useState("");
-  const [keyObject, setKeyObject] = useState("");
-  const [keyEmployee, setKeyEmployee] = useState("");
-  const [keyStatus, setKeyStatus] = useState("Ausgegeben");
-  const [keyHandover, setKeyHandover] = useState(today);
-  const [keyReturn, setKeyReturn] = useState("");
-  const [keyNotes, setKeyNotes] = useState("");
-
-  const [absenceEmployee, setAbsenceEmployee] = useState("");
-  const [absenceType, setAbsenceType] = useState("Urlaub");
-  const [absenceStart, setAbsenceStart] = useState(today);
-  const [absenceEnd, setAbsenceEnd] = useState(today);
-  const [absenceReason, setAbsenceReason] = useState("");
-
+  const [employeeInvite, setEmployeeInvite] = useState(emptyEmployeeInvite);
+  const [employeeEdit, setEmployeeEdit] = useState(emptyEmployeeEdit);
+  const [customerForm, setCustomerForm] = useState(emptyCustomer);
+  const [contactForm, setContactForm] = useState(emptyContact);
+  const [siteForm, setSiteForm] = useState(emptySite);
+  const [taskForm, setTaskForm] = useState(emptyTask);
+  const [materialForm, setMaterialForm] = useState(emptyMaterial);
+  const [deviceForm, setDeviceForm] = useState(emptyDevice);
+  const [keyForm, setKeyForm] = useState(emptyKey);
+  const [absenceForm, setAbsenceForm] = useState(emptyAbsence);
   const [chatEmployee, setChatEmployee] = useState("");
   const [chatText, setChatText] = useState("");
-
-  const [employeeModal, setEmployeeModal] = useState(false);
-  const [employeeName, setEmployeeName] = useState("");
-  const [employeeEmail, setEmployeeEmail] = useState("");
-  const [employeePhone, setEmployeePhone] = useState("");
-  const [employeeInviteLink, setEmployeeInviteLink] = useState("");
-  const [employeeWhatsappLink, setEmployeeWhatsappLink] = useState("");
-  const [employeeCreating, setEmployeeCreating] = useState(false);
-  const [employeeEditModal, setEmployeeEditModal] = useState(false);
-  const [employeeEditId, setEmployeeEditId] = useState("");
-  const [employeeEditName, setEmployeeEditName] = useState("");
-  const [employeeEditEmail, setEmployeeEditEmail] = useState("");
-  const [employeeEditPhone, setEmployeeEditPhone] = useState("");
-  const [employeeEditNumber, setEmployeeEditNumber] = useState("");
-  const [employeeEditAddress, setEmployeeEditAddress] = useState("");
-  const [employeeEditHourlyRate, setEmployeeEditHourlyRate] = useState("");
-  const [employeeEditVacationDays, setEmployeeEditVacationDays] = useState("");
-  const [employeeEditActive, setEmployeeEditActive] = useState(true);
-  const [employeeSaving, setEmployeeSaving] = useState(false);
-
-  const [customerModal, setCustomerModal] = useState(false);
-  const [customerId, setCustomerId] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [customerNumber, setCustomerNumber] = useState("");
-  const [customerAddress, setCustomerAddress] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [customerNotes, setCustomerNotes] = useState("");
-
-  const [contactModal, setContactModal] = useState(false);
-  const [contactId, setContactId] = useState("");
-  const [contactName, setContactName] = useState("");
-  const [contactCompany, setContactCompany] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [contactRole, setContactRole] = useState("");
-  const [contactNotes, setContactNotes] = useState("");
 
   useEffect(() => {
     checkAdmin();
   }, []);
 
   useEffect(() => {
-    if (!allowed) return;
-    loadAll();
+    if (allowed) loadAll();
   }, [allowed]);
 
   useEffect(() => {
-    if (tab !== "chat" || !chatEmployee) return;
-    loadChat(chatEmployee);
-    const t = setInterval(() => loadChat(chatEmployee), 5000);
-    return () => clearInterval(t);
-  }, [tab, chatEmployee]);
+    if (taskForm.start_time && taskForm.end_time && !taskForm.id) {
+      setTaskForm((old) => ({ ...old, planned_minutes: String(minutes(old.start_time, old.end_time) || old.planned_minutes) }));
+    }
+  }, [taskForm.start_time, taskForm.end_time, taskForm.id]);
+
+  async function adminCall(body: Row) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error("Bitte neu einloggen. Die Sitzung fehlt.");
+
+    const response = await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.error || "Admin-Aktion fehlgeschlagen.");
+    return json;
+  }
 
   async function checkAdmin() {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) {
+    setLoading(true);
+    try {
+      await adminCall({ action: "ping" });
+      setAllowed(true);
+    } catch (error) {
+      setAllowed(false);
+      setMessage(error instanceof Error ? error.message : "Kein Zugriff.");
+    } finally {
       setLoading(false);
-      return;
     }
-    const { data: profile } = await supabase.from("employee_profiles").select("role").eq("auth_user_id", data.user.id).single();
-    setAllowed(profile?.role === "admin");
-    setLoading(false);
+  }
+
+  async function selectTable(table: string, orderBy = "created_at", ascending = false, limit?: number) {
+    try {
+      const json = await adminCall({ action: "select", table, orderBy, ascending, limit });
+      return json.data || [];
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `Daten konnten nicht geladen werden: ${table}`);
+      return [];
+    }
   }
 
   async function loadAll() {
-    await Promise.all([loadEmployees(), loadSites(), loadTasks(), loadEntries(), loadAbsences(), loadMaterials(), loadEquipment(), loadKeys(), loadContacts()]);
+    const [employeeRows, siteRows, taskRows, entryRows, absenceRows, materialRows, deviceRows, keyRows, contactRows] = await Promise.all([
+      selectTable("employee_profiles", "name", true),
+      selectTable("work_sites", "name", true),
+      selectTable("tasks", "task_date", false),
+      selectTable("time_entries", "created_at", false, 800),
+      selectTable("absence_requests", "start_date", false),
+      selectTable("material_products", "name", true),
+      selectTable("equipment_items", "name", true),
+      selectTable("key_items", "key_name", true),
+      selectTable("customer_contacts", "name", true),
+    ]);
+    setEmployees(employeeRows);
+    setSites(siteRows);
+    setTasks(taskRows);
+    setEntries(entryRows);
+    setAbsences(absenceRows);
+    setMaterials(materialRows);
+    setDevices(deviceRows);
+    setKeys(keyRows);
+    setContacts(contactRows);
   }
 
-  async function loadEmployees() {
-    const { data } = await supabase.from("employee_profiles").select("*").order("name");
-    setEmployees(data || []);
-  }
-
-  async function loadSites() {
-    const { data } = await supabase.from("work_sites").select("*").order("name");
-    setSites(data || []);
-  }
-
-  async function loadTasks() {
-    const { data } = await supabase.from("tasks").select("*").order("task_date");
-    setTasks(data || []);
-  }
-
-  async function loadEntries() {
-    const { data } = await supabase.from("time_entries").select("*").order("created_at", { ascending: false }).limit(500);
-    setEntries(data || []);
-  }
-
-  async function loadAbsences() {
-    const { data } = await supabase.from("absence_requests").select("*").order("start_date", { ascending: false });
-    setAbsences(data || []);
-  }
-
-  async function loadMaterials() {
-    const { data } = await supabase.from("material_products").select("*").order("name");
-    setMaterials(data || []);
-  }
-
-  async function loadEquipment() {
-    const { data } = await supabase.from("equipment_items").select("*").order("name");
-    setEquipment(data || []);
-  }
-
-  async function loadKeys() {
-    const { data } = await supabase.from("key_items").select("*").order("key_name");
-    setKeys(data || []);
-  }
-
-  async function loadContacts() {
-    const { data, error } = await supabase.from("customer_contacts").select("*").order("name");
-    if (!error) setContacts(data || []);
-  }
-
-  async function loadChat(employeeName: string) {
-    const { data } = await supabase.from("chat_messages").select("*").eq("employee_name", employeeName).order("created_at");
-    setChatMessages(data || []);
-    await supabase.from("chat_messages").update({ read_by_admin: true }).eq("employee_name", employeeName).eq("sender_role", "employee");
-  }
-
-  const activeEmployees = employees.filter((x) => x.active !== false && x.role !== "admin");
-  const activeSites = sites.filter((x) => x.active !== false);
-  const week = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart(selectedDate), i)), [selectedDate]);
-  const pendingEntries = entries.filter((x) => x.approved !== true && x.status !== "rejected");
-  const openAbsences = absences.filter((x) => !x.status || x.status === "open").length;
-
-  async function sendPush(employeeName: string, title: string, body: string, url: string) {
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) return;
-      await fetch("/api/push/send", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ employeeName, title, message: body, url }) });
-    } catch {}
-  }
-
-  function openTask(day?: Date, employee?: Row) {
-    setTaskId("");
-    setTaskMode("single");
-    setTaskSite("");
-    setTaskTitle("Unterhaltsreinigung");
-    setTaskDate(day ? iso(day) : today);
-    setTaskFrom("08:00");
-    setTaskTo("10:00");
-    setTaskDuration("120");
-    setTaskEmployee(employee?.name || "");
-    const baseDay = day ? day.getDay() || 7 : new Date(today).getDay() || 7;
-    setTaskRepeatDays([baseDay]);
-    setTaskRepeatEnd("");
-    setTaskRepeatEvery("1");
-    setTaskNotes("");
-    setTaskModal(true);
-  }
-
-  function editTask(task: Row) {
-    setTaskId(task.id);
-    setTaskMode("single");
-    setTaskSite(task.work_site_id || "");
-    setTaskTitle(task.title || "Unterhaltsreinigung");
-    setTaskDate(task.task_date || today);
-    setTaskFrom(task.start_time || "08:00");
-    setTaskTo(task.end_time || "10:00");
-    setTaskDuration(String(task.planned_minutes || task.max_minutes || mins(task.start_time || "08:00", task.end_time || "10:00") || 120));
-    setTaskEmployee(task.employee_name || "");
-    setTaskRepeatDays([new Date(task.task_date || today).getDay() || 7]);
-    setTaskNotes(task.notes || "");
-    setTaskModal(true);
-  }
-
-  async function saveTask() {
-    const site = activeSites.find((x) => x.id === taskSite);
-    if (!site || !taskEmployee || !taskTitle) {
-      setMessage("Bitte Objekt, Auftrag und Mitarbeiter auswählen.");
-      return;
-    }
-    const duration = Math.max(1, Number(taskDuration || 0));
-    const base = { title: taskTitle, site: site.name, employee_name: taskEmployee, start_time: taskFrom, end_time: taskTo, max_minutes: duration, planned_minutes: duration, work_site_id: site.id, notes: taskNotes || null, done: false };
-    if (taskId) {
-      const { error } = await supabase.from("tasks").update({ ...base, task_date: taskDate }).eq("id", taskId);
-      if (error) return setMessage(error.message);
-      await sendPush(taskEmployee, "Einsatz geändert", `${site.name} am ${taskDate}`, "/mitarbeiter?tab=schedule");
-    } else if (taskMode === "repeat" && taskRepeatEnd) {
-      const rows = [];
-      const start = new Date(taskDate);
-      const end = new Date(taskRepeatEnd);
-      const every = Math.max(1, Number(taskRepeatEvery || 1));
-      const selectedDays = taskRepeatDays.length > 0 ? taskRepeatDays : [start.getDay() || 7];
-      const group = crypto.randomUUID();
-      let cur = new Date(start);
-      let guard = 0;
-      while (cur <= end && guard < 370) {
-        const day = cur.getDay() || 7;
-        const diffWeeks = Math.floor((weekStart(cur).getTime() - weekStart(start).getTime()) / (7 * 24 * 60 * 60 * 1000));
-        if (selectedDays.includes(day) && diffWeeks % every === 0) {
-          rows.push({ ...base, task_date: iso(cur), recurrence_group_id: group });
-        }
-        cur = addDays(cur, 1);
-        guard += 1;
-      }
-      const { error } = await supabase.from("tasks").insert(rows);
-      if (error) return setMessage(error.message);
-      await sendPush(taskEmployee, "Neue Einsatzserie", `${site.name} ab ${taskDate}`, "/mitarbeiter?tab=schedule");
-    } else {
-      const { error } = await supabase.from("tasks").insert([{ ...base, task_date: taskDate }]);
-      if (error) return setMessage(error.message);
-      await sendPush(taskEmployee, "Neuer Einsatz", `${site.name} am ${taskDate}`, "/mitarbeiter?tab=schedule");
-    }
-    setTaskModal(false);
-    closeAdminDropdowns();
-    await loadTasks();
-  }
-
-  async function deleteTask(task: Row) {
-    if (!window.confirm("Einsatz wirklich löschen?")) return;
-    const { error } = await supabase.from("tasks").delete().eq("id", task.id);
-    if (error) return setMessage(error.message);
-    if (task.employee_name) await sendPush(task.employee_name, "Einsatz gelöscht", `${task.site} am ${task.task_date}`, "/mitarbeiter?tab=schedule");
-    await loadTasks();
-  }
-
-  async function approveEntry(entry: Row, approved: boolean) {
-    await supabase.from("time_entries").update({ approved, status: approved ? "approved" : "rejected" }).eq("id", entry.id);
-    await loadEntries();
-  }
-
-  async function geocode() {
-    if (!siteAddress) return setMessage("Bitte Adresse eintragen.");
-    setGeoLoading(true);
-    const res = await fetch(`/api/geocode?q=${encodeURIComponent(siteAddress)}`);
-    const json = await res.json();
-    setGeoLoading(false);
-    if (!res.ok) return setMessage(json.error || "GPS konnte nicht ermittelt werden.");
-    setSiteLat(String(json.latitude));
-    setSiteLng(String(json.longitude));
-    setMessage("GPS wurde ermittelt.");
-  }
-
-  function editSite(site: Row) {
-    setSiteId(site.id);
-    setSiteName(site.name || "");
-    setSiteAddress(site.address || "");
-    setSiteRadius(String(site.allowed_radius_m || 50));
-    setSiteLat(site.latitude === null ? "" : String(site.latitude));
-    setSiteLng(site.longitude === null ? "" : String(site.longitude));
-    setSiteNotes(site.notes || "");
-  }
-
-  async function saveSite() {
-    if (!siteName || !siteAddress) return setMessage("Bitte Objektname und Adresse eintragen.");
-    const payload = { name: siteName, address: siteAddress, allowed_radius_m: Number(siteRadius || 50), latitude: siteLat ? Number(siteLat) : null, longitude: siteLng ? Number(siteLng) : null, notes: siteNotes || null, active: true };
-    const req = siteId ? supabase.from("work_sites").update(payload).eq("id", siteId) : supabase.from("work_sites").insert([payload]);
-    const { error } = await req;
-    if (error) return setMessage(error.message);
-    setSiteId(""); setSiteName(""); setSiteAddress(""); setSiteRadius("50"); setSiteLat(""); setSiteLng(""); setSiteNotes("");
-    closeAdminDropdowns();
-    await loadSites();
-  }
-
-
-
-  function resetCustomerForm() {
-    setCustomerId("");
-    setCustomerName("");
-    setCustomerNumber("");
-    setCustomerAddress("");
-    setCustomerPhone("");
-    setCustomerEmail("");
-    setCustomerNotes("");
-  }
-
-  function openCustomer(row?: Row) {
-    if (row) {
-      setCustomerId(row.id || "");
-      setCustomerName(row.customer_name || row.name || "");
-      setCustomerNumber(row.customer_number || "");
-      setCustomerAddress(row.customer_address || row.address || "");
-      setCustomerPhone(row.customer_phone || row.phone || "");
-      setCustomerEmail(row.customer_email || row.email || "");
-      setCustomerNotes(row.customer_notes || row.notes || "");
-    } else {
-      resetCustomerForm();
-    }
-    closeAdminDropdowns();
-    setCustomerModal(true);
-  }
-
-  async function saveCustomer() {
-    if (!customerName.trim()) return setMessage("Bitte Kundennamen eintragen.");
-    const payload = {
-      name: customerName.trim(),
-      customer_name: customerName.trim(),
-      customer_number: customerNumber || null,
-      address: customerAddress || null,
-      customer_address: customerAddress || null,
-      customer_phone: customerPhone || null,
-      customer_email: customerEmail || null,
-      customer_notes: customerNotes || null,
-      active: true,
+  const activeEmployees = employees.filter((item) => item.role !== "admin" && item.active !== false);
+  const customers = useMemo(() => customerRowsFromSites(sites), [sites]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return {
+      employees: filterRows(employees, q),
+      sites: filterRows(sites, q),
+      customers: filterRows(customers, q),
+      contacts: filterRows(contacts, q),
+      tasks: filterRows(tasks, q),
+      materials: filterRows(materials, q),
+      devices: filterRows(devices, q),
+      keys: filterRows(keys, q),
+      entries: filterRows(entries, q),
+      absences: filterRows(absences, q),
     };
-    const req = customerId ? supabase.from("work_sites").update(payload).eq("id", customerId) : supabase.from("work_sites").insert([payload]);
-    const { error } = await req;
-    if (error) return setMessage(error.message);
-    setCustomerModal(false);
-    resetCustomerForm();
-    await loadSites();
-  }
+  }, [search, employees, sites, customers, contacts, tasks, materials, devices, keys, entries, absences]);
 
-  function resetContactForm() {
-    setContactId("");
-    setContactName("");
-    setContactCompany("");
-    setContactPhone("");
-    setContactEmail("");
-    setContactRole("");
-    setContactNotes("");
-  }
-
-  function openContact(row?: Row) {
-    if (row) {
-      setContactId(row.id || "");
-      setContactName(row.name || "");
-      setContactCompany(row.company || "");
-      setContactPhone(row.phone || "");
-      setContactEmail(row.email || "");
-      setContactRole(row.role || row.contact_role || "");
-      setContactNotes(row.notes || "");
-    } else {
-      resetContactForm();
+  async function insertOrUpdate(table: string, id: string, payload: Row) {
+    setSaving(true);
+    setMessage("");
+    try {
+      if (id) {
+        await adminCall({ action: "update", table, id, payload });
+      } else {
+        await adminCall({ action: "insert", table, payload: [payload] });
+      }
+      setModal(null);
+      setMessage("Gespeichert.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Speichern fehlgeschlagen.");
+    } finally {
+      setSaving(false);
     }
-    closeAdminDropdowns();
-    setContactModal(true);
   }
 
-  async function saveContact() {
-    if (!contactName.trim()) return setMessage("Bitte Kontaktname eintragen.");
-    const payload = { name: contactName.trim(), company: contactCompany || null, phone: contactPhone || null, email: contactEmail || null, role: contactRole || null, notes: contactNotes || null, active: true };
-    const req = contactId ? supabase.from("customer_contacts").update(payload).eq("id", contactId) : supabase.from("customer_contacts").insert([payload]);
-    const { error } = await req;
-    if (error) return setMessage(error.message);
-    setContactModal(false);
-    resetContactForm();
-    await loadContacts();
-  }
-
-  async function uploadImage(file: File | null, folder: string) {
-    if (!file) return "";
-    if (!file.type.startsWith("image/")) throw new Error("Bitte Bild auswählen.");
-    const ext = file.name.split(".").pop() || "jpg";
-    const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from("materials").upload(path, file, { upsert: true });
-    if (error) throw error;
-    const { data } = supabase.storage.from("materials").getPublicUrl(path);
-    return data.publicUrl;
-  }
-
-  function editMaterial(row: Row) {
-    setMaterialId(row.id); setMaterialName(row.name || ""); setMaterialCategory(row.category || ""); setMaterialUnit(row.unit || "Stück"); setMaterialStock(String(row.current_stock || 0)); setMaterialMinStock(String(row.min_stock || 0)); setMaterialImage(row.image_url || ""); setMaterialNotes(row.notes || "");
-  }
-
-  async function saveMaterial() {
-    if (!materialName) return setMessage("Bitte Produktname eintragen.");
-    const payload = { name: materialName, category: materialCategory || null, unit: materialUnit || "Stück", current_stock: Number(materialStock || 0), min_stock: Number(materialMinStock || 0), image_url: materialImage || null, notes: materialNotes || null };
-    const req = materialId ? supabase.from("material_products").update(payload).eq("id", materialId) : supabase.from("material_products").insert([payload]);
-    const { error } = await req;
-    if (error) return setMessage(error.message);
-    setMaterialId(""); setMaterialName(""); setMaterialCategory(""); setMaterialUnit("Stück"); setMaterialStock("0"); setMaterialMinStock("0"); setMaterialImage(""); setMaterialNotes("");
-    closeAdminDropdowns();
-    await loadMaterials();
-  }
-
-  function editDevice(row: Row) {
-    setDeviceId(row.id); setDeviceName(row.name || ""); setDeviceCategory(row.category || ""); setDeviceSerial(row.serial_number || ""); setDeviceEmployee(row.assigned_to || ""); setDeviceStatus(row.status || "Aktiv"); setDeviceImage(row.image_url || ""); setDeviceNotes(row.notes || "");
-  }
-
-  async function saveDevice() {
-    if (!deviceName) return setMessage("Bitte Gerätename eintragen.");
-    const payload = { name: deviceName, category: deviceCategory || null, serial_number: deviceSerial || null, assigned_to: deviceEmployee || null, status: deviceStatus, image_url: deviceImage || null, notes: deviceNotes || null };
-    const req = deviceId ? supabase.from("equipment_items").update(payload).eq("id", deviceId) : supabase.from("equipment_items").insert([payload]);
-    const { error } = await req;
-    if (error) return setMessage(error.message);
-    setDeviceId(""); setDeviceName(""); setDeviceCategory(""); setDeviceSerial(""); setDeviceEmployee(""); setDeviceStatus("Aktiv"); setDeviceImage(""); setDeviceNotes("");
-    closeAdminDropdowns();
-    await loadEquipment();
-  }
-
-  function editKey(row: Row) {
-    setKeyId(row.id); setKeyName(row.key_name || ""); setKeyNumber(row.key_number || ""); setKeyCustomer(row.customer_name || ""); setKeyObject(row.object_name || ""); setKeyEmployee(row.employee_name || ""); setKeyStatus(row.status || "Ausgegeben"); setKeyHandover(row.handover_date || today); setKeyReturn(row.return_date || ""); setKeyNotes(row.notes || "");
-  }
-
-  async function saveKey() {
-    if (!keyName) return setMessage("Bitte Schlüsselbezeichnung eintragen.");
-    const payload = { key_name: keyName, key_number: keyNumber || null, customer_name: keyCustomer || null, object_name: keyObject || null, employee_name: keyEmployee || null, status: keyStatus, handover_date: keyHandover || null, return_date: keyReturn || null, notes: keyNotes || null };
-    const req = keyId ? supabase.from("key_items").update(payload).eq("id", keyId) : supabase.from("key_items").insert([payload]);
-    const { error } = await req;
-    if (error) return setMessage(error.message);
-    setKeyId(""); setKeyName(""); setKeyNumber(""); setKeyCustomer(""); setKeyObject(""); setKeyEmployee(""); setKeyStatus("Ausgegeben"); setKeyHandover(today); setKeyReturn(""); setKeyNotes("");
-    closeAdminDropdowns();
-    await loadKeys();
-  }
-
-  function keyPdf(row?: Row) {
-    const r = row || { key_name: keyName, key_number: keyNumber, customer_name: keyCustomer, object_name: keyObject, employee_name: keyEmployee, status: keyStatus, handover_date: keyHandover, return_date: keyReturn, notes: keyNotes };
-    downloadPdf("CleanTrack - Schluesseluebergabe", [
-      "Schluesseluebergabe an den Kunden",
-      "",
-      `Kunde: ${r.customer_name || "____________________________"}`,
-      `Objekt: ${r.object_name || "____________________________"}`,
-      `Schluessel: ${r.key_name || "____________________________"}`,
-      `Schluesselnummer: ${r.key_number || "____________________________"}`,
-      `Ausgegeben an: ${r.employee_name || "____________________________"}`,
-      `Uebergabedatum: ${r.handover_date || "____________________________"}`,
-      `Rueckgabedatum: ${r.return_date || "____________________________"}`,
-      `Status: ${r.status || "Ausgegeben"}`,
-      "",
-      "Notizen:",
-      r.notes || "____________________________________________________________",
-      "",
-      "Mit meiner Unterschrift bestaetige ich die ordnungsgemaesse Uebergabe der oben genannten Schluessel.",
-      "",
-      "Unterschrift Kunde: ________________________________",
-      "",
-      "Unterschrift Mitarbeiter: ___________________________",
-    ], `schluesseluebergabe-${r.key_name || "schluessel"}.pdf`);
-  }
-
-  async function createAbsence() {
-    if (!absenceEmployee) return setMessage("Bitte Mitarbeiter auswählen.");
-    const { error } = await supabase.from("absence_requests").insert([{ employee_name: absenceEmployee, absence_type: absenceType, start_date: absenceStart, end_date: absenceEnd, reason: absenceReason || null, status: "open" }]);
-    if (error) return setMessage(error.message);
-    setAbsenceReason(""); closeAdminDropdowns(); await loadAbsences();
-  }
-
-  async function decideAbsence(row: Row, status: "approved" | "rejected") {
-    await supabase.from("absence_requests").update({ status }).eq("id", row.id);
-    await sendPush(row.employee_name, status === "approved" ? "Abwesenheit genehmigt" : "Abwesenheit abgelehnt", `${row.absence_type}: ${row.start_date} - ${row.end_date}`, "/mitarbeiter?tab=profile");
-    await loadAbsences();
-  }
-
-  async function sendChat() {
-    if (!chatEmployee || !chatText.trim()) return setMessage("Bitte Mitarbeiter und Nachricht auswählen.");
-    const text = chatText.trim(); setChatText("");
-    const { error } = await supabase.from("chat_messages").insert([{ employee_name: chatEmployee, sender_role: "admin", sender_name: "Admin", message: text, read_by_admin: true, read_by_employee: false }]);
-    if (error) return setMessage(error.message);
-    await sendPush(chatEmployee, "Neue Nachricht", text, "/mitarbeiter?tab=chat");
-    await loadChat(chatEmployee);
-  }
-
-  function openEmployeeModal() {
-    setEmployeeName("");
-    setEmployeeEmail("");
-    setEmployeePhone("");
-    setEmployeeInviteLink("");
-    setEmployeeWhatsappLink("");
-    setEmployeeModal(true);
+  async function removeRow(table: string, id: string, label: string) {
+    if (!window.confirm(`${label} wirklich löschen?`)) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({ action: "delete", table, id });
+      setMessage("Gelöscht.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Löschen fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function createEmployeeInvite() {
-    if (!employeeName.trim() || !employeeEmail.trim()) {
-      setMessage("Bitte Name und E-Mail für den Mitarbeiter eintragen.");
+    if (!employeeInvite.name.trim() || !employeeInvite.email.trim()) {
+      setMessage("Bitte Name und E-Mail eintragen.");
       return;
     }
 
-    setEmployeeCreating(true);
+    setSaving(true);
     setMessage("");
+    setInviteLink("");
+    setWhatsappLink("");
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      if (!token) {
-        setMessage("Bitte als Admin neu einloggen. Die Sitzung fehlt.");
-        return;
-      }
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Bitte neu einloggen. Die Sitzung fehlt.");
 
       const response = await fetch("/api/admin/create-employee-invite", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: employeeName,
-          email: employeeEmail,
-          phone: employeePhone,
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(employeeInvite),
       });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(result.error || "Mitarbeiter konnte nicht angelegt werden.");
-        return;
-      }
-
-      setEmployeeInviteLink(result.inviteLink || "");
-      setEmployeeWhatsappLink(result.whatsappLink || "");
-      setMessage("Einladung wurde erstellt. Link kopieren und an den Mitarbeiter senden.");
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Einladung konnte nicht erstellt werden.");
+      setInviteLink(json.inviteLink || "");
+      setWhatsappLink(json.whatsappLink || "");
+      setMessage("Einladung erstellt. Link kopieren oder per WhatsApp senden.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Fehler beim Mitarbeiter anlegen.");
+      setMessage(error instanceof Error ? error.message : "Einladung fehlgeschlagen.");
     } finally {
-      setEmployeeCreating(false);
+      setSaving(false);
     }
   }
 
-
-  function openEditEmployee(employee: Row) {
-    setEmployeeEditId(String(employee.id || ""));
-    setEmployeeEditName(String(employee.name || ""));
-    setEmployeeEditEmail(String(employee.email || ""));
-    setEmployeeEditPhone(String(employee.phone || ""));
-    setEmployeeEditNumber(String(employee.employee_number || ""));
-    setEmployeeEditAddress(String(employee.address || employee.street || ""));
-    setEmployeeEditHourlyRate(String(employee.hourly_rate ?? ""));
-    setEmployeeEditVacationDays(String(employee.vacation_days ?? employee.annual_vacation_days ?? ""));
-    setEmployeeEditActive(employee.active !== false);
-    setEmployeeEditModal(true);
+  function openEmployee(row?: Row) {
+    setInviteLink("");
+    setWhatsappLink("");
+    if (!row) {
+      setEmployeeInvite(emptyEmployeeInvite);
+      setModal("employeeInvite");
+      return;
+    }
+    setEmployeeEdit({
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      email: String(row.email || ""),
+      phone: String(row.phone || ""),
+      employee_number: String(row.employee_number || ""),
+      address: String(row.address || row.street || ""),
+      hourly_rate: String(row.hourly_rate ?? "0"),
+      vacation_days: String(row.vacation_days ?? row.annual_vacation_days ?? "0"),
+      active: row.active !== false,
+    });
+    setModal("employeeEdit");
   }
 
   async function saveEmployee() {
-    if (!employeeEditId) return;
-    if (!employeeEditName.trim()) {
-      setMessage("Bitte einen Namen eintragen.");
+    await insertOrUpdate("employee_profiles", employeeEdit.id, {
+      name: employeeEdit.name,
+      email: employeeEdit.email || null,
+      phone: employeeEdit.phone || null,
+      employee_number: employeeEdit.employee_number || null,
+      address: employeeEdit.address || null,
+      hourly_rate: Number(employeeEdit.hourly_rate || 0),
+      vacation_days: Number(employeeEdit.vacation_days || 0),
+      annual_vacation_days: Number(employeeEdit.vacation_days || 0),
+      active: employeeEdit.active,
+    });
+  }
+
+  function openCustomer(row?: Row) {
+    setCustomerForm(row ? {
+      id: String(row.id || ""),
+      name: String(row.customer_name || row.name || ""),
+      customer_number: String(row.customer_number || ""),
+      address: String(row.customer_address || row.address || ""),
+      phone: String(row.customer_phone || row.phone || ""),
+      email: String(row.customer_email || row.email || ""),
+      notes: String(row.customer_notes || row.notes || ""),
+    } : emptyCustomer);
+    setModal("customer");
+  }
+
+  async function saveCustomer() {
+    await insertOrUpdate("work_sites", customerForm.id, {
+      name: customerForm.name,
+      customer_name: customerForm.name,
+      customer_number: customerForm.customer_number || null,
+      address: customerForm.address || null,
+      customer_address: customerForm.address || null,
+      customer_phone: customerForm.phone || null,
+      customer_email: customerForm.email || null,
+      customer_notes: customerForm.notes || null,
+      active: true,
+    });
+  }
+
+  function openContact(row?: Row) {
+    setContactForm(row ? {
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      company: String(row.company || ""),
+      phone: String(row.phone || ""),
+      email: String(row.email || ""),
+      role: String(row.role || row.contact_role || ""),
+      notes: String(row.notes || ""),
+    } : emptyContact);
+    setModal("contact");
+  }
+
+  async function saveContact() {
+    await insertOrUpdate("customer_contacts", contactForm.id, {
+      name: contactForm.name,
+      company: contactForm.company || null,
+      phone: contactForm.phone || null,
+      email: contactForm.email || null,
+      role: contactForm.role || null,
+      contact_role: contactForm.role || null,
+      notes: contactForm.notes || null,
+      active: true,
+    });
+  }
+
+  function openSite(row?: Row) {
+    setSiteForm(row ? {
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      address: String(row.address || ""),
+      allowed_radius_m: String(row.allowed_radius_m ?? "50"),
+      latitude: String(row.latitude ?? ""),
+      longitude: String(row.longitude ?? ""),
+      notes: String(row.notes || ""),
+      active: row.active !== false,
+    } : emptySite);
+    setModal("site");
+  }
+
+  async function saveSite() {
+    await insertOrUpdate("work_sites", siteForm.id, {
+      name: siteForm.name,
+      address: siteForm.address,
+      allowed_radius_m: Number(siteForm.allowed_radius_m || 50),
+      latitude: siteForm.latitude ? Number(siteForm.latitude) : null,
+      longitude: siteForm.longitude ? Number(siteForm.longitude) : null,
+      notes: siteForm.notes || null,
+      active: siteForm.active,
+    });
+  }
+
+  function openTask(row?: Row) {
+    setTaskForm(row ? {
+      id: String(row.id || ""),
+      title: String(row.title || "Unterhaltsreinigung"),
+      task_date: String(row.task_date || today),
+      start_time: String(row.start_time || "08:00"),
+      end_time: String(row.end_time || "10:00"),
+      planned_minutes: String(row.planned_minutes || row.max_minutes || minutes(row.start_time, row.end_time) || "120"),
+      site: String(row.site || ""),
+      work_site_id: String(row.work_site_id || ""),
+      employee_name: String(row.employee_name || ""),
+      priority: String(row.priority || "Normal"),
+      notes: String(row.notes || ""),
+      done: Boolean(row.done),
+    } : emptyTask);
+    setModal("task");
+  }
+
+  async function saveTask() {
+    const site = sites.find((item) => item.id === taskForm.work_site_id);
+    await insertOrUpdate("tasks", taskForm.id, {
+      title: taskForm.title,
+      task_date: taskForm.task_date,
+      start_time: taskForm.start_time,
+      end_time: taskForm.end_time,
+      planned_minutes: Number(taskForm.planned_minutes || 0),
+      max_minutes: Number(taskForm.planned_minutes || 0),
+      employee_name: taskForm.employee_name,
+      site: site?.name || taskForm.site,
+      work_site_id: taskForm.work_site_id || null,
+      priority: taskForm.priority,
+      notes: taskForm.notes || null,
+      done: taskForm.done,
+    });
+  }
+
+  function openMaterial(row?: Row) {
+    setMaterialForm(row ? {
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      category: String(row.category || ""),
+      unit: String(row.unit || "Stück"),
+      current_stock: String(row.current_stock ?? "0"),
+      min_stock: String(row.min_stock ?? "0"),
+      supplier: String(row.supplier || ""),
+      image_url: String(row.image_url || ""),
+      notes: String(row.notes || ""),
+    } : emptyMaterial);
+    setModal("material");
+  }
+
+  async function saveMaterial() {
+    await insertOrUpdate("material_products", materialForm.id, {
+      name: materialForm.name,
+      category: materialForm.category || null,
+      unit: materialForm.unit || "Stück",
+      current_stock: Number(materialForm.current_stock || 0),
+      min_stock: Number(materialForm.min_stock || 0),
+      supplier: materialForm.supplier || null,
+      image_url: materialForm.image_url || null,
+      notes: materialForm.notes || null,
+    });
+  }
+
+  function openDevice(row?: Row) {
+    setDeviceForm(row ? {
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      category: String(row.category || ""),
+      serial_number: String(row.serial_number || ""),
+      assigned_to: String(row.assigned_to || ""),
+      status: String(row.status || "Aktiv"),
+      image_url: String(row.image_url || ""),
+      notes: String(row.notes || ""),
+    } : emptyDevice);
+    setModal("device");
+  }
+
+  async function saveDevice() {
+    await insertOrUpdate("equipment_items", deviceForm.id, {
+      name: deviceForm.name,
+      category: deviceForm.category || null,
+      serial_number: deviceForm.serial_number || null,
+      assigned_to: deviceForm.assigned_to || null,
+      status: deviceForm.status,
+      image_url: deviceForm.image_url || null,
+      notes: deviceForm.notes || null,
+    });
+  }
+
+  function openKey(row?: Row) {
+    setKeyForm(row ? {
+      id: String(row.id || ""),
+      key_name: String(row.key_name || ""),
+      key_number: String(row.key_number || ""),
+      customer_name: String(row.customer_name || ""),
+      object_name: String(row.object_name || ""),
+      employee_name: String(row.employee_name || ""),
+      status: String(row.status || "Ausgegeben"),
+      handover_date: String(row.handover_date || today),
+      return_date: String(row.return_date || ""),
+      notes: String(row.notes || ""),
+    } : emptyKey);
+    setModal("key");
+  }
+
+  async function saveKey() {
+    await insertOrUpdate("key_items", keyForm.id, {
+      key_name: keyForm.key_name,
+      key_number: keyForm.key_number || null,
+      customer_name: keyForm.customer_name || null,
+      object_name: keyForm.object_name || null,
+      employee_name: keyForm.employee_name || null,
+      status: keyForm.status,
+      handover_date: keyForm.handover_date || null,
+      return_date: keyForm.return_date || null,
+      notes: keyForm.notes || null,
+    });
+  }
+
+  function createKeyPdf(row: Row) {
+    downloadPdf("CleanTrack - Schlüsselübergabe", [
+      `Schlüssel: ${row.key_name || "-"}`,
+      `Schlüsselnummer: ${row.key_number || "-"}`,
+      `Kunde: ${row.customer_name || "-"}`,
+      `Objekt: ${row.object_name || "-"}`,
+      `Ausgegeben an: ${row.employee_name || "-"}`,
+      `Status: ${row.status || "-"}`,
+      `Ausgabe: ${row.handover_date || "-"}`,
+      `Rückgabe: ${row.return_date || "-"}`,
+      "",
+      "Unterschrift Mitarbeiter: ___________________________",
+      "Unterschrift Kunde: ________________________________",
+    ], `schluessel-${row.key_name || "uebergabe"}.pdf`);
+  }
+
+  function openAbsence(row?: Row) {
+    setAbsenceForm(row ? {
+      id: String(row.id || ""),
+      employee_name: String(row.employee_name || ""),
+      absence_type: String(row.absence_type || "Urlaub"),
+      start_date: String(row.start_date || today),
+      end_date: String(row.end_date || today),
+      reason: String(row.reason || ""),
+      status: String(row.status || "open"),
+    } : emptyAbsence);
+    setModal("absence");
+  }
+
+  async function saveAbsence() {
+    await insertOrUpdate("absence_requests", absenceForm.id, {
+      employee_name: absenceForm.employee_name,
+      absence_type: absenceForm.absence_type,
+      start_date: absenceForm.start_date,
+      end_date: absenceForm.end_date,
+      reason: absenceForm.reason || null,
+      status: absenceForm.status,
+    });
+  }
+
+  async function approveEntry(row: Row, approved: boolean) {
+    await insertOrUpdate("time_entries", row.id, { approved, status: approved ? "approved" : "rejected" });
+  }
+
+  async function sendChat() {
+    if (!chatEmployee || !chatText.trim()) {
+      setMessage("Bitte Mitarbeiter und Nachricht auswählen.");
       return;
     }
+    await insertOrUpdate("chat_messages", "", {
+      employee_name: chatEmployee,
+      sender_role: "admin",
+      sender_name: "Admin",
+      message: chatText.trim(),
+      read_by_admin: true,
+      read_by_employee: false,
+    });
+    setChatText("");
+    await loadChat(chatEmployee);
+  }
 
-    setEmployeeSaving(true);
-    setMessage("");
-
+  async function loadChat(employeeName: string) {
+    setChatEmployee(employeeName);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      if (!token) {
-        setMessage("Bitte als Admin neu einloggen. Die Sitzung fehlt.");
-        return;
-      }
-
-      const response = await fetch("/api/admin/update-employee", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          id: employeeEditId,
-          name: employeeEditName,
-          email: employeeEditEmail,
-          phone: employeeEditPhone,
-          employee_number: employeeEditNumber,
-          address: employeeEditAddress,
-          hourly_rate: employeeEditHourlyRate,
-          vacation_days: employeeEditVacationDays,
-          active: employeeEditActive,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(result.error || "Mitarbeiter konnte nicht gespeichert werden.");
-        return;
-      }
-
-      setEmployeeEditModal(false);
-      setMessage("Mitarbeiter wurde gespeichert.");
-      await loadEmployees();
+      const json = await adminCall({ action: "select", table: "chat_messages", orderBy: "created_at", ascending: true, filters: { employee_name: employeeName } });
+      setChatMessages(json.data || []);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Fehler beim Speichern.");
-    } finally {
-      setEmployeeSaving(false);
+      setMessage(error instanceof Error ? error.message : "Chat konnte nicht geladen werden.");
     }
   }
 
-  async function deactivateEmployee(employee: Row) {
-    if (!employee?.id) return;
+  const workedMinutes = entries.reduce((sum, item) => sum + Number(item.worked_minutes || item.planned_minutes || 0), 0);
+  const openTasks = tasks.filter((item) => !item.done).length;
+  const openAbsences = absences.filter((item) => !item.status || item.status === "open").length;
+  const lowStock = materials.filter((item) => Number(item.current_stock || 0) <= Number(item.min_stock || 0)).length;
 
-    const ok = window.confirm(`Mitarbeiter "${employee.name}" wirklich deaktivieren?`);
-    if (!ok) return;
-
-    setEmployeeSaving(true);
-    setMessage("");
-
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      if (!token) {
-        setMessage("Bitte als Admin neu einloggen. Die Sitzung fehlt.");
-        return;
-      }
-
-      const response = await fetch("/api/admin/update-employee", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ id: employee.id, active: false }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(result.error || "Mitarbeiter konnte nicht deaktiviert werden.");
-        return;
-      }
-
-      setMessage("Mitarbeiter wurde deaktiviert.");
-      await loadEmployees();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Fehler beim Deaktivieren.");
-    } finally {
-      setEmployeeSaving(false);
-    }
+  if (loading) return <main className="min-h-screen bg-slate-50 p-8 font-bold text-slate-700">Lade Adminbereich...</main>;
+  if (!allowed) {
+    return (
+      <main className="min-h-screen bg-slate-50 p-8">
+        <div className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h1 className="text-2xl font-black text-slate-950">Kein Zugriff</h1>
+          <p className="mt-2 text-slate-500">Dieser Bereich ist nur für Administratoren sichtbar.</p>
+          {message && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700">{message}</p>}
+        </div>
+      </main>
+    );
   }
-
-  if (loading) return <main className="p-8">Lade...</main>;
-  if (!allowed) return <main className="min-h-screen bg-slate-100 p-8"><div className="rounded-2xl bg-white p-8"><h1 className="text-2xl font-bold">Kein Zugriff</h1><p className="text-slate-500">Dieser Bereich ist nur für Administratoren sichtbar.</p></div></main>;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#e0f2fe_0,#f8fafc_34%,#eef2ff_100%)] text-slate-900">
-      <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-[292px] shrink-0 overflow-y-auto border-r border-white/10 bg-[#071225] p-5 text-white shadow-2xl lg:block">
-          <div className="mb-6 rounded-2xl bg-black/25 p-4 ring-1 ring-white/10">
-            <img src="/logo.png" alt="Matteo Stano Clean" className="mx-auto h-24 w-auto object-contain" />
-          </div>
-          <div className="mb-6 rounded-lg bg-white/10 px-4 py-3"><input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-transparent outline-none placeholder:text-white/70" placeholder="🔍 Suche" /></div>
-          <nav className="space-y-5">
-            <NavGroup items={[["planung", "▦", "Einsatzplaner", 0], ["zeitfreigabe", "⏱", "Zeitenfreigabe", pendingEntries.length], ["abwesenheiten", "✈", "Abwesenheiten", openAbsences], ["lohn", "💰", "Lohnabrechnung", 0]]} tab={tab} setTab={setTab} />
-            <div className="border-t border-white/10 pt-4">
-              <button
-                type="button"
-                onClick={() => setTab("mitarbeiter")}
-                className={tab === "mitarbeiter" ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}
-              >
-                <span className="flex items-center gap-3"><span>👥</span>Mitarbeiter</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("objekte")}
-                className={["objekte", "kunden", "kontakte", "auswertung"].includes(tab) ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}
-              >
-                <span className="flex items-center gap-3"><span>🏢</span>Objekte</span><span>⌃</span>
-              </button>
-              <div className="mb-2 ml-10 space-y-1 border-l border-white/10 pl-4">
-                <button type="button" onClick={() => setTab("objekte")} className={tab === "objekte" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Objektliste</button>
-                <button type="button" onClick={() => setTab("kunden")} className={tab === "kunden" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Kunden</button>
-                <button type="button" onClick={() => setTab("kontakte")} className={tab === "kontakte" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Kontakte</button>
-                <button type="button" onClick={() => setTab("auswertung")} className={tab === "auswertung" ? "block w-full rounded-lg px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}>Auswertung</button>
-              </div>
-              {([["aufgaben", "🧾", "Aufgaben", 0], ["material", "📦", "Materialwesen", 0], ["geraete", "🔧", "Geräte", 0], ["schluessel", "🔑", "Schlüssel", 0]] as [Tab, string, string, number][]).map(([id, icon, label, badge]) => (
-                <button key={id} type="button" onClick={() => setTab(id)} className={tab === id ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}>
-                  <span className="flex items-center gap-3"><span>{icon}</span>{label}</span>{badge > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{badge}</span>}
-                </button>
-              ))}
-            </div>
-            <NavGroup items={[["faktura", "▥", "Faktura", 0], ["chat", "💬", "Chat", 0], ["hilfe", "❔", "Hilfe", 0], ["einstellungen", "⚙", "Einstellungen", 0]]} tab={tab} setTab={setTab} />
-          </nav>
-          <div className="mt-8 border-t border-white/10 pt-5"><p className="font-bold">Matteo Stano</p><p className="text-sm text-white/60">Admin</p></div>
-        </aside>
-        <section className="flex-1 overflow-x-hidden p-4 lg:p-8">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+    <main className="min-h-screen bg-[#f7f9fc] text-slate-900">
+      <div className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="CleanTrack" className="h-11 w-11 rounded-full object-contain ring-1 ring-slate-200" />
             <div>
-              <p className="text-sm font-semibold text-blue-600">Heute startklar machen</p>
-              <h2 className="text-xl font-black text-slate-950">CleanTrack Verwaltung</h2>
+              <div className="flex items-center gap-2">
+                <h1 className="font-black text-slate-950">CleanTrack Admin</h1>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">Aktiv</span>
+              </div>
+              <p className="text-sm text-slate-500">Matteo Stano Clean Gebäudereinigung</p>
             </div>
-            <button type="button" onClick={() => setTab("mitarbeiter")} className="rounded-2xl bg-slate-950 px-5 py-3 font-bold text-white shadow-sm transition hover:bg-blue-700">+ Mitarbeiter</button>
           </div>
-          {message && <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800 shadow-sm">{message}</div>}
-          {tab === "planung" && <Planner week={week} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setPrev={() => setSelectedDate(addDays(selectedDate, -7))} setNext={() => setSelectedDate(addDays(selectedDate, 7))} setToday={() => setSelectedDate(new Date())} employees={activeEmployees} tasks={tasks} openTask={openTask} editTask={editTask} deleteTask={deleteTask} />}
-          {tab === "zeitfreigabe" && <TimeApproval entries={pendingEntries} approve={(row: any) => approveEntry(row, true)} reject={(row: any) => approveEntry(row, false)} />}
-          {tab === "abwesenheiten" && <Absences employees={activeEmployees} absences={absences} absenceEmployee={absenceEmployee} setAbsenceEmployee={setAbsenceEmployee} absenceType={absenceType} setAbsenceType={setAbsenceType} absenceStart={absenceStart} setAbsenceStart={setAbsenceStart} absenceEnd={absenceEnd} setAbsenceEnd={setAbsenceEnd} absenceReason={absenceReason} setAbsenceReason={setAbsenceReason} createAbsence={createAbsence} decideAbsence={decideAbsence} />}
-          {tab === "lohn" && <Payroll employees={activeEmployees} entries={entries} />}
-          {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} openCreate={openEmployeeModal} openEdit={openEditEmployee} deactivate={deactivateEmployee} />}
-          {tab === "objekte" && <Objects sites={activeSites} siteId={siteId} siteName={siteName} setSiteName={setSiteName} siteAddress={siteAddress} setSiteAddress={setSiteAddress} siteRadius={siteRadius} setSiteRadius={setSiteRadius} siteLat={siteLat} setSiteLat={setSiteLat} siteLng={siteLng} setSiteLng={setSiteLng} siteNotes={siteNotes} setSiteNotes={setSiteNotes} geo={geocode} geoLoading={geoLoading} saveSite={saveSite} editSite={editSite} deactivate={async (id: string) => { await supabase.from("work_sites").update({ active: false }).eq("id", id); await loadSites(); }} />}
-          {tab === "kunden" && <Customers sites={sites} openCustomer={openCustomer} />}
-          {tab === "kontakte" && <Contacts contacts={contacts} sites={sites} employees={employees} openContact={openContact} deleteContact={async (r: any) => { await supabase.from("customer_contacts").delete().eq("id", r.id); await loadContacts(); }} />}
-          {tab === "auswertung" && <ObjectAnalysis sites={sites} tasks={tasks} entries={entries} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
-          {tab === "aufgaben" && <Tasks tasks={tasks} editTask={editTask} deleteTask={deleteTask} />}
-          {tab === "material" && <Material materials={materials} materialId={materialId} materialName={materialName} setMaterialName={setMaterialName} materialCategory={materialCategory} setMaterialCategory={setMaterialCategory} materialUnit={materialUnit} setMaterialUnit={setMaterialUnit} materialStock={materialStock} setMaterialStock={setMaterialStock} materialMinStock={materialMinStock} setMaterialMinStock={setMaterialMinStock} materialImage={materialImage} setMaterialImage={setMaterialImage} materialNotes={materialNotes} setMaterialNotes={setMaterialNotes} upload={async (f: File) => setMaterialImage(await uploadImage(f, "materials"))} save={saveMaterial} edit={editMaterial} remove={async (r: any) => { await supabase.from("material_products").delete().eq("id", r.id); await loadMaterials(); }} />}
-          {tab === "geraete" && <Devices equipment={equipment} employees={activeEmployees} deviceId={deviceId} deviceName={deviceName} setDeviceName={setDeviceName} deviceCategory={deviceCategory} setDeviceCategory={setDeviceCategory} deviceSerial={deviceSerial} setDeviceSerial={setDeviceSerial} deviceEmployee={deviceEmployee} setDeviceEmployee={setDeviceEmployee} deviceStatus={deviceStatus} setDeviceStatus={setDeviceStatus} deviceImage={deviceImage} setDeviceImage={setDeviceImage} deviceNotes={deviceNotes} setDeviceNotes={setDeviceNotes} upload={async (f: File) => setDeviceImage(await uploadImage(f, "equipment"))} save={saveDevice} edit={editDevice} remove={async (r: any) => { await supabase.from("equipment_items").delete().eq("id", r.id); await loadEquipment(); }} />}
-          {tab === "schluessel" && <Keys keysList={keys} employees={activeEmployees} sites={activeSites} keyId={keyId} keyName={keyName} setKeyName={setKeyName} keyNumber={keyNumber} setKeyNumber={setKeyNumber} keyCustomer={keyCustomer} setKeyCustomer={setKeyCustomer} keyObject={keyObject} setKeyObject={setKeyObject} keyEmployee={keyEmployee} setKeyEmployee={setKeyEmployee} keyStatus={keyStatus} setKeyStatus={setKeyStatus} keyHandover={keyHandover} setKeyHandover={setKeyHandover} keyReturn={keyReturn} setKeyReturn={setKeyReturn} keyNotes={keyNotes} setKeyNotes={setKeyNotes} save={saveKey} edit={editKey} remove={async (r: any) => { await supabase.from("key_items").delete().eq("id", r.id); await loadKeys(); }} pdf={keyPdf} />}
-          {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={(v: string) => { setChatEmployee(v); loadChat(v); }} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
-          {(["faktura", "hilfe", "einstellungen"] as Tab[]).includes(tab) && <Placeholder title={tab} />}
-        </section>
+          <div className="flex flex-1 items-center justify-end gap-2">
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className="hidden w-80 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-blue-500 lg:block" placeholder="Suchen..." />
+            <button type="button" onClick={loadAll} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold hover:bg-slate-50">Aktualisieren</button>
+            <button type="button" onClick={() => openEmployee()} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">+ Mitarbeiter</button>
+          </div>
+        </div>
+        <div className="mx-auto flex max-w-[1500px] gap-1 overflow-x-auto px-5 pb-3">
+          {navItems.map((item) => (
+            <button key={item.id} type="button" onClick={() => setTab(item.id)} className={tab === item.id ? "shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm" : "shrink-0 rounded-xl px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-900"}>
+              {item.icon} {item.label}
+            </button>
+          ))}
+        </div>
       </div>
-      {taskModal && <TaskModal close={() => setTaskModal(false)} taskId={taskId} mode={taskMode} setMode={setTaskMode} sites={activeSites} employees={activeEmployees} taskSite={taskSite} setTaskSite={setTaskSite} taskTitle={taskTitle} setTaskTitle={setTaskTitle} taskDate={taskDate} setTaskDate={setTaskDate} taskFrom={taskFrom} setTaskFrom={setTaskFrom} taskTo={taskTo} setTaskTo={setTaskTo} taskDuration={taskDuration} setTaskDuration={setTaskDuration} taskEmployee={taskEmployee} taskRepeatDays={taskRepeatDays} setTaskRepeatDays={setTaskRepeatDays} setTaskEmployee={setTaskEmployee} taskRepeatEnd={taskRepeatEnd} setTaskRepeatEnd={setTaskRepeatEnd} taskRepeatEvery={taskRepeatEvery} setTaskRepeatEvery={setTaskRepeatEvery} taskNotes={taskNotes} setTaskNotes={setTaskNotes} save={saveTask} />}
-      {employeeModal && <EmployeeModal close={() => setEmployeeModal(false)} name={employeeName} setName={setEmployeeName} email={employeeEmail} setEmail={setEmployeeEmail} phone={employeePhone} setPhone={setEmployeePhone} inviteLink={employeeInviteLink} whatsappLink={employeeWhatsappLink} loading={employeeCreating} create={createEmployeeInvite} />}
-      {employeeEditModal && <EmployeeEditModal close={() => setEmployeeEditModal(false)} save={saveEmployee} loading={employeeSaving} name={employeeEditName} setName={setEmployeeEditName} email={employeeEditEmail} setEmail={setEmployeeEditEmail} phone={employeeEditPhone} setPhone={setEmployeeEditPhone} number={employeeEditNumber} setNumber={setEmployeeEditNumber} address={employeeEditAddress} setAddress={setEmployeeEditAddress} hourlyRate={employeeEditHourlyRate} setHourlyRate={setEmployeeEditHourlyRate} vacationDays={employeeEditVacationDays} setVacationDays={setEmployeeEditVacationDays} active={employeeEditActive} setActive={setEmployeeEditActive} />}
-      {customerModal && <CustomerModal close={() => setCustomerModal(false)} save={saveCustomer} customerId={customerId} customerName={customerName} setCustomerName={setCustomerName} customerNumber={customerNumber} setCustomerNumber={setCustomerNumber} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerEmail={customerEmail} setCustomerEmail={setCustomerEmail} customerNotes={customerNotes} setCustomerNotes={setCustomerNotes} />}
-      {contactModal && <ContactModal close={() => setContactModal(false)} save={saveContact} contactId={contactId} contactName={contactName} setContactName={setContactName} contactCompany={contactCompany} setContactCompany={setContactCompany} contactPhone={contactPhone} setContactPhone={setContactPhone} contactEmail={contactEmail} setContactEmail={setContactEmail} contactRole={contactRole} setContactRole={setContactRole} contactNotes={contactNotes} setContactNotes={setContactNotes} />}
+
+      <section className="mx-auto max-w-[1500px] px-5 py-6">
+        {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
+
+        {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
+        {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
+        {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} deactivate={(row: Row) => insertOrUpdate("employee_profiles", row.id, { active: false })} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
+        {tab === "kunden" && <Customers rows={filtered.customers} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customers)} />}
+        {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
+        {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
+        {tab === "aufgaben" && <Tasks rows={filtered.tasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", tasks)} />}
+        {tab === "material" && <Materials rows={filtered.materials} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} exportRows={() => downloadCsv("material.csv", materials)} />}
+        {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
+        {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
+        {tab === "zeiten" && <Times rows={filtered.entries} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+        {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
+        {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
+      </section>
+
+      {modal === "employeeInvite" && <EmployeeInviteModal close={() => setModal(null)} form={employeeInvite} setForm={setEmployeeInvite} save={createEmployeeInvite} saving={saving} inviteLink={inviteLink} whatsappLink={whatsappLink} />}
+      {modal === "employeeEdit" && <EmployeeEditModal close={() => setModal(null)} form={employeeEdit} setForm={setEmployeeEdit} save={saveEmployee} saving={saving} />}
+      {modal === "customer" && <CustomerModal close={() => setModal(null)} form={customerForm} setForm={setCustomerForm} save={saveCustomer} saving={saving} />}
+      {modal === "contact" && <ContactModal close={() => setModal(null)} form={contactForm} setForm={setContactForm} save={saveContact} saving={saving} />}
+      {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} />}
+      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} sites={sites} />}
+      {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} />}
+      {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
+      {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customers} />}
+      {modal === "absence" && <AbsenceModal close={() => setModal(null)} form={absenceForm} setForm={setAbsenceForm} save={saveAbsence} saving={saving} employees={activeEmployees} />}
     </main>
   );
 }
 
+const navItems: { id: Tab; icon: string; label: string }[] = [
+  { id: "dashboard", icon: "●", label: "Übersicht" },
+  { id: "planung", icon: "▦", label: "Einsatzplan" },
+  { id: "mitarbeiter", icon: "👥", label: "Mitarbeiter" },
+  { id: "kunden", icon: "🏷", label: "Kunden" },
+  { id: "kontakte", icon: "☎", label: "Kontakte" },
+  { id: "objekte", icon: "🏢", label: "Objekte" },
+  { id: "aufgaben", icon: "✓", label: "Aufgaben" },
+  { id: "material", icon: "📦", label: "Material" },
+  { id: "geraete", icon: "🔧", label: "Geräte" },
+  { id: "schluessel", icon: "🔑", label: "Schlüssel" },
+  { id: "zeiten", icon: "⏱", label: "Zeiten" },
+  { id: "abwesenheiten", icon: "✈", label: "Abwesenheiten" },
+  { id: "chat", icon: "💬", label: "Chat" },
+];
 
-function NavGroup({ items, tab, setTab }: { items: [Tab, string, string, number][]; tab: Tab; setTab: (tab: Tab) => void }) {
-  return (
-    <div className="border-t border-white/10 pt-4">
-      {items.map(([id, icon, label, badge]) => (
-        <button
-          key={id}
-          onClick={() => setTab(id)}
-          className={
-            tab === id
-              ? "mb-1 flex w-full items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-left font-bold text-white"
-              : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"
-          }
-        >
-          <span className="flex items-center gap-3"><span>{icon}</span>{label}</span>
-          {badge > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{badge}</span>}
-        </button>
-      ))}
-    </div>
-  );
+function filterRows(rows: Row[], query: string) {
+  if (!query) return rows;
+  return rows.filter((row) => JSON.stringify(row).toLowerCase().includes(query));
 }
 
-
-
-function ObjectNavGroup({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
-  const objectTabs: [Tab, string][] = [["objekte", "Objekte"], ["kunden", "Kunden"], ["kontakte", "Kontakte"], ["auswertung", "Auswertung"]];
-  const open = objectTabs.some(([id]) => id === tab);
-
-  return (
-    <div className="border-t border-white/10 pt-4">
-      <button
-        type="button"
-        onClick={() => setTab("objekte")}
-        className={open ? "mb-1 flex w-full items-center justify-between rounded-xl bg-white/15 px-4 py-3 text-left font-bold text-white" : "mb-1 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-white/90 hover:bg-white/10"}
-      >
-        <span className="flex items-center gap-3"><span>🏢</span>Objekte</span>
-        <span>⌃</span>
-      </button>
-
-      {open && (
-        <div className="mb-2 ml-10 space-y-1 text-sm">
-          {objectTabs.slice(1).map(([id, label]) => (
-            <button
-              type="button"
-              key={id}
-              onClick={() => setTab(id)}
-              className={tab === id ? "block w-full rounded-lg bg-white/10 px-3 py-2 text-left font-bold text-white" : "block w-full rounded-lg px-3 py-2 text-left text-white/80 hover:bg-white/10"}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function customerRowsFromSites(sites: Row[]) {
+  const map = new Map<string, Row>();
+  for (const site of sites) {
+    const name = site.customer_name || site.name;
+    if (!name) continue;
+    if (!map.has(name)) {
+      map.set(name, {
+        ...site,
+        customer_name: name,
+        object_count: 0,
+      });
+    }
+    map.get(name)!.object_count += 1;
+  }
+  return [...map.values()];
 }
 
-
-function Header({ icon, title, children }: { icon: string; title: string; children?: React.ReactNode }) {
+function PageHeader({ icon, title, sub, children }: { icon: string; title: string; sub?: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-xl text-blue-600">{icon}</div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-black text-blue-700">{icon}</div>
         <div>
-          <p className="text-xs font-medium text-slate-400">CleanTrack Admin</p>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 capitalize">{title}</h1>
+          <h2 className="text-2xl font-black tracking-tight text-slate-950">{title}</h2>
+          {sub && <p className="text-sm text-slate-500">{sub}</p>}
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">{children}</div>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
 }
 
-
-
-function Button({ children, onClick, primary, className = "" }: { children: React.ReactNode; onClick?: () => void; primary?: boolean; className?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        primary
-          ? `rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow-sm transition hover:bg-blue-700 ${className}`
-          : `rounded-xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 ${className}`
-      }
-    >
-      {children}
-    </button>
-  );
+function Button({ children, onClick, primary = false, danger = false, type = "button", disabled = false }: { children: React.ReactNode; onClick?: () => void; primary?: boolean; danger?: boolean; type?: "button" | "submit"; disabled?: boolean }) {
+  const cls = danger
+    ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+    : primary
+      ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50";
+  return <button type={type} onClick={onClick} disabled={disabled} className={`rounded-xl border px-4 py-2.5 text-sm font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}>{children}</button>;
 }
-
-
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</div>;
 }
 
-
-
-function Table({ headers, children }: { headers: string[]; children: React.ReactNode }) {
+function Table({ headers, children, min = "900px" }: { headers: string[]; children: React.ReactNode; min?: string }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <table className="w-full min-w-[900px] text-sm">
+      <table className="w-full text-sm" style={{ minWidth: min }}>
         <thead className="bg-slate-50 text-slate-500">
-          <tr>{headers.map((h) => <th key={h} className="border-b border-slate-200 px-4 py-3 text-left font-bold">{h}</th>)}</tr>
+          <tr>{headers.map((h) => <th key={h} className="border-b border-slate-200 px-4 py-3 text-left font-black">{h}</th>)}</tr>
         </thead>
         <tbody className="divide-y divide-slate-100">{children}</tbody>
       </table>
@@ -984,842 +790,210 @@ function Table({ headers, children }: { headers: string[]; children: React.React
   );
 }
 
-
-function EmptyState({ text = "Noch keine Daten hinterlegt" }: { text?: string }) {
-  return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center text-center text-slate-500">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-xl text-blue-600">×</div>
-      <p className="text-lg font-medium text-slate-900">{text}</p>
-      <p className="mt-2 text-sm">Erstellen Sie Daten, damit diese hier angezeigt werden.</p>
-    </div>
-  );
+function Empty({ text = "Noch keine Daten hinterlegt" }: { text?: string }) {
+  return <div className="flex min-h-[300px] flex-col items-center justify-center text-center text-slate-400"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">×</div><p className="font-bold text-slate-700">{text}</p><p className="text-sm">Klicke oben auf „Neu“, um zu starten.</p></div>;
 }
 
-
-function FilterButton({ label }: { label: string }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    function close() { setOpen(false); }
-    function outside(event: MouseEvent) {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
-    }
-    window.addEventListener("cleantrack-close-dropdowns", close);
-    document.addEventListener("mousedown", outside);
-    return () => {
-      window.removeEventListener("cleantrack-close-dropdowns", close);
-      document.removeEventListener("mousedown", outside);
-    };
-  }, []);
-
-  return (
-    <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(!open)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-500 shadow-sm transition hover:bg-slate-50">
-        {label}⌄
-      </button>
-      {open && (
-        <div className="absolute z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-xl">
-          <p className="font-bold text-slate-800">{label}</p>
-          <button type="button" onClick={() => setOpen(false)} className="mt-3 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Alle anzeigen</button>
-          <button type="button" onClick={() => setOpen(false)} className="mt-1 w-full rounded-lg bg-slate-50 px-3 py-2 text-left hover:bg-blue-50">Aktive auswählen</button>
-          <p className="mt-3 text-xs text-slate-400">Die Auswahl schließt automatisch nach Klick außerhalb.</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function Toolbar({ children }: { children?: React.ReactNode }) {
-  return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <input className="field h-12 w-80 max-w-full" placeholder="🔍 Suchen" />
-        <FilterButton label="Mitarbeitergruppen" />
-        <FilterButton label="Objekte" />
-        <button type="button" className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-400 shadow-sm transition hover:bg-slate-50">+ Filter hinzufügen</button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">{children}</div>
-    </div>
-  );
-}
-
-
-function weekMinutesFor(employeeName: string, tasks: Row[], week: Date[]) {
-  const days = new Set(week.map(iso));
-  return tasks
-    .filter((t: Row) => t.employee_name === employeeName && days.has(t.task_date))
-    .reduce((sum: number, t: Row) => sum + Number(t.planned_minutes || t.max_minutes || 0), 0);
-}
-
-function employeeLimitMinutes(e: Row) {
-  return Number(e.weekly_limit_minutes || e.weekly_minutes || e.weekly_hours * 60 || e.max_weekly_minutes || 0);
-}
-
-
-function EmployeeBars({ employee, planned }: { employee: Row; planned: number }) {
-  const limit = employeeLimitMinutes(employee);
-  const available = limit ? limit - planned : -planned;
-  const plannedPct = limit ? Math.min(100, Math.round((planned / limit) * 100)) : Math.min(100, planned > 0 ? 100 : 0);
-  const availablePct = limit ? Math.max(0, 100 - plannedPct) : 0;
-
-  return (
-    <div className="group relative mt-3 w-44">
-      <div className="flex gap-1">
-        <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${Math.max(12, plannedPct * 1.2)}px` }} />
-        <div className="h-1.5 rounded-full bg-red-400" style={{ width: `${Math.max(12, availablePct * 1.2)}px` }} />
-      </div>
-      <div className="pointer-events-none absolute left-0 top-4 z-30 hidden w-60 rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-xl group-hover:block">
-        <p className="font-bold text-slate-900">Stunden für diese Woche</p>
-        <div className="mt-2 grid grid-cols-2 gap-1 text-slate-600">
-          <span>Eingeplant</span><b className="text-right text-slate-900">{hours(planned)}h</b>
-          <span>Limit</span><b className="text-right text-slate-900">{limit ? `${hours(limit)}h` : "00:00h"}</b>
-          <span>Noch verfügbar</span><b className={available < 0 ? "text-right text-red-600" : "text-right text-slate-900"}>{available < 0 ? `-${hours(Math.abs(available))}h` : `${hours(available)}h`}</b>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function minutesOfDay(value?: string | null) {
-  if (!value) return 0;
-  const [h, m] = String(value).split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-function normalizedRange(task: Row) {
-  const start = minutesOfDay(task.start_time);
-  let end = minutesOfDay(task.end_time);
-  if (end <= start) end += 1440;
-  return { start, end };
-}
-
-function hasTaskOverlap(task: Row, dayTasks: Row[]) {
-  const a = normalizedRange(task);
-  return dayTasks.some((other) => {
-    if (other.id === task.id) return false;
-    const b = normalizedRange(other);
-    return a.start < b.end && b.start < a.end;
-  });
-}
-
-
-
-function Planner(p: any) {
-  const weekTitle = `${p.week[0].toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })} → ${p.week[6].toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
-
-  return (
-    <div>
-      <Header icon="▦" title="Einsatzplaner">
-        <Button onClick={p.setPrev} className="h-12 w-12 px-0">‹</Button>
-        <Button onClick={p.setToday}>Heute</Button>
-        <Button onClick={p.setNext} className="h-12 w-12 px-0">›</Button>
-        <Button primary onClick={() => p.openTask()}>⊕ Einsatz erstellen</Button>
-      </Header>
-
-      <Toolbar>
-        <Button className="min-w-40">📅 {weekTitle}</Button>
-        <Button>Woche⌄</Button>
-      </Toolbar>
-
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <div className="grid min-w-[1500px] grid-cols-[260px_repeat(7,1fr)] border-b border-slate-200 bg-slate-50">
-            <div className="flex items-center border-r border-slate-200 px-5 py-4 font-bold text-slate-600">Mitarbeiter</div>
-            {p.week.map((d: Date) => (
-              <button key={d.toISOString()} onClick={() => p.setSelectedDate(d)} className="border-r border-slate-200 px-4 py-3 text-center font-bold text-slate-600 transition last:border-r-0 hover:bg-blue-50">
-                <p>{d.toLocaleDateString("de-DE", { weekday: "short" })}</p>
-                <p className="text-sm">{d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</p>
-              </button>
-            ))}
-          </div>
-
-          {p.employees.map((e: Row) => {
-            const planned = weekMinutesFor(e.name, p.tasks, p.week);
-            return (
-              <div key={e.id} className="grid min-w-[1500px] grid-cols-[260px_repeat(7,1fr)] border-b border-slate-200 last:border-b-0">
-                <div className="flex min-h-36 items-center gap-3 border-r border-slate-200 bg-white p-5">
-                  {e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-12 w-12 rounded-full object-cover" /> : <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</div>}
-                  <div>
-                    <p className="font-bold text-slate-950">{e.name}</p>
-                    <EmployeeBars employee={e} planned={planned} />
-                  </div>
-                </div>
-
-                {p.week.map((d: Date) => {
-                  const date = iso(d);
-                  const dayTasks = p.tasks
-                    .filter((t: Row) => t.employee_name === e.name && t.task_date === date)
-                    .sort((a: Row, b: Row) => minutesOfDay(a.start_time) - minutesOfDay(b.start_time));
-                  return (
-                    <div key={date} className="min-h-36 border-r border-slate-200 bg-white p-2 last:border-r-0 hover:bg-slate-50">
-                      {dayTasks.map((t: Row) => {
-                        const conflict = hasTaskOverlap(t, dayTasks);
-                        return (
-                          <button
-                            type="button"
-                            key={t.id}
-                            onClick={() => p.editTask(t)}
-                            className={`mb-2 w-full rounded-lg border bg-white p-3 text-left text-xs shadow-sm transition hover:shadow-md ${conflict ? "border-l-4 border-l-red-500" : "border-l-4 border-l-green-500"}`}
-                          >
-                            <div className="flex justify-between gap-2 text-slate-500">
-                              <span>{t.start_time} → {t.end_time}</span>
-                              <span className="flex gap-2 text-slate-400"><span>👤</span><span>↻</span></span>
-                            </div>
-                            <p className="mt-1 truncate font-bold text-slate-950">{t.site}</p>
-                            <span className="mt-2 inline-block rounded bg-orange-100 px-2 py-1 text-[11px] font-medium text-orange-700">● {t.title}</span>
-                            <p className="mt-1 text-[11px] text-slate-400">Planzeit: {hours(Number(t.planned_minutes || t.max_minutes || 0))} Std.</p>
-                            {conflict && <p className="mt-1 text-[11px] font-bold text-red-600">Zeitüberschneidung</p>}
-                          </button>
-                        );
-                      })}
-                      <button onClick={() => p.openTask(d, e)} className="min-h-24 w-full rounded-lg border border-dashed border-blue-100 text-sm text-blue-200 transition hover:border-blue-300 hover:text-blue-500">+ Einsatz</button>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-
-
-function TaskModal(p: any) {
-  const weekdays = [
-    [1, "M"], [2, "D"], [3, "M"], [4, "D"], [5, "F"], [6, "S"], [7, "S"],
-  ] as [number, string][];
-  const toggleDay = (day: number) => {
-    const days = p.taskRepeatDays || [];
-    p.setTaskRepeatDays(days.includes(day) ? days.filter((x: number) => x !== day) : [...days, day].sort());
+function Status({ children, color = "green" }: { children: React.ReactNode; color?: "green" | "blue" | "yellow" | "red" | "gray" }) {
+  const colors = {
+    green: "bg-emerald-100 text-emerald-700",
+    blue: "bg-blue-100 text-blue-700",
+    yellow: "bg-amber-100 text-amber-700",
+    red: "bg-red-100 text-red-700",
+    gray: "bg-slate-100 text-slate-600",
   };
-  const duration = Math.max(0, Number(p.taskDuration || 0));
-  const selectedSite = p.sites.find((s: Row) => s.id === p.taskSite);
-
-  const form = (
-    <>
-      <div className="mb-4 flex gap-2">
-        <button type="button" onClick={() => p.setMode("single")} className={p.mode === "single" ? "rounded-lg border border-blue-400 bg-white px-4 py-2 font-bold text-blue-600" : "rounded-lg border bg-white px-4 py-2"}>Einmalig</button>
-        <button type="button" onClick={() => p.setMode("repeat")} className={p.mode === "repeat" ? "rounded-lg border border-blue-400 bg-white px-4 py-2 font-bold text-blue-600" : "rounded-lg border bg-white px-4 py-2"}>Wiederholend</button>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-4">
-        <div><label className="mb-1 block text-sm font-bold text-slate-500">{p.mode === "repeat" ? "Startdatum*" : "Termin*"}</label><input type="date" value={p.taskDate} onChange={(e) => p.setTaskDate(e.target.value)} className="field" /></div>
-        <div><label className="mb-1 block text-sm font-bold text-slate-500">Von*</label><input type="time" value={p.taskFrom} onChange={(e) => p.setTaskFrom(e.target.value)} className="field" /></div>
-        <div><label className="mb-1 block text-sm font-bold text-slate-500">Bis*</label><input type="time" value={p.taskTo} onChange={(e) => p.setTaskTo(e.target.value)} className="field" /></div>
-        <div><label className="mb-1 block text-sm font-bold text-slate-500">Dauer in Min.</label><input type="number" min="1" value={p.taskDuration} onChange={(e) => p.setTaskDuration(e.target.value)} className="field" placeholder="120" /></div>
-      </div>
-
-      <p className="mt-2 text-xs text-slate-400">Von/Bis ist der Einsatz-Zeitrahmen. Dauer ist die maximale geplante Arbeitszeit innerhalb dieses Rahmens.</p>
-
-      <div className="mt-3 flex flex-wrap gap-3">
-        <button type="button" className="rounded-lg border px-3 py-2 text-sm text-slate-500">⊕ Fahrzeit hinzufügen</button>
-        <button type="button" className="rounded-lg border px-3 py-2 text-sm text-slate-500">⊕ Pausenzeit hinzufügen</button>
-      </div>
-
-      {p.mode === "repeat" && (
-        <div className="mt-5 space-y-4">
-          <div className="grid gap-3 md:grid-cols-[140px_1fr]"><label className="text-sm font-bold text-slate-500">Wiederholen alle</label><div className="grid grid-cols-[80px_1fr] gap-3"><input type="number" min="1" value={p.taskRepeatEvery} onChange={(e) => p.setTaskRepeatEvery(e.target.value)} className="field" /><div className="field">Woche</div></div></div>
-          <div><label className="mb-2 block text-sm font-bold text-slate-500">Wiederholen am</label><div className="flex flex-wrap gap-2">{weekdays.map(([day, label]) => <button type="button" key={`${day}-${label}`} onClick={() => toggleDay(day)} className={(p.taskRepeatDays || []).includes(day) ? "h-10 w-10 rounded-full border border-blue-500 bg-blue-100 font-bold text-blue-700" : "h-10 w-10 rounded-full border bg-white text-slate-500"}>{label}</button>)}</div></div>
-          <div><label className="mb-1 block text-sm font-bold text-slate-500">Enddatum</label><input type="date" value={p.taskRepeatEnd} onChange={(e) => p.setTaskRepeatEnd(e.target.value)} className="field" /></div>
-        </div>
-      )}
-      <div className="mt-5 border-t pt-4 text-right text-lg font-bold">Lohnzeit {hours(duration)} Std.</div>
-    </>
-  );
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
-      <div className={p.taskId ? "h-full w-full max-w-6xl overflow-y-auto bg-white shadow-xl" : "h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl"}>
-        <div className="flex items-start justify-between border-b px-6 py-4">
-          <div>
-            {p.taskTitle && <p className="text-xs font-bold text-orange-500">{p.taskTitle}</p>}
-            <h2 className="text-xl font-bold text-slate-950">{p.taskId ? selectedSite?.name || "Einsatz bearbeiten" : "Einsatz erstellen"}</h2>
-          </div>
-          <div className="flex items-center gap-3">
-            {p.taskId && <span className="rounded bg-green-100 px-2 py-1 text-xs font-bold text-green-700">Geplant</span>}
-            <button onClick={p.close} className="text-2xl text-slate-400">×</button>
-          </div>
-        </div>
-
-        {p.taskId ? (
-          <div className="grid min-h-[calc(100vh-73px)] lg:grid-cols-[1.15fr_0.9fr]">
-            <div className="border-r p-6">
-              <div className="mb-5 flex gap-6 border-b">
-                <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Informationen</button>
-                <button className="pb-3 font-medium text-slate-500">Dokumentation</button>
-              </div>
-
-              <label className="block text-sm font-bold text-slate-500">Objekt*</label>
-              <select value={p.taskSite} onChange={(e) => p.setTaskSite(e.target.value)} className="field mb-4"><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
-              <label className="block text-sm font-bold text-slate-500">Auftrag*</label>
-              <input value={p.taskTitle} onChange={(e) => p.setTaskTitle(e.target.value)} className="field mb-4" placeholder="Auftrag" />
-
-              <div className="rounded-2xl bg-slate-50 p-5">{form}</div>
-
-              <label className="mt-4 block text-sm font-bold text-slate-500">Mitarbeiter</label>
-              <select value={p.taskEmployee} onChange={(e) => p.setTaskEmployee(e.target.value)} className="field"><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
-              <div className="mt-4"><label className="mb-1 block text-sm font-bold text-slate-500">Kommentar</label><textarea value={p.taskNotes} onChange={(e) => p.setTaskNotes(e.target.value)} className="field min-h-24" placeholder="Kommentar" /></div>
-            </div>
-
-            <div className="bg-slate-50 p-6">
-              <div className="mb-5 flex gap-4 border-b">
-                <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Aktivitäten</button>
-                <button className="pb-3 font-medium text-slate-500">Dateien</button>
-                <button className="pb-3 font-medium text-slate-500">Angeheftet</button>
-              </div>
-              <div className="flex min-h-[52vh] items-end">
-                <div className="w-full rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="mb-4 text-sm text-slate-600"><b>System</b> hat erstellt: Einsatz</p>
-                  <div className="mb-3 flex gap-4 border-b pb-3 text-sm">
-                    <button className="font-bold text-blue-600">✉ Nachricht</button>
-                    <button className="text-slate-500">🗒 Notiz</button>
-                  </div>
-                  <textarea className="w-full resize-none outline-none" placeholder="Versende eine Nachricht..." />
-                  <div className="mt-3 flex justify-end gap-2"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>Speichern</Button></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="p-6">
-            <div className="space-y-4">
-              <label className="block text-sm font-bold text-slate-500">Objekt*</label>
-              <select value={p.taskSite} onChange={(e) => p.setTaskSite(e.target.value)} className="field"><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
-              <label className="block text-sm font-bold text-slate-500">Auftrag*</label>
-              <input value={p.taskTitle} onChange={(e) => p.setTaskTitle(e.target.value)} className="field" placeholder="Auftrag" />
-              <div className="rounded-2xl bg-slate-50 p-5">{form}</div>
-              <label className="block text-sm font-bold text-slate-500">Mitarbeiter</label>
-              <select value={p.taskEmployee} onChange={(e) => p.setTaskEmployee(e.target.value)} className="field"><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
-              <div><label className="mb-1 block text-sm font-bold text-slate-500">Kommentar</label><textarea value={p.taskNotes} onChange={(e) => p.setTaskNotes(e.target.value)} className="field min-h-24" placeholder="Kommentar" /></div>
-            </div>
-            <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>Erstellen</Button></div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <span className={`rounded-full px-2 py-1 text-xs font-black ${colors[color]}`}>{children}</span>;
 }
 
-
-
-
-function CustomerModal(p: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onMouseDown={(e) => { if (e.target === e.currentTarget) p.close(); }}>
-      <div className="h-full w-full max-w-3xl overflow-y-auto bg-white shadow-xl">
-        <div className="flex items-start justify-between border-b px-6 py-4">
-          <div>
-            <p className="text-xs font-bold text-blue-500">Kundenverwaltung</p>
-            <h2 className="text-xl font-bold text-slate-950">{p.customerId ? "Kunde bearbeiten" : "Kunde erstellen"}</h2>
-          </div>
-          <button onClick={p.close} className="text-2xl text-slate-400">×</button>
-        </div>
-        <div className="p-6">
-          <div className="mb-5 flex gap-6 border-b">
-            <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Informationen</button>
-            <button className="pb-3 font-medium text-slate-500">Kontakte</button>
-            <button className="pb-3 font-medium text-slate-500">Dokumentation</button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">Kunde*</label><input value={p.customerName} onChange={(e) => p.setCustomerName(e.target.value)} className="field" placeholder="Kundenname" /></div>
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">Kundennummer</label><input value={p.customerNumber} onChange={(e) => p.setCustomerNumber(e.target.value)} className="field" placeholder="z. B. 1001" /></div>
-            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Adresse</label><input value={p.customerAddress} onChange={(e) => p.setCustomerAddress(e.target.value)} className="field" placeholder="Straße, PLZ Ort" /></div>
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">Telefon</label><input value={p.customerPhone} onChange={(e) => p.setCustomerPhone(e.target.value)} className="field" placeholder="Telefon" /></div>
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">E-Mail</label><input value={p.customerEmail} onChange={(e) => p.setCustomerEmail(e.target.value)} className="field" placeholder="E-Mail" /></div>
-            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Notizen</label><textarea value={p.customerNotes} onChange={(e) => p.setCustomerNotes(e.target.value)} className="field min-h-28" placeholder="Besonderheiten, Ansprechpartner, Rechnungsinfo ..." /></div>
-          </div>
-          <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>{p.customerId ? "Speichern" : "Kunde erstellen"}</Button></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ContactModal(p: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onMouseDown={(e) => { if (e.target === e.currentTarget) p.close(); }}>
-      <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl">
-        <div className="flex items-start justify-between border-b px-6 py-4">
-          <div>
-            <p className="text-xs font-bold text-blue-500">Kontaktverwaltung</p>
-            <h2 className="text-xl font-bold text-slate-950">{p.contactId ? "Kontakt bearbeiten" : "Kontakt erstellen"}</h2>
-          </div>
-          <button onClick={p.close} className="text-2xl text-slate-400">×</button>
-        </div>
-        <div className="p-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">Name*</label><input value={p.contactName} onChange={(e) => p.setContactName(e.target.value)} className="field" placeholder="Kontaktname" /></div>
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">Rolle</label><input value={p.contactRole} onChange={(e) => p.setContactRole(e.target.value)} className="field" placeholder="z. B. Objektleiter" /></div>
-            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Firma / Objekt</label><input value={p.contactCompany} onChange={(e) => p.setContactCompany(e.target.value)} className="field" placeholder="Firma oder Objekt" /></div>
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">Telefon</label><input value={p.contactPhone} onChange={(e) => p.setContactPhone(e.target.value)} className="field" placeholder="Telefon" /></div>
-            <div><label className="mb-1 block text-sm font-bold text-slate-500">E-Mail</label><input value={p.contactEmail} onChange={(e) => p.setContactEmail(e.target.value)} className="field" placeholder="E-Mail" /></div>
-            <div className="md:col-span-2"><label className="mb-1 block text-sm font-bold text-slate-500">Notizen</label><textarea value={p.contactNotes} onChange={(e) => p.setContactNotes(e.target.value)} className="field min-h-28" placeholder="Notizen" /></div>
-          </div>
-          <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t bg-white py-4"><Button onClick={p.close}>Abbrechen</Button><Button primary onClick={p.save}>{p.contactId ? "Speichern" : "Kontakt erstellen"}</Button></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TimeApproval(p: any) {
+function Dashboard(p: any) {
   return (
     <div>
-      <Header icon="⏱" title="Zeitenfreigabe"><Button>Exportieren</Button><Button>⚙</Button></Header>
-      <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Datum", "Name", "Einsatz", "Fehler", "Soll-Zeit", "Abweichung", "Akzeptieren", "Ablehnen"]}>
-        {p.entries.map((e: Row) => (
-          <tr key={e.id}>
-            <td className="px-4 py-3">{new Date(e.created_at).toLocaleDateString("de-DE")}</td>
-            <td className="px-4 py-3 font-bold">{e.employee_name}</td>
-            <td className="px-4 py-3">{e.work_site_name || "-"}</td>
-            <td className="px-4 py-3"><span className="rounded bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700">{e.status || "Prüfen"}</span></td>
-            <td className="px-4 py-3">{hours(Number(e.planned_minutes || 0))} Std.</td>
-            <td className="px-4 py-3">{Number(e.overtime_minutes || 0)} Min.</td>
-            <td className="px-4 py-3"><button onClick={() => p.approve(e)} className="rounded-lg bg-green-100 px-3 py-2 font-bold text-green-700">Bestätigen</button></td>
-            <td className="px-4 py-3"><button onClick={() => p.reject(e)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Ablehnen</button></td>
-          </tr>
+      <PageHeader icon="●" title="Übersicht" sub="Heute startklar machen" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric title="Aktive Mitarbeiter" value={p.employees.length} hint="mit Login verbunden" />
+        <Metric title="Offene Aufgaben" value={p.openTasks ?? p.tasks.filter((x: Row) => !x.done).length} hint="noch zu erledigen" />
+        <Metric title="Arbeitszeit" value={`${prettyHours(p.workedMinutes)} Std.`} hint="erfasster Zeitraum" />
+        <Metric title="Material prüfen" value={p.lowStock} hint="unter Mindestbestand" />
+      </div>
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+        <Card className="p-5">
+          <h3 className="mb-4 font-black">Schnellstart</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Quick title="Mitarbeiter anlegen" text="Einladung erstellen und Link versenden." onClick={() => p.setTab("mitarbeiter")} />
+            <Quick title="Aufgabe planen" text="Einsatz für Objekt und Mitarbeiter erstellen." onClick={() => p.setTab("aufgaben")} />
+            <Quick title="Material buchen" text="Bestände und Artikel verwalten." onClick={() => p.setTab("material")} />
+            <Quick title="Schlüssel prüfen" text="Ausgabe und Rückgabe dokumentieren." onClick={() => p.setTab("schluessel")} />
+          </div>
+        </Card>
+        <Card className="p-5">
+          <h3 className="mb-4 font-black">Offene Hinweise</h3>
+          <InfoLine label="Abwesenheiten" value={p.openAbsences} />
+          <InfoLine label="Aufgaben" value={p.tasks.filter((x: Row) => !x.done).length} />
+          <InfoLine label="Objekte" value={p.sites.length} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ title, value, hint }: { title: string; value: React.ReactNode; hint: string }) {
+  return <Card className="p-5"><p className="text-sm font-bold text-slate-500">{title}</p><p className="mt-2 text-3xl font-black text-slate-950">{value}</p><p className="mt-1 text-xs text-slate-400">{hint}</p></Card>;
+}
+
+function Quick({ title, text, onClick }: { title: string; text: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left hover:border-blue-300 hover:bg-blue-50"><p className="font-black text-slate-950">{title}</p><p className="mt-1 text-sm text-slate-500">{text}</p></button>;
+}
+
+function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div className="flex items-center justify-between border-b border-slate-100 py-3 last:border-b-0"><span className="text-slate-500">{label}</span><span className="font-black text-slate-950">{value}</span></div>;
+}
+
+function Planning(p: any) {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+  return (
+    <div>
+      <PageHeader icon="▦" title="Einsatzplan" sub="Kalenderansicht für die nächsten Tage"><Button primary onClick={() => p.openTask()}>+ Auftrag planen</Button></PageHeader>
+      <div className="grid gap-4 xl:grid-cols-7">
+        {days.map((day) => (
+          <Card key={day} className="min-h-[420px] p-3">
+            <p className="mb-3 text-sm font-black text-slate-700">{dateText(day)}</p>
+            <div className="space-y-2">
+              {p.tasks.filter((task: Row) => task.task_date === day).map((task: Row) => (
+                <button key={task.id} type="button" onClick={() => p.editTask(task)} className="w-full rounded-xl border-l-4 border-blue-500 bg-blue-50 p-3 text-left text-sm hover:bg-blue-100">
+                  <p className="font-black">{task.start_time} · {task.title}</p>
+                  <p className="text-slate-500">{task.employee_name || "Ohne Mitarbeiter"}</p>
+                  <p className="text-slate-500">{task.site || "Ohne Objekt"}</p>
+                </button>
+              ))}
+            </div>
+          </Card>
         ))}
-      </Table>
-      {p.entries.length === 0 && <Card className="mt-4"><EmptyState /></Card>}
+      </div>
     </div>
   );
-}
-
-
-
-function Absences(p: any) {
-  return (
-    <div>
-      <Header icon="✈" title="Abwesenheiten"><Button primary onClick={p.createAbsence}>⊕ Abwesenheit erstellen</Button><Button>⚙</Button></Header>
-      <Toolbar />
-      <Card className="mb-6 p-5">
-        <div className="grid gap-3 md:grid-cols-5">
-          <select value={p.absenceEmployee} onChange={(e) => p.setAbsenceEmployee(e.target.value)} className="field"><option value="">Mitarbeiter</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select>
-          <select value={p.absenceType} onChange={(e) => p.setAbsenceType(e.target.value)} className="field"><option>Urlaub</option><option>Krankheit</option><option>Sonstiges</option></select>
-          <input type="date" value={p.absenceStart} onChange={(e) => p.setAbsenceStart(e.target.value)} className="field" />
-          <input type="date" value={p.absenceEnd} onChange={(e) => p.setAbsenceEnd(e.target.value)} className="field" />
-          <input value={p.absenceReason} onChange={(e) => p.setAbsenceReason(e.target.value)} className="field" placeholder="Grund" />
-        </div>
-      </Card>
-      <Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>
-        {p.absences.map((a: Row) => <tr key={a.id}><td className="px-4 py-3 font-bold">{a.employee_name}</td><td className="px-4 py-3">{a.absence_type}</td><td className="px-4 py-3">{a.start_date}</td><td className="px-4 py-3">{a.end_date}</td><td className="px-4 py-3"><span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{a.status || "open"}</span></td><td className="px-4 py-3"><button onClick={() => p.decideAbsence(a, "approved")} className="mr-2 rounded-lg bg-green-100 px-3 py-2 text-green-700">Genehmigen</button><button onClick={() => p.decideAbsence(a, "rejected")} className="rounded-lg bg-red-100 px-3 py-2 text-red-700">Ablehnen</button></td></tr>)}
-      </Table>
-      {p.absences.length === 0 && <Card className="mt-4"><EmptyState /></Card>}
-    </div>
-  );
-}
-
-
-function Payroll(p: any) { return <div><Header icon="💰" title="Lohnabrechnung"><Button>Exportieren</Button></Header><Table headers={["Mitarbeiter", "Stunden", "Stundenlohn", "AG-Faktor", "Kosten"]}>{p.employees.map((e: Row) => { const min = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + Number(x.worked_minutes || x.planned_minutes || 0), 0); const cost = (min / 60) * Number(e.hourly_rate || 0) * Number(e.employer_cost_factor || 1); return <tr key={e.id} className="border-b"><td className="p-3 font-bold">{e.name}</td><td className="p-3">{hours(min)} Std.</td><td className="p-3">{e.hourly_rate || 0} €</td><td className="p-3">{e.employer_cost_factor || 1}</td><td className="p-3 font-bold">{cost.toFixed(2)} €</td></tr>; })}</Table></div>; }
-
-function minutesFromEntryRows(rows: Row[]) {
-  const sorted = [...rows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  let total = 0;
-  let lastStart: Date | null = null;
-  for (const entry of sorted) {
-    const action = String(entry.action || "");
-    const time = new Date(entry.created_at);
-    if (action === "start" || action === "break_end") lastStart = time;
-    if ((action === "break_start" || action === "end") && lastStart) {
-      total += Math.max(0, (time.getTime() - lastStart.getTime()) / 1000 / 60);
-      lastStart = null;
-    }
-  }
-  return Math.floor(total);
-}
-
-function currentMonthRange(base = new Date()) {
-  const start = new Date(base.getFullYear(), base.getMonth(), 1);
-  const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-  return { start: iso(start), end: iso(end) };
-}
-
-function dateBetween(value: string | null | undefined, start: string, end: string) {
-  if (!value) return false;
-  return value >= start && value <= end;
-}
-
-function employeeStats(employee: Row, entries: Row[], tasks: Row[], absences: Row[]) {
-  const { start, end } = currentMonthRange();
-  const employeeEntries = entries.filter((x: Row) => x.employee_name === employee.name && dateBetween(String(x.created_at || "").slice(0, 10), start, end));
-  const worked = employeeEntries.some((x: Row) => x.worked_minutes) ? employeeEntries.reduce((sum: number, x: Row) => sum + Number(x.worked_minutes || 0), 0) : minutesFromEntryRows(employeeEntries);
-  const planned = tasks.filter((x: Row) => x.employee_name === employee.name && dateBetween(x.task_date, start, end)).reduce((sum: number, x: Row) => sum + Number(x.planned_minutes || x.max_minutes || 0), 0);
-  const overtime = Math.max(0, worked - planned);
-  const vacation = absences.filter((x: Row) => x.employee_name === employee.name && String(x.absence_type || "").toLowerCase().includes("urlaub") && x.status === "approved").length;
-  const sick = absences.filter((x: Row) => x.employee_name === employee.name && String(x.absence_type || "").toLowerCase().includes("krank") && x.status === "approved").length;
-  const last = entries.filter((x: Row) => x.employee_name === employee.name).sort((a: Row, b: Row) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-  return { worked, planned, overtime, vacation, sick, lastActive: last?.created_at || employee.last_active || null };
-}
-
-function minutesWorkedForEmployee(employeeName: string, entries: Row[]) {
-  return entries
-    .filter((entry: Row) => entry.employee_name === employeeName)
-    .reduce((sum: number, entry: Row) => sum + Number(entry.worked_minutes || entry.planned_minutes || 0), 0);
-}
-
-function vacationDaysForEmployee(employeeName: string, absences: Row[]) {
-  return absences
-    .filter((a: Row) => a.employee_name === employeeName && a.absence_type === "Urlaub" && a.status === "approved")
-    .reduce((sum: number, a: Row) => {
-      const start = new Date(a.start_date);
-      const end = new Date(a.end_date || a.start_date);
-      const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
-      return sum + days;
-    }, 0);
 }
 
 function Employees(p: any) {
-  const activeCount = p.employees.filter((e: Row) => e.active !== false && e.role !== "admin").length;
-  const inviteCount = p.employees.filter((e: Row) => e.auth_user_id).length;
-  const monthMinutes = p.employees.reduce((sum: number, e: Row) => sum + minutesWorkedForEmployee(e.name, p.entries || []), 0);
-
   return (
     <div>
-      <Header icon="👥" title="Mitarbeiter">
-        <Button>Exportieren</Button>
-        <Button primary onClick={p.openCreate}>⊕ Mitarbeiter anlegen</Button>
-      </Header>
-
-      <div className="mb-5 grid gap-4 md:grid-cols-3">
-        <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">Aktive Mitarbeiter</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{activeCount}</p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">Mit Login verbunden</p>
-          <p className="mt-2 text-3xl font-black text-blue-600">{inviteCount}</p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">Gearbeitet / geladener Zeitraum</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{hours(monthMinutes)} Std.</p>
-        </Card>
-      </div>
-
-      <Card className="mb-5 p-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-black text-slate-950">Neuen Mitarbeiter starten</h2>
-            <p className="mt-1 text-sm text-slate-500">Ich lege zuerst eine Einladung an. Der Mitarbeiter öffnet den Link, vergibt sein Passwort und wird danach automatisch in Supabase Auth und im Profil angelegt.</p>
-          </div>
-          <Button primary onClick={p.openCreate}>Einladung erstellen</Button>
-        </div>
-      </Card>
-
-      <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Name", "Nummer", "Adresse", "Arbeitszeit", "Urlaub", "Kosten", "Login", "Status", "Aktion"]}>
-        {p.employees.map((e: Row, i: number) => {
-          const minutes = minutesWorkedForEmployee(e.name, p.entries || []);
-          const hourly = Number(e.hourly_rate || 0);
-          const factor = Number(e.employer_cost_factor || 1);
-          const cost = (minutes / 60) * hourly * factor;
-          const vacationUsed = vacationDaysForEmployee(e.name, p.absences || []);
-          const vacationTotal = Number(e.vacation_days || e.annual_vacation_days || 0);
-
-          return (
-            <tr key={e.id} className="transition hover:bg-slate-50">
-              <td className="px-4 py-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<div><b>{e.name}</b><p className="text-xs text-slate-400">{e.email || "Keine E-Mail"}</p></div></div></td>
-              <td className="px-4 py-3">{e.employee_number || i + 1}</td>
-              <td className="px-4 py-3 whitespace-pre-line">{e.address || e.street || "-"}</td>
-              <td className="px-4 py-3"><b>{hours(minutes)} Std.</b><p className="text-xs text-slate-400">Monat/geladen</p></td>
-              <td className="px-4 py-3">{vacationUsed} / {vacationTotal || "-"} Tage</td>
-              <td className="px-4 py-3 font-bold">{cost.toFixed(2)} €</td>
-              <td className="px-4 py-3"><span className={e.auth_user_id ? "rounded bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700" : "rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700"}>{e.auth_user_id ? "Aktiviert" : "Noch kein Login"}</span></td>
-              <td className="px-4 py-3"><span className={e.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{e.active === false ? "Passiv" : "Aktiv"}</span></td>
-              <td className="px-4 py-3">
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => p.openEdit(e)} className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100">Bearbeiten</button>
-                  {e.active !== false && <button type="button" onClick={() => p.deactivate(e)} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100">Deaktivieren</button>}
-                </div>
-              </td>
-            </tr>
-          );
-        })}
-      </Table>
+      <PageHeader icon="👥" title="Mitarbeiter" sub={`${p.rows.length} Datensätze`}><Button onClick={p.exportRows}>Exportieren</Button><Button primary onClick={p.openCreate}>+ Mitarbeiter anlegen</Button></PageHeader>
+      <div className="mb-5 grid gap-4 md:grid-cols-3"><Metric title="Aktive Mitarbeiter" value={p.rows.filter((x: Row) => x.active !== false).length} hint="im System" /><Metric title="Mit Login verbunden" value={p.rows.filter((x: Row) => x.auth_user_id).length} hint="Supabase Auth" /><Metric title="Abwesenheiten" value={p.absences.length} hint="gesamt" /></div>
+      <Table headers={["Name", "Nummer", "Kontakt", "Arbeitszeit", "Urlaub", "Kosten", "Status", "Aktion"]}>{p.rows.length === 0 ? <tr><td colSpan={8}><Empty /></td></tr> : p.rows.map((e: Row) => {
+        const entryMinutes = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + Number(x.worked_minutes || x.planned_minutes || 0), 0);
+        const cost = (entryMinutes / 60) * Number(e.hourly_rate || 0);
+        return <tr key={e.id}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(e.name)}</div><div><p className="font-black">{e.name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td><td className="px-4 py-3">{e.employee_number || "-"}</td><td className="px-4 py-3">{e.phone || "-"}</td><td className="px-4 py-3 font-bold">{prettyHours(entryMinutes)} Std.</td><td className="px-4 py-3">{e.vacation_days || e.annual_vacation_days || 0} Tage</td><td className="px-4 py-3 font-bold">{euro(cost)}</td><td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><div className="flex gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active !== false && <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td></tr>;
+      })}</Table>
     </div>
   );
-}
-
-function EmployeeModal(p: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-blue-600">Mitarbeiter anlegen</p>
-            <h2 className="text-2xl font-black text-slate-950">Einladung erstellen</h2>
-            <p className="mt-1 text-sm text-slate-500">Der Mitarbeiter bekommt einen Aktivierungslink und erstellt sein Passwort selbst.</p>
-          </div>
-          <button type="button" onClick={p.close} className="rounded-full bg-slate-100 px-3 py-2 font-black text-slate-500 hover:bg-slate-200">×</button>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Name *</span>
-            <input value={p.name} onChange={(e) => p.setName(e.target.value)} className="field" placeholder="z. B. Max Mustermann" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">E-Mail *</span>
-            <input value={p.email} onChange={(e) => p.setEmail(e.target.value)} className="field" placeholder="max@email.de" type="email" />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Telefon / WhatsApp</span>
-            <input value={p.phone} onChange={(e) => p.setPhone(e.target.value)} className="field" placeholder="0176 12345678" />
-          </label>
-        </div>
-
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <Button onClick={p.close}>Schließen</Button>
-          <Button primary onClick={p.create} className={p.loading ? "opacity-70" : ""}>{p.loading ? "Wird erstellt..." : "Einladung erstellen"}</Button>
-        </div>
-
-        {p.inviteLink && (
-          <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-            <p className="font-black text-blue-900">Einladung ist fertig</p>
-            <p className="mt-1 break-all rounded-xl bg-white p-3 text-sm text-slate-700">{p.inviteLink}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => navigator.clipboard?.writeText(p.inviteLink)} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Link kopieren</button>
-              {p.whatsappLink && <a href={p.whatsappLink} target="_blank" className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white">Per WhatsApp senden</a>}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-function EmployeeEditModal(p: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-blue-600">Mitarbeiter bearbeiten</p>
-            <h2 className="text-2xl font-black text-slate-950">Stammdaten ändern</h2>
-            <p className="mt-1 text-sm text-slate-500">Ich ändere hier Name, Kontakt, Personalnummer, Adresse, Urlaub und Status.</p>
-          </div>
-          <button type="button" onClick={p.close} className="rounded-full bg-slate-100 px-3 py-2 font-black text-slate-500 hover:bg-slate-200">×</button>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Name *</span>
-            <input value={p.name} onChange={(e) => p.setName(e.target.value)} className="field" placeholder="Name" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">E-Mail</span>
-            <input value={p.email} onChange={(e) => p.setEmail(e.target.value)} className="field" placeholder="E-Mail" type="email" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Telefon</span>
-            <input value={p.phone} onChange={(e) => p.setPhone(e.target.value)} className="field" placeholder="Telefon" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Personalnummer</span>
-            <input value={p.number} onChange={(e) => p.setNumber(e.target.value)} className="field" placeholder="z. B. 001" />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Adresse</span>
-            <input value={p.address} onChange={(e) => p.setAddress(e.target.value)} className="field" placeholder="Straße, PLZ Ort" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Stundenlohn</span>
-            <input value={p.hourlyRate} onChange={(e) => p.setHourlyRate(e.target.value)} className="field" placeholder="z. B. 14.50" inputMode="decimal" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-600">Urlaubstage pro Jahr</span>
-            <input value={p.vacationDays} onChange={(e) => p.setVacationDays(e.target.value)} className="field" placeholder="z. B. 24" inputMode="decimal" />
-          </label>
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
-            <input type="checkbox" checked={p.active} onChange={(e) => p.setActive(e.target.checked)} className="h-5 w-5" />
-            <span className="font-bold text-slate-700">Mitarbeiter ist aktiv</span>
-          </label>
-        </div>
-
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <Button onClick={p.close}>Abbrechen</Button>
-          <Button primary onClick={p.save} className={p.loading ? "opacity-70" : ""}>{p.loading ? "Speichert..." : "Änderungen speichern"}</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-function Objects(p: any) {
-  const sorted = [...p.sites].sort((a: Row, b: Row) => String(a.name || "").localeCompare(String(b.name || "")));
-  return (
-    <div>
-      <Header icon="🏢" title="Objekte"><Button>Exportieren</Button><Button primary onClick={p.saveSite}>⊕ Objekt erstellen</Button></Header>
-      <div className="mb-4 flex gap-8 border-b border-slate-200 pl-3 text-sm">
-        <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Aktiv</button>
-        <button className="pb-3 text-slate-500">Alle</button>
-        <button className="pb-3 text-slate-500">Passiv</button>
-      </div>
-      <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Card className="mb-6 p-5">
-        <p className="mb-4 text-slate-500">Objekt anlegen oder bearbeiten. Adresse eingeben, GPS automatisch berechnen, Notizen speichern.</p>
-        <div className="grid gap-3 md:grid-cols-6">
-          <input value={p.siteName} onChange={(e) => p.setSiteName(e.target.value)} className="field" placeholder="Objektname" />
-          <input value={p.siteAddress} onChange={(e) => p.setSiteAddress(e.target.value)} className="field md:col-span-2" placeholder="Adresse" />
-          <input value={p.siteRadius} onChange={(e) => p.setSiteRadius(e.target.value)} className="field" placeholder="Radius" />
-          <input value={p.siteLat} onChange={(e) => p.setSiteLat(e.target.value)} className="field" placeholder="Breite" />
-          <input value={p.siteLng} onChange={(e) => p.setSiteLng(e.target.value)} className="field" placeholder="Länge" />
-          <textarea value={p.siteNotes} onChange={(e) => p.setSiteNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" />
-          <button type="button" onClick={p.geo} disabled={p.geoLoading} className="rounded-xl bg-purple-100 px-4 py-3 font-bold text-purple-700 disabled:opacity-50">{p.geoLoading ? "Wird gesucht..." : "GPS ermitteln"}</button>
-          <button type="button" onClick={p.saveSite} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">{p.siteId ? "Änderung speichern" : "Speichern"}</button>
-        </div>
-      </Card>
-      <Table headers={["Name", "Nummer", "Rating", "Objektleiter", "Kunde", "Tags", "Status", "Aktion"]}>
-        {sorted.map((s: Row, index: number) => (
-          <tr key={s.id}>
-            <td className="px-4 py-3"><p className="text-xs text-slate-400">{s.address || "Keine Adresse"}</p><b>{s.name}</b></td>
-            <td className="px-4 py-3">{s.object_number || index + 1}</td>
-            <td className="px-4 py-3">{s.rating || "-"}</td>
-            <td className="px-4 py-3">{s.manager_name || "Stano, Matteo"}</td>
-            <td className="px-4 py-3"><p className="text-xs text-slate-400">{s.customer_number || ""}</p>{s.customer_name || s.name}</td>
-            <td className="px-4 py-3">{s.tags || "-"}</td>
-            <td className="px-4 py-3"><span className={s.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{s.active === false ? "Passiv" : "Aktiv"}</span></td>
-            <td className="px-4 py-3"><button onClick={() => p.editSite(s)} className="mr-2 text-blue-600">Bearbeiten</button><button onClick={() => p.deactivate(s.id)} className="text-red-600">Deaktivieren</button></td>
-          </tr>
-        ))}
-      </Table>
-    </div>
-  );
-}
-
-
-function customerRowsFromSites(sites: Row[]) {
-  const map = sites.reduce((acc: Record<string, Row>, site: Row) => {
-    const key = site.customer_name || site.name || "Ohne Kunde";
-    if (!acc[key]) {
-      acc[key] = {
-        id: site.id,
-        name: key,
-        customer_name: key,
-        customer_number: site.customer_number || "",
-        address: site.customer_address || site.address || "",
-        customer_address: site.customer_address || site.address || "",
-        customer_phone: site.customer_phone || site.phone || "",
-        customer_email: site.customer_email || site.email || "",
-        customer_notes: site.customer_notes || "",
-        active: site.active !== false,
-        count: 0,
-      };
-    }
-    acc[key].count += 1;
-    return acc;
-  }, {});
-  return Object.values(map) as Row[];
 }
 
 function Customers(p: any) {
-  const rows = customerRowsFromSites(p.sites || []);
-
-  return (
-    <div>
-      <Header icon="🏢" title="Kunden">
-        <Button>Exportieren</Button>
-        <Button primary onClick={() => p.openCustomer()}>⊕ Kunde erstellen</Button>
-      </Header>
-      <div className="mb-4 flex gap-8 border-b border-slate-200 pl-3 text-sm">
-        <button className="border-b-4 border-blue-600 pb-3 font-bold text-blue-600">Aktiv</button>
-        <button className="pb-3 text-slate-500">Alle</button>
-        <button className="pb-3 text-slate-500">Passiv</button>
-      </div>
-      <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Kunde", "Nummer", "Objekte", "Adresse", "Telefon", "E-Mail", "Status", "Aktion"]}>
-        {rows.map((r: Row, index: number) => (
-          <tr key={r.name} className="transition hover:bg-blue-50/60">
-            <td className="px-4 py-3">
-              <button type="button" onClick={() => p.openCustomer(r)} className="text-left font-bold text-slate-950 hover:text-blue-600">{r.name}</button>
-              {r.customer_notes && <p className="text-xs text-slate-400">{r.customer_notes}</p>}
-            </td>
-            <td className="px-4 py-3">{r.customer_number || 1000 + index}</td>
-            <td className="px-4 py-3">{r.count}</td>
-            <td className="px-4 py-3">{r.address || "-"}</td>
-            <td className="px-4 py-3">{r.customer_phone || "-"}</td>
-            <td className="px-4 py-3">{r.customer_email || "-"}</td>
-            <td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td>
-            <td className="px-4 py-3"><button onClick={() => p.openCustomer(r)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Öffnen</button></td>
-          </tr>
-        ))}
-      </Table>
-      {rows.length === 0 && <Card className="mt-4"><EmptyState text="Noch keine Kunden angelegt" /></Card>}
-    </div>
-  );
+  return <ListPage icon="🏷" title="Kunden" sub="Kundeninformationen, Objekte und Kontakte" rows={p.rows} headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Objekte", "Aktion"]} createLabel="+ Kunde erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.customer_name || r.name}</td><td className="px-4 py-3">{r.customer_number || "-"}</td><td className="px-4 py-3">{r.customer_address || r.address || "-"}</td><td className="px-4 py-3">{r.customer_phone || r.phone || "-"}</td><td className="px-4 py-3">{r.customer_email || r.email || "-"}</td><td className="px-4 py-3">{r.object_count || 1}</td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
 function Contacts(p: any) {
-  const generated = [
-    ...p.employees.map((e: Row) => ({ id: `emp-${e.id}`, name: e.name, type: "Mitarbeiter", phone: e.phone || "-", email: e.email || "-", company: "Intern", generated: true })),
-    ...p.sites.filter((s: Row) => s.customer_phone || s.customer_email).map((s: Row) => ({ id: `site-${s.id}`, name: s.customer_name || s.name, type: "Kunde", phone: s.customer_phone || s.phone || "-", email: s.customer_email || s.email || "-", company: s.name, generated: true }))
-  ];
-  const rows = [...(p.contacts || []).map((c: Row) => ({ ...c, type: "Kontakt" })), ...generated];
-
-  return (
-    <div>
-      <Header icon="☎" title="Kontakte"><Button>Exportieren</Button><Button primary onClick={() => p.openContact()}>⊕ Kontakt erstellen</Button></Header>
-      <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Name", "Rolle", "Firma/Objekt", "Telefon", "E-Mail", "Status", "Aktion"]}>
-        {rows.map((r: Row, index: number) => (
-          <tr key={`${r.id}-${index}`} className="transition hover:bg-blue-50/60">
-            <td className="px-4 py-3 font-bold">{r.name}</td>
-            <td className="px-4 py-3">{r.role || r.type || "-"}</td>
-            <td className="px-4 py-3">{r.company || "-"}</td>
-            <td className="px-4 py-3">{r.phone || "-"}</td>
-            <td className="px-4 py-3">{r.email || "-"}</td>
-            <td className="px-4 py-3"><span className="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">Aktiv</span></td>
-            <td className="px-4 py-3">
-              {!r.generated ? <><button onClick={() => p.openContact(r)} className="mr-2 rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.deleteContact(r)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></> : <span className="text-xs text-slate-400">Automatisch</span>}
-            </td>
-          </tr>
-        ))}
-      </Table>
-    </div>
-  );
+  return <ListPage icon="☎" title="Kontakte" sub="Ansprechpartner für Kunden und Objekte" rows={p.rows} headers={["Name", "Firma", "Rolle", "Telefon", "E-Mail", "Aktion"]} createLabel="+ Kontakt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.company || "-"}</td><td className="px-4 py-3">{r.role || r.contact_role || "-"}</td><td className="px-4 py-3">{r.phone || "-"}</td><td className="px-4 py-3">{r.email || "-"}</td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
-function ObjectAnalysis(p: any) {
-  const monthStart = new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth(), 1);
-  const monthEnd = new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth() + 1, 0);
-  const startIso = iso(monthStart);
-  const endIso = iso(monthEnd);
-  const rows = p.sites.map((site: Row) => {
-    const siteTasks = p.tasks.filter((t: Row) => (t.work_site_id === site.id || t.site === site.name) && t.task_date >= startIso && t.task_date <= endIso);
-    const planned = siteTasks.reduce((sum: number, t: Row) => sum + Number(t.planned_minutes || t.max_minutes || 0), 0);
-    const worked = p.entries.filter((e: Row) => e.work_site_name === site.name && String(e.created_at || "").slice(0, 10) >= startIso && String(e.created_at || "").slice(0, 10) <= endIso).reduce((sum: number, e: Row) => sum + Number(e.worked_minutes || 0), 0);
-    return { site, planned, worked };
-  });
+function Sites(p: any) {
+  return <ListPage icon="🏢" title="Objekte" sub="Objektliste mit GPS-Radius" rows={p.rows} headers={["Objekt", "Adresse", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "-"}</td><td className="px-4 py-3">{r.allowed_radius_m || 50} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+}
 
+function Tasks(p: any) {
+  return <ListPage icon="✓" title="Aufgaben" sub="Aufgaben und Einsätze für Mitarbeiter" rows={p.rows} headers={["Datum", "Zeit", "Auftrag", "Objekt", "Mitarbeiter", "Priorität", "Status", "Aktion"]} createLabel="+ Aufgabe erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.task_date)}</td><td className="px-4 py-3">{r.start_time} - {r.end_time}</td><td className="px-4 py-3 font-black">{r.title}</td><td className="px-4 py-3">{r.site || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.priority === "Dringend" ? "red" : r.priority === "Hoch" ? "yellow" : "blue"}>{r.priority || "Normal"}</Status></td><td className="px-4 py-3"><Status color={r.done ? "green" : "gray"}>{r.done ? "Erledigt" : "Offen"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+}
+
+function Materials(p: any) {
+  return <ListPage icon="📦" title="Materialwesen" sub="Artikel, Bestand und Mindestbestand" rows={p.rows} headers={["Artikel", "Kategorie", "Bestand", "Mindestbestand", "Lieferant", "Status", "Aktion"]} createLabel="+ Artikel erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => { const low = Number(r.current_stock || 0) <= Number(r.min_stock || 0); return <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.category || "-"}</td><td className="px-4 py-3">{r.current_stock || 0} {r.unit || "Stück"}</td><td className="px-4 py-3">{r.min_stock || 0}</td><td className="px-4 py-3">{r.supplier || "-"}</td><td className="px-4 py-3"><Status color={low ? "red" : "green"}>{low ? "Nachbestellen" : "OK"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>; })}</ListPage>;
+}
+
+function Devices(p: any) {
+  return <ListPage icon="🔧" title="Geräte" sub="Maschinen und Betriebsmittel" rows={p.rows} headers={["Gerät", "Kategorie", "Seriennummer", "Zugewiesen", "Status", "Aktion"]} createLabel="+ Gerät erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.category || "-"}</td><td className="px-4 py-3">{r.serial_number || "-"}</td><td className="px-4 py-3">{r.assigned_to || "-"}</td><td className="px-4 py-3"><Status color={r.status === "Defekt" ? "red" : r.status === "Wartung" ? "yellow" : "green"}>{r.status || "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+}
+
+function Keys(p: any) {
+  return <ListPage icon="🔑" title="Schlüssel" sub="Schlüsselverwaltung mit Übergabe-PDF" rows={p.rows} headers={["Schlüssel", "Nummer", "Kunde", "Objekt", "Mitarbeiter", "Status", "PDF", "Aktion"]} createLabel="+ Schlüssel erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.key_name}</td><td className="px-4 py-3">{r.key_number || "-"}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.object_name || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.status === "Verloren" ? "red" : r.status === "Zurückgegeben" ? "green" : "blue"}>{r.status || "Ausgegeben"}</Status></td><td className="px-4 py-3"><Button onClick={() => p.pdf(r)}>PDF</Button></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+}
+
+function Times(p: any) {
+  return <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen und freigeben" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}</ListPage>;
+}
+
+function Absences(p: any) {
+  return <ListPage icon="✈" title="Abwesenheiten" sub="Urlaub, Krankheit und Freistellung" rows={p.rows} headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]} createLabel="+ Abwesenheit" onCreate={p.openCreate}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.absence_type}</td><td className="px-4 py-3">{dateText(r.start_date)}</td><td className="px-4 py-3">{dateText(r.end_date)}</td><td className="px-4 py-3"><Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || "open"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.decide(r, "approved")}>OK</Button><Button danger onClick={() => p.decide(r, "rejected")}>Nein</Button><Button onClick={() => p.openEdit(r)}>Bearbeiten</Button><Button danger onClick={() => p.deleteRow(r)}>Löschen</Button></div></td></tr>)}</ListPage>;
+}
+
+function Chat(p: any) {
   return (
     <div>
-      <Header icon="◔" title="Auswertung"><Button>Exportieren</Button><Button>⚙</Button></Header>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input className="field h-12 w-80 max-w-full" placeholder="🔍 Suchen" />
-        <Button onClick={() => p.setSelectedDate(new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth() - 1, 1))}>‹</Button>
-        <Button>📅 {monthStart.toLocaleDateString("de-DE")} → {monthEnd.toLocaleDateString("de-DE")}</Button>
-        <Button onClick={() => p.setSelectedDate(new Date(p.selectedDate.getFullYear(), p.selectedDate.getMonth() + 1, 1))}>›</Button>
-        <FilterButton label="Auftragsart" />
-        <FilterButton label="Objekt Tags" />
-        <button type="button" className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-400 shadow-sm">+ Filter hinzufügen</button>
+      <PageHeader icon="💬" title="Chat" sub="Nachrichten an Mitarbeiter" />
+      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+        <Card className="p-4"><h3 className="mb-3 font-black">Mitarbeiter</h3>{p.employees.map((e: Row) => <button key={e.id} type="button" onClick={() => p.setEmployee(e.name)} className={p.employee === e.name ? "mb-2 w-full rounded-xl bg-blue-600 p-3 text-left font-bold text-white" : "mb-2 w-full rounded-xl bg-slate-50 p-3 text-left font-bold text-slate-700 hover:bg-blue-50"}>{e.name}</button>)}</Card>
+        <Card className="p-4"><h3 className="mb-4 font-black">{p.employee ? `Chat mit ${p.employee}` : "Mitarbeiter auswählen"}</h3><div className="mb-4 h-[55vh] overflow-y-auto rounded-2xl bg-slate-50 p-4">{p.messages.length === 0 && <Empty text="Noch keine Nachrichten" />}{p.messages.map((m: Row) => <div key={m.id} className={m.sender_role === "admin" ? "mb-3 ml-auto max-w-[80%] rounded-2xl bg-blue-600 p-3 text-white" : "mb-3 max-w-[80%] rounded-2xl bg-white p-3 shadow-sm"}><p className="text-xs font-black opacity-70">{m.sender_role === "admin" ? "Ich" : m.sender_name || m.employee_name}</p><p>{m.message}</p></div>)}</div><div className="flex gap-2"><input value={p.text} onChange={(event) => p.setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") p.send(); }} className="field" placeholder="Nachricht schreiben..." /><Button primary onClick={p.send}>Senden</Button></div></Card>
       </div>
-      <Table headers={["Name", "Soll-Zeit", "Lohnzeit", "Abweichung"]}>
-        {rows.map((r: Row) => <tr key={r.site.id}><td className="px-4 py-3 font-bold">{r.site.name}</td><td className="px-4 py-3">{hours(r.planned)} Std.</td><td className="px-4 py-3">{hours(r.worked)} Std.</td><td className={r.worked > r.planned ? "px-4 py-3 font-bold text-red-600" : "px-4 py-3"}>{hours(Math.abs(r.worked - r.planned))} Std.</td></tr>)}
-      </Table>
     </div>
   );
 }
 
-function Tasks(p: any) { return <div><Header icon="🧾" title="Aufgaben" /><Table headers={["Datum", "Zeitfenster", "Planzeit", "Objekt", "Mitarbeiter", "Auftrag", "Status", "Aktion"]}>{p.tasks.map((t: Row) => <tr key={t.id} className="border-b"><td className="p-3">{t.task_date}</td><td className="p-3">{t.start_time} - {t.end_time}</td><td className="p-3">{hours(Number(t.planned_minutes || t.max_minutes || 0))} Std.</td><td className="p-3">{t.site}</td><td className="p-3">{t.employee_name}</td><td className="p-3">{t.title}</td><td className="p-3">{t.done ? "Erledigt" : "Offen"}</td><td className="p-3"><button onClick={() => p.editTask(t)} className="mr-2 text-blue-600">Bearbeiten</button><button onClick={() => p.deleteTask(t)} className="text-red-600">Löschen</button></td></tr>)}</Table></div>; }
-function Material(p: any) { return <div><Header icon="📦" title="Materialwesen"><Button primary onClick={p.save}>⊕ Produkt speichern</Button></Header><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-6"><input value={p.materialName} onChange={(e) => p.setMaterialName(e.target.value)} className="field" placeholder="Produktname" /><input value={p.materialCategory} onChange={(e) => p.setMaterialCategory(e.target.value)} className="field" placeholder="Kategorie" /><input value={p.materialUnit} onChange={(e) => p.setMaterialUnit(e.target.value)} className="field" placeholder="Einheit" /><input type="number" value={p.materialStock} onChange={(e) => p.setMaterialStock(e.target.value)} className="field" placeholder="Bestand" /><input type="number" value={p.materialMinStock} onChange={(e) => p.setMaterialMinStock(e.target.value)} className="field" placeholder="Mindestbestand" /><input type="file" accept="image/*" onChange={(e: ChangeEvent<HTMLInputElement>) => p.upload(e.target.files?.[0] || null)} className="field" /><textarea value={p.materialNotes} onChange={(e) => p.setMaterialNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.save} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div>{p.materialImage && <img src={p.materialImage} alt="Material" className="mt-4 h-24 w-24 rounded-xl object-cover" />}</Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{p.materials.map((m: Row) => <Card key={m.id} className="p-4"><div className="mb-3 h-40 overflow-hidden rounded-xl bg-slate-100">{m.image_url ? <img src={m.image_url} alt={m.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">📦</div>}</div><p className="font-bold">{m.name}</p><p className="text-sm text-slate-500">{m.category || "Ohne Kategorie"}</p><p className="mt-2 text-sm">Bestand: <b>{m.current_stock || 0}</b> {m.unit || "Stück"}</p><div className="mt-4 flex gap-2"><button onClick={() => p.edit(m)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.remove(m)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></div></Card>)}</div></div>; }
-function Devices(p: any) { return <div><Header icon="🔧" title="Geräte"><Button primary onClick={p.save}>⊕ Gerät speichern</Button></Header><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-6"><input value={p.deviceName} onChange={(e) => p.setDeviceName(e.target.value)} className="field" placeholder="Gerätename" /><input value={p.deviceCategory} onChange={(e) => p.setDeviceCategory(e.target.value)} className="field" placeholder="Kategorie" /><input value={p.deviceSerial} onChange={(e) => p.setDeviceSerial(e.target.value)} className="field" placeholder="Seriennummer" /><select value={p.deviceEmployee} onChange={(e) => p.setDeviceEmployee(e.target.value)} className="field"><option value="">Zugewiesen an</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select><select value={p.deviceStatus} onChange={(e) => p.setDeviceStatus(e.target.value)} className="field"><option>Aktiv</option><option>Wartung</option><option>Defekt</option><option>Archiv</option></select><input type="file" accept="image/*" onChange={(e: ChangeEvent<HTMLInputElement>) => p.upload(e.target.files?.[0] || null)} className="field" /><textarea value={p.deviceNotes} onChange={(e) => p.setDeviceNotes(e.target.value)} className="field min-h-20 md:col-span-4" placeholder="Notizen" /><button onClick={p.save} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div>{p.deviceImage && <img src={p.deviceImage} alt="Gerät" className="mt-4 h-24 w-24 rounded-xl object-cover" />}</Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{p.equipment.map((d: Row) => <Card key={d.id} className="p-4"><div className="mb-3 h-36 overflow-hidden rounded-xl bg-slate-100">{d.image_url ? <img src={d.image_url} alt={d.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">🔧</div>}</div><p className="font-bold">{d.name}</p><p className="text-sm text-slate-500">{d.category || "Ohne Kategorie"}</p><p className="text-sm">Seriennr.: {d.serial_number || "-"}</p><p className="text-sm">Zuweisung: {d.assigned_to || "-"}</p><div className="mt-4 flex gap-2"><button onClick={() => p.edit(d)} className="rounded-lg bg-blue-100 px-3 py-2 font-bold text-blue-700">Bearbeiten</button><button onClick={() => p.remove(d)} className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">Löschen</button></div></Card>)}</div></div>; }
-function Keys(p: any) { return <div><Header icon="🔑" title="Schlüssel"><Button onClick={() => p.pdf()}>PDF Übergabe</Button><Button primary onClick={p.save}>⊕ Schlüssel speichern</Button></Header><Card className="mb-6 p-5"><div className="grid gap-3 md:grid-cols-6"><input value={p.keyName} onChange={(e) => p.setKeyName(e.target.value)} className="field" placeholder="Schlüsselbezeichnung" /><input value={p.keyNumber} onChange={(e) => p.setKeyNumber(e.target.value)} className="field" placeholder="Schlüsselnummer" /><input value={p.keyCustomer} onChange={(e) => p.setKeyCustomer(e.target.value)} className="field" placeholder="Kunde" /><select value={p.keyObject} onChange={(e) => p.setKeyObject(e.target.value)} className="field"><option value="">Objekt</option>{p.sites.map((s: Row) => <option key={s.id} value={s.name}>{s.name}</option>)}</select><select value={p.keyEmployee} onChange={(e) => p.setKeyEmployee(e.target.value)} className="field"><option value="">Ausgegeben an</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</select><select value={p.keyStatus} onChange={(e) => p.setKeyStatus(e.target.value)} className="field"><option>Ausgegeben</option><option>Zurückgegeben</option><option>Verloren</option><option>Archiv</option></select><input type="date" value={p.keyHandover} onChange={(e) => p.setKeyHandover(e.target.value)} className="field" /><input type="date" value={p.keyReturn} onChange={(e) => p.setKeyReturn(e.target.value)} className="field" /><textarea value={p.keyNotes} onChange={(e) => p.setKeyNotes(e.target.value)} className="field min-h-20 md:col-span-2" placeholder="Notizen" /><button onClick={p.save} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Speichern</button></div></Card><Table headers={["Schlüssel", "Nummer", "Kunde", "Objekt", "Ausgegeben an", "Status", "PDF", "Aktion"]}>{p.keysList.map((k: Row) => <tr key={k.id} className="border-b"><td className="p-3 font-bold">{k.key_name}</td><td className="p-3">{k.key_number || "-"}</td><td className="p-3">{k.customer_name || "-"}</td><td className="p-3">{k.object_name || "-"}</td><td className="p-3">{k.employee_name || "-"}</td><td className="p-3">{k.status}</td><td className="p-3"><button onClick={() => p.pdf(k)} className="rounded-lg bg-purple-100 px-3 py-2 font-bold text-purple-700">PDF</button></td><td className="p-3"><button onClick={() => p.edit(k)} className="mr-2 text-blue-600">Bearbeiten</button><button onClick={() => p.remove(k)} className="text-red-600">Löschen</button></td></tr>)}</Table></div>; }
-function Chat(p: any) { return <div><Header icon="💬" title="Chat" /><div className="grid gap-5 lg:grid-cols-[280px_1fr]"><Card className="bg-slate-100 p-4"><h2 className="mb-3 font-bold">Mitarbeiter</h2>{p.employees.map((e: Row) => <button key={e.id} onClick={() => p.setEmployee(e.name)} className={p.employee === e.name ? "mb-2 w-full rounded-xl bg-blue-600 p-3 text-left font-bold text-white" : "mb-2 w-full rounded-xl bg-white p-3 text-left"}>{e.name}</button>)}</Card><Card className="p-5"><h2 className="mb-4 font-bold">{p.employee ? `Chat mit ${p.employee}` : "Bitte Mitarbeiter auswählen"}</h2><div className="mb-4 h-[55vh] overflow-y-auto rounded-xl bg-slate-50 p-4">{p.messages.length === 0 && <p className="text-center text-slate-400">Noch keine Nachrichten vorhanden.</p>}{p.messages.map((m: Row) => <div key={m.id} className={m.sender_role === "admin" ? "mb-3 ml-16 rounded-xl bg-blue-100 p-3" : "mb-3 mr-16 rounded-xl bg-white p-3"}><p className="text-sm font-bold">{m.sender_role === "admin" ? "Ich" : m.sender_name || m.employee_name}</p><p>{m.message}</p></div>)}</div><div className="flex gap-2"><input value={p.text} onChange={(e) => p.setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") p.send(); }} className="field" placeholder="Nachricht schreiben..." /><button onClick={p.send} className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">Senden</button></div></Card></div></div>; }
-function Placeholder({ title }: { title: string }) { return <Card className="p-10 text-center"><h1 className="text-2xl font-bold capitalize">{title}</h1><p className="mt-2 text-slate-500">Dieser Bereich ist vorbereitet.</p></Card>; }
+function ListPage(p: any) {
+  return (
+    <div>
+      <PageHeader icon={p.icon} title={p.title} sub={p.sub}><Button onClick={p.onExport || p.onCreate}>Exportieren</Button><Button primary onClick={p.onCreate}>{p.createLabel}</Button></PageHeader>
+      <div className="mb-4 flex flex-wrap gap-2"><Pill>Informationen</Pill><Pill>Objekte</Pill><Pill>Aufgaben</Pill><Pill>Auswertung</Pill><Pill>Dokumente</Pill></div>
+      <Table headers={p.headers}>{p.rows.length === 0 ? <tr><td colSpan={p.headers.length}><Empty /></td></tr> : p.children}</Table>
+    </div>
+  );
+}
+
+function Pill({ children }: { children: React.ReactNode }) {
+  return <span className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-500 shadow-sm ring-1 ring-slate-200">{children}</span>;
+}
+
+function Actions({ edit, del }: { edit: () => void; del: () => void }) {
+  return <div className="flex flex-wrap gap-2"><Button onClick={edit}>Bearbeiten</Button><Button danger onClick={del}>Löschen</Button></div>;
+}
+
+function ModalShell({ title, close, children, onSubmit, saving, wide = false }: { title: string; close: () => void; children: React.ReactNode; onSubmit: () => void; saving: boolean; wide?: boolean }) {
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    onSubmit();
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm">
+      <form onSubmit={submit} className={`my-8 rounded-3xl bg-white shadow-2xl ${wide ? "w-full max-w-5xl" : "w-full max-w-2xl"}`}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4"><h2 className="text-xl font-black text-slate-950">{title}</h2><button type="button" onClick={close} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">✕</button></div>
+        <div className="grid gap-4 p-6 md:grid-cols-2">{children}</div>
+        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4"><button type="button" onClick={close} className="text-sm font-bold text-slate-500">Abbrechen</button><Button primary type="submit" disabled={saving}>{saving ? "Speichern..." : "Speichern"}</Button></div>
+      </form>
+    </div>
+  );
+}
+
+function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return <label className={wide ? "md:col-span-2" : ""}><span className="mb-1 block text-xs font-black text-slate-500">{label}</span>{children}</label>;
+}
+
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) { return <input {...props} className={`field ${props.className || ""}`} />; }
+function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) { return <select {...props} className={`field ${props.className || ""}`}>{props.children}</select>; }
+function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea {...props} className={`field min-h-28 ${props.className || ""}`} />; }
+
+function EmployeeInviteModal(p: any) {
+  return <ModalShell title="Mitarbeiter anlegen" close={p.close} onSubmit={p.save} saving={p.saving}><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="E-Mail"><Input required type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field>{p.inviteLink && <div className="md:col-span-2 rounded-2xl bg-blue-50 p-4"><p className="mb-2 font-black text-blue-900">Aktivierungslink</p><input readOnly className="field" value={p.inviteLink} /><div className="mt-3 flex gap-2"><Button onClick={() => navigator.clipboard.writeText(p.inviteLink)}>Link kopieren</Button>{p.whatsappLink && <a href={p.whatsappLink} target="_blank" className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white">WhatsApp öffnen</a>}</div></div>}</ModalShell>;
+}
+
+function EmployeeEditModal(p: any) {
+  return <ModalShell title="Mitarbeiter bearbeiten" close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="Personalnummer"><Input value={p.form.employee_number} onChange={(e) => p.setForm({ ...p.form, employee_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Stundenlohn"><Input type="number" step="0.01" value={p.form.hourly_rate} onChange={(e) => p.setForm({ ...p.form, hourly_rate: e.target.value })} /></Field><Field label="Urlaubstage"><Input type="number" step="0.5" value={p.form.vacation_days} onChange={(e) => p.setForm({ ...p.form, vacation_days: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field></ModalShell>;
+}
+
+function CustomerModal(p: any) { return <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function ContactModal(p: any) { return <ModalShell title={p.form.id ? "Kontakt bearbeiten" : "Kontakt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Firma"><Input value={p.form.company} onChange={(e) => p.setForm({ ...p.form, company: e.target.value })} /></Field><Field label="Rolle"><Input value={p.form.role} onChange={(e) => p.setForm({ ...p.form, role: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function SiteModal(p: any) { return <ModalShell title={p.form.id ? "Objekt bearbeiten" : "Objekt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Adresse"><Input required value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="GPS-Radius Meter"><Input type="number" value={p.form.allowed_radius_m} onChange={(e) => p.setForm({ ...p.form, allowed_radius_m: e.target.value })} /></Field><Field label="Latitude"><Input value={p.form.latitude} onChange={(e) => p.setForm({ ...p.form, latitude: e.target.value })} /></Field><Field label="Longitude"><Input value={p.form.longitude} onChange={(e) => p.setForm({ ...p.form, longitude: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function TaskModal(p: any) { return <ModalShell title={p.form.id ? "Aufgabe bearbeiten" : "Neue Aufgabe erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Titel"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} /></Field><Field label="Priorität"><Select value={p.form.priority} onChange={(e) => p.setForm({ ...p.form, priority: e.target.value })}><option>Normal</option><option>Hoch</option><option>Dringend</option></Select></Field><Field label="Datum"><Input type="date" value={p.form.task_date} onChange={(e) => p.setForm({ ...p.form, task_date: e.target.value })} /></Field><Field label="Mitarbeiter"><Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Objekt"><Select value={p.form.work_site_id} onChange={(e) => p.setForm({ ...p.form, work_site_id: e.target.value })}><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Erledigt"><Select value={p.form.done ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, done: e.target.value === "true" })}><option value="false">Offen</option><option value="true">Erledigt</option></Select></Field><Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field><Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field><Field label="Planzeit Minuten"><Input type="number" value={p.form.planned_minutes} onChange={(e) => p.setForm({ ...p.form, planned_minutes: e.target.value })} /></Field><Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function MaterialModal(p: any) { return <ModalShell title={p.form.id ? "Artikel bearbeiten" : "Neuen Artikel erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Artikel"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Einheit"><Input value={p.form.unit} onChange={(e) => p.setForm({ ...p.form, unit: e.target.value })} /></Field><Field label="Bestand"><Input type="number" value={p.form.current_stock} onChange={(e) => p.setForm({ ...p.form, current_stock: e.target.value })} /></Field><Field label="Mindestbestand"><Input type="number" value={p.form.min_stock} onChange={(e) => p.setForm({ ...p.form, min_stock: e.target.value })} /></Field><Field label="Lieferant"><Input value={p.form.supplier} onChange={(e) => p.setForm({ ...p.form, supplier: e.target.value })} /></Field><Field label="Bild-URL" wide><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function DeviceModal(p: any) { return <ModalShell title={p.form.id ? "Gerät bearbeiten" : "Neues Gerät anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Gerätename"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Seriennummer"><Input value={p.form.serial_number} onChange={(e) => p.setForm({ ...p.form, serial_number: e.target.value })} /></Field><Field label="Zugewiesen an"><Select value={p.form.assigned_to} onChange={(e) => p.setForm({ ...p.form, assigned_to: e.target.value })}><option value="">Nicht zugewiesen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Aktiv</option><option>Wartung</option><option>Defekt</option><option>Archiv</option></Select></Field><Field label="Bild-URL"><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function KeyModal(p: any) { return <ModalShell title={p.form.id ? "Schlüssel bearbeiten" : "Neuen Schlüssel anlegen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Schlüssel"><Input required value={p.form.key_name} onChange={(e) => p.setForm({ ...p.form, key_name: e.target.value })} /></Field><Field label="Schlüsselnummer"><Input value={p.form.key_number} onChange={(e) => p.setForm({ ...p.form, key_number: e.target.value })} /></Field><Field label="Kunde"><Select value={p.form.customer_name} onChange={(e) => p.setForm({ ...p.form, customer_name: e.target.value })}><option value="">Kunde auswählen</option>{p.customers.map((c: Row) => <option key={c.id} value={c.customer_name || c.name}>{c.customer_name || c.name}</option>)}</Select></Field><Field label="Objekt"><Select value={p.form.object_name} onChange={(e) => p.setForm({ ...p.form, object_name: e.target.value })}><option value="">Objekt auswählen</option>{p.sites.map((s: Row) => <option key={s.id} value={s.name}>{s.name}</option>)}</Select></Field><Field label="Mitarbeiter"><Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option>Ausgegeben</option><option>Zurückgegeben</option><option>Verloren</option><option>Archiv</option></Select></Field><Field label="Ausgabe"><Input type="date" value={p.form.handover_date} onChange={(e) => p.setForm({ ...p.form, handover_date: e.target.value })} /></Field><Field label="Rückgabe"><Input type="date" value={p.form.return_date} onChange={(e) => p.setForm({ ...p.form, return_date: e.target.value })} /></Field><Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function AbsenceModal(p: any) { return <ModalShell title={p.form.id ? "Abwesenheit bearbeiten" : "Abwesenheit erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Mitarbeiter"><Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Art"><Select value={p.form.absence_type} onChange={(e) => p.setForm({ ...p.form, absence_type: e.target.value })}><option>Urlaub</option><option>Krank</option><option>Frei</option><option>Sonstiges</option></Select></Field><Field label="Von"><Input type="date" value={p.form.start_date} onChange={(e) => p.setForm({ ...p.form, start_date: e.target.value })} /></Field><Field label="Bis"><Input type="date" value={p.form.end_date} onChange={(e) => p.setForm({ ...p.form, end_date: e.target.value })} /></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option value="open">Offen</option><option value="approved">Genehmigt</option><option value="rejected">Abgelehnt</option></Select></Field><Field label="Grund" wide><Textarea value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} /></Field></ModalShell>; }

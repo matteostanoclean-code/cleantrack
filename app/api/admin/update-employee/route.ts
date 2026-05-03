@@ -17,7 +17,7 @@ function getBearerToken(request: Request) {
   return authHeader.replace("Bearer ", "").trim();
 }
 
-async function requireAdmin(request: Request) {
+async function requireAdmin(request: Request): Promise<{ error: NextResponse | null; supabaseAdmin: any }> {
   const { supabaseUrl, serviceRoleKey } = getEnv();
   const token = getBearerToken(request);
 
@@ -28,7 +28,9 @@ async function requireAdmin(request: Request) {
     };
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
 
   if (userError || !userData.user) {
@@ -69,7 +71,10 @@ function nullableNumber(value: unknown) {
 export async function POST(request: Request) {
   try {
     const adminCheck = await requireAdmin(request);
-    if (adminCheck.error || !adminCheck.supabaseAdmin) return adminCheck.error;
+    if (adminCheck.error) return adminCheck.error;
+    if (!adminCheck.supabaseAdmin) {
+      return NextResponse.json({ error: "Admin-Verbindung konnte nicht aufgebaut werden." }, { status: 500 });
+    }
 
     const body = await request.json();
     const id = String(body.id || "").trim();
