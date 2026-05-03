@@ -636,6 +636,25 @@ export default function AdminPage() {
   const openTasks = tasks.filter((item) => !item.done).length;
   const openAbsences = absences.filter((item) => !item.status || item.status === "open").length;
   const lowStock = materials.filter((item) => Number(item.current_stock || 0) <= Number(item.min_stock || 0)).length;
+  const currentNav = navItems.find((item) => item.id === tab) || navItems[0];
+  const createButtonLabel = getCreateButtonLabel(tab);
+
+  function runPrimaryAction() {
+    if (tab === "mitarbeiter") return openEmployee();
+    if (tab === "kunden") return openCustomer();
+    if (tab === "kontakte") return openContact();
+    if (tab === "objekte") return openSite();
+    if (tab === "planung" || tab === "aufgaben") return openTask();
+    if (tab === "material") return openMaterial();
+    if (tab === "geraete") return openDevice();
+    if (tab === "schluessel") return openKey();
+    if (tab === "abwesenheiten") return openAbsence();
+    if (tab === "chat") {
+      setMessage("Wähle links im Chat zuerst einen Mitarbeiter aus und schreibe dann deine Nachricht.");
+      return;
+    }
+    return openTask();
+  }
 
   if (loading) return <main className="min-h-screen bg-slate-50 p-8 font-bold text-slate-700">Lade Adminbereich...</main>;
   if (!allowed) {
@@ -651,51 +670,107 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f9fc] text-slate-900">
-      <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="CleanTrack" className="h-11 w-11 rounded-full object-contain ring-1 ring-slate-200" />
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-black text-slate-950">CleanTrack Admin</h1>
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">Aktiv</span>
-              </div>
-              <p className="text-sm text-slate-500">Matteo Stano Clean Gebäudereinigung</p>
-            </div>
-          </div>
-          <div className="flex flex-1 items-center justify-end gap-2">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} className="hidden w-80 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-blue-500 lg:block" placeholder="Suchen..." />
-            <button type="button" onClick={loadAll} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold hover:bg-slate-50">Aktualisieren</button>
-            <button type="button" onClick={() => openEmployee()} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">+ Mitarbeiter</button>
+    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
+      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-72 flex-col border-r border-slate-200 bg-white px-4 py-5 shadow-sm lg:flex">
+        <div className="mb-6 flex items-center gap-3 px-2">
+          <img src="/logo.png" alt="CleanTrack" className="h-12 w-12 rounded-2xl object-contain ring-1 ring-slate-200" />
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">CleanTrack</p>
+            <h1 className="truncate text-lg font-black text-slate-950">Verwaltung</h1>
+            <p className="truncate text-xs font-semibold text-slate-400">Matteo Stano Clean</p>
           </div>
         </div>
-        <div className="mx-auto flex max-w-[1500px] gap-1 overflow-x-auto px-5 pb-3">
+
+        <nav className="flex-1 space-y-1 overflow-y-auto pr-1">
           {navItems.map((item) => (
-            <button key={item.id} type="button" onClick={() => setTab(item.id)} className={tab === item.id ? "shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm" : "shrink-0 rounded-xl px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-900"}>
-              {item.icon} {item.label}
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={
+                tab === item.id
+                  ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-4 py-3 text-left text-sm font-black text-white shadow-sm"
+                  : "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+              }
+            >
+              <span className={tab === item.id ? "flex h-8 w-8 items-center justify-center rounded-xl bg-white/20" : "flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100"}>{item.icon}</span>
+              <span>{item.label}</span>
             </button>
           ))}
+        </nav>
+
+        <div className="mt-5 rounded-3xl bg-slate-950 p-4 text-white">
+          <p className="text-xs font-bold text-slate-300">Heute</p>
+          <p className="mt-1 text-2xl font-black">{openTasks}</p>
+          <p className="text-xs font-semibold text-slate-300">offene Aufgaben</p>
+          <button type="button" onClick={() => setTab("aufgaben")} className="mt-4 w-full rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-950 hover:bg-blue-50">
+            Aufgaben öffnen
+          </button>
         </div>
+      </aside>
+
+      <div className="lg:pl-72">
+        <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur lg:hidden">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="CleanTrack" className="h-10 w-10 rounded-xl object-contain ring-1 ring-slate-200" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Admin</p>
+                <h1 className="font-black text-slate-950">{currentNav.label}</h1>
+              </div>
+            </div>
+            <button type="button" onClick={runPrimaryAction} className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-700">
+              {createButtonLabel}
+            </button>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {navItems.map((item) => (
+              <button key={item.id} type="button" onClick={() => setTab(item.id)} className={tab === item.id ? "shrink-0 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-black text-white" : "shrink-0 rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600"}>
+                {item.icon} {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <header className="sticky top-0 z-10 hidden border-b border-slate-200 bg-white/95 px-8 py-5 shadow-sm backdrop-blur lg:block">
+          <div className="flex items-center justify-between gap-5">
+            <div className="min-w-0">
+              <div className="mb-1 flex items-center gap-2 text-sm font-black text-blue-600">
+                <span>{currentNav.icon}</span>
+                <span>Adminbereich</span>
+              </div>
+              <h2 className="truncate text-3xl font-black tracking-tight text-slate-950">{currentNav.label}</h2>
+            </div>
+            <div className="flex items-center gap-3">
+              <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-80 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500" placeholder="Suchen..." />
+              <button type="button" onClick={loadAll} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50">
+                Aktualisieren
+              </button>
+              <button type="button" onClick={runPrimaryAction} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700">
+                {createButtonLabel}
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <section className="mx-auto max-w-[1500px] px-4 py-6 lg:px-8">
+          {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
+
+          {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
+          {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
+          {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} deactivate={(row: Row) => insertOrUpdate("employee_profiles", row.id, { active: false })} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
+          {tab === "kunden" && <Customers rows={filtered.customers} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customers)} />}
+          {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
+          {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
+          {tab === "aufgaben" && <Tasks rows={filtered.tasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", tasks)} />}
+          {tab === "material" && <Materials rows={filtered.materials} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} exportRows={() => downloadCsv("material.csv", materials)} />}
+          {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
+          {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
+          {tab === "zeiten" && <Times rows={filtered.entries} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+          {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
+          {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
+        </section>
       </div>
-
-      <section className="mx-auto max-w-[1500px] px-5 py-6">
-        {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
-
-        {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-        {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
-        {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} deactivate={(row: Row) => insertOrUpdate("employee_profiles", row.id, { active: false })} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
-        {tab === "kunden" && <Customers rows={filtered.customers} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customers)} />}
-        {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
-        {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
-        {tab === "aufgaben" && <Tasks rows={filtered.tasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", tasks)} />}
-        {tab === "material" && <Materials rows={filtered.materials} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} exportRows={() => downloadCsv("material.csv", materials)} />}
-        {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
-        {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
-        {tab === "zeiten" && <Times rows={filtered.entries} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
-        {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
-        {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
-      </section>
 
       {modal === "employeeInvite" && <EmployeeInviteModal close={() => setModal(null)} form={employeeInvite} setForm={setEmployeeInvite} save={createEmployeeInvite} saving={saving} inviteLink={inviteLink} whatsappLink={whatsappLink} />}
       {modal === "employeeEdit" && <EmployeeEditModal close={() => setModal(null)} form={employeeEdit} setForm={setEmployeeEdit} save={saveEmployee} saving={saving} />}
@@ -726,6 +801,21 @@ const navItems: { id: Tab; icon: string; label: string }[] = [
   { id: "abwesenheiten", icon: "✈", label: "Abwesenheiten" },
   { id: "chat", icon: "💬", label: "Chat" },
 ];
+
+function getCreateButtonLabel(tab: Tab) {
+  if (tab === "dashboard") return "+ Aufgabe";
+  if (tab === "planung" || tab === "aufgaben") return "+ Aufgabe";
+  if (tab === "mitarbeiter") return "+ Mitarbeiter";
+  if (tab === "kunden") return "+ Kunde";
+  if (tab === "kontakte") return "+ Kontakt";
+  if (tab === "objekte") return "+ Objekt";
+  if (tab === "material") return "+ Material";
+  if (tab === "geraete") return "+ Gerät";
+  if (tab === "schluessel") return "+ Schlüssel";
+  if (tab === "abwesenheiten") return "+ Abwesenheit";
+  if (tab === "chat") return "Nachricht";
+  return "+ Neu";
+}
 
 function filterRows(rows: Row[], query: string) {
   if (!query) return rows;
