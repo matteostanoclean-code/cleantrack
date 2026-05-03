@@ -200,29 +200,31 @@ function downloadCsv(filename: string, rows: Row[]) {
   URL.revokeObjectURL(url);
 }
 
-function cleanPdfText(value: string) {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/[äÄ]/g, "ae")
-    .replace(/[öÖ]/g, "oe")
-    .replace(/[üÜ]/g, "ue")
-    .replace(/ß/g, "ss")
-    .replace(/[^\x00-\x7F]/g, "");
+function pdfText(value: unknown) {
+  return String(value ?? "").replace(/\r?\n/g, " ").trim();
 }
 
-function downloadPdf(title: string, lines: string[], filename: string) {
-  const text = [`BT /F1 18 Tf 50 790 Td (${cleanPdfText(title)}) Tj ET`];
-  lines.forEach((line, i) => text.push(`BT /F1 11 Tf 50 ${750 - i * 22} Td (${cleanPdfText(line)}) Tj ET`));
-  const content = text.join("\n");
-  const objects = [
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
-    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
-    `5 0 obj << /Length ${content.length} >> stream\n${content}\nendstream endobj`,
-  ];
+function pdfHexText(value: unknown) {
+  const text = `\uFEFF${pdfText(value)}`;
+  let hex = "";
+  for (let i = 0; i < text.length; i += 1) {
+    hex += text.charCodeAt(i).toString(16).padStart(4, "0").toUpperCase();
+  }
+  return `<${hex}>`;
+}
+
+function safeFilename(value: unknown) {
+  return String(value || "dokument")
+    .toLowerCase()
+    .replace(/[ä]/g, "ae")
+    .replace(/[ö]/g, "oe")
+    .replace(/[ü]/g, "ue")
+    .replace(/[ß]/g, "ss")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "dokument";
+}
+
+function buildPdf(objects: string[], filename: string) {
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
   for (const obj of objects) {
@@ -235,6 +237,7 @@ function downloadPdf(title: string, lines: string[], filename: string) {
     pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
   });
   pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+
   const url = URL.createObjectURL(new Blob([pdf], { type: "application/pdf" }));
   const a = document.createElement("a");
   a.href = url;
@@ -243,6 +246,122 @@ function downloadPdf(title: string, lines: string[], filename: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadPdf(title: string, lines: string[], filename: string) {
+  const stream = [`BT /F1 18 Tf 50 790 Td ${pdfHexText(title)} Tj ET`];
+  lines.forEach((line, i) => stream.push(`BT /F1 11 Tf 50 ${750 - i * 22} Td ${pdfHexText(line)} Tj ET`));
+  const content = stream.join("\n");
+  buildPdf([
+    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
+    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
+    `5 0 obj << /Length ${content.length} >> stream\n${content}\nendstream endobj`,
+  ], filename);
+}
+
+function wrapPdfLine(text: string, maxChars: number) {
+  const words = pdfText(text).split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
+function downloadKeyHandoverPdf(data: {
+  employeeName: string;
+  objectAddress: string;
+  keyAmount: string;
+  keyNumber: string;
+  filename: string;
+}) {
+  const ops: string[] = [];
+  let y = 805;
+
+  const addText = (text: string, x = 50, size = 10, font = "F1") => {
+    ops.push(`BT /${font} ${size} Tf ${x} ${y} Td ${pdfHexText(text)} Tj ET`);
+    y -= size + 7;
+  };
+  const addWrapped = (text: string, x = 50, size = 10, maxChars = 92) => {
+    wrapPdfLine(text, maxChars).forEach((line) => addText(line, x, size));
+  };
+  const addSpace = (value = 10) => { y -= value; };
+  const addLine = (x1 = 50, x2 = 545) => {
+    ops.push(`${x1} ${y} m ${x2} ${y} l S`);
+    y -= 14;
+  };
+
+  addText("Schlüsselübergabeprotokoll", 50, 18, "F2");
+  addLine();
+  addText("Zwischen:", 50, 11, "F2");
+  addText("Arbeitgeber: Matteo Stano Clean Gebäudereinigung", 50, 10);
+  addText(`Mitarbeiter: ${data.employeeName || "-"}`, 50, 10);
+  addSpace(8);
+
+  addText("1. Gegenstand der Übergabe", 50, 12, "F2");
+  addWrapped(`Der Mitarbeiter bestätigt den Erhalt der folgenden Schlüssel für das Objekt ${data.objectAddress || "-"}:`, 50, 10, 86);
+  addSpace(4);
+
+  const tableX = 50;
+  const tableY = y;
+  const amountW = 120;
+  const numberW = 375;
+  const rowH = 28;
+  ops.push(`${tableX} ${tableY - rowH} ${amountW} ${rowH} re S`);
+  ops.push(`${tableX + amountW} ${tableY - rowH} ${numberW} ${rowH} re S`);
+  ops.push(`${tableX} ${tableY - rowH * 2} ${amountW} ${rowH} re S`);
+  ops.push(`${tableX + amountW} ${tableY - rowH * 2} ${numberW} ${rowH} re S`);
+  ops.push(`BT /F2 9 Tf ${tableX + 10} ${tableY - 18} Td ${pdfHexText("Anzahl")} Tj ET`);
+  ops.push(`BT /F2 9 Tf ${tableX + amountW + 10} ${tableY - 18} Td ${pdfHexText("Schlüsselnummer / Kennzeichnung")} Tj ET`);
+  ops.push(`BT /F1 10 Tf ${tableX + 10} ${tableY - rowH - 18} Td ${pdfHexText(data.keyAmount || "-")} Tj ET`);
+  ops.push(`BT /F1 10 Tf ${tableX + amountW + 10} ${tableY - rowH - 18} Td ${pdfHexText(data.keyNumber || "-")} Tj ET`);
+  y = tableY - rowH * 2 - 18;
+
+  addText("2. Pflichten des Mitarbeiters", 50, 12, "F2");
+  addWrapped("Mit der Übernahme der Schlüssel verpflichtet sich der Mitarbeiter zu folgendem:", 50, 10, 88);
+  [
+    "Sorgfaltspflicht: Die Schlüssel sind mit größter Sorgfalt zu verwahren. Eine Weitergabe an unbefugte Dritte ist strikt untersagt.",
+    "Nachschlüsselverbot: Es ist dem Mitarbeiter untersagt, eigenmächtig Kopien oder Nachschlüssel anzufertigen oder anfertigen zu lassen.",
+    "Meldepflicht: Der Verlust eines Schlüssels ist dem Arbeitgeber unverzüglich ohne schuldhaftes Zögern anzuzeigen.",
+    "Rückgabepflicht: Bei Beendigung des Arbeitsverhältnisses oder auf ausdrückliches Verlangen des Arbeitgebers sind alle überlassenen Schlüssel sofort zurückzugeben. Ein Zurückbehaltungsrecht besteht nicht.",
+  ].forEach((item) => addWrapped(`• ${item}`, 60, 9, 92));
+  addSpace(4);
+
+  addText("3. Haftung", 50, 12, "F2");
+  addWrapped("Bei Verlust oder Beschädigung der Schlüssel durch grobe Fahrlässigkeit oder Vorsatz haftet der Mitarbeiter für die daraus entstehenden Kosten, zum Beispiel Austausch der Schließanlage oder Notdienst.", 50, 9, 96);
+  addWrapped("Hinweis: Wir empfehlen dem Mitarbeiter, zu prüfen, ob die private Haftpflichtversicherung den Verlust von beruflich genutzten Schlüsseln abdeckt.", 50, 9, 96);
+  addSpace(4);
+
+  addText("4. Empfangsbestätigung", 50, 12, "F2");
+  addWrapped("Der Mitarbeiter bestätigt durch seine Unterschrift den Erhalt der oben aufgeführten Schlüssel in technisch einwandfreiem Zustand.", 50, 9, 96);
+  addSpace(12);
+  addText(`Ort, Datum: Ispringen, ${new Date().toLocaleDateString("de-DE")}`, 50, 10, "F2");
+  addSpace(34);
+  ops.push(`BT /F1 10 Tf 50 ${y} Td ${pdfHexText("_____________________________")} Tj ET`);
+  ops.push(`BT /F1 10 Tf 330 ${y} Td ${pdfHexText("_____________________________")} Tj ET`);
+  y -= 16;
+  ops.push(`BT /F1 9 Tf 50 ${y} Td ${pdfHexText("Unterschrift Arbeitgeber")} Tj ET`);
+  ops.push(`BT /F1 9 Tf 330 ${y} Td ${pdfHexText("Unterschrift Mitarbeiter")} Tj ET`);
+
+  const content = ops.join("\n");
+  buildPdf([
+    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >> >> /Contents 5 0 R >> endobj",
+    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
+    `5 0 obj << /Length ${content.length} >> stream\n${content}\nendstream endobj`,
+    "6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj",
+  ], data.filename);
 }
 
 export default function AdminPage() {
@@ -868,19 +987,27 @@ export default function AdminPage() {
   }
 
   function createKeyPdf(row: Row) {
-    downloadPdf("CleanTrack - Schlüsselübergabe", [
-      `Schlüssel: ${row.key_name || "-"}`,
-      `Schlüsselnummer: ${row.key_number || "-"}`,
-      `Kunde: ${row.customer_name || "-"}`,
-      `Objekt: ${row.object_name || "-"}`,
-      `Ausgegeben an: ${row.employee_name || "-"}`,
-      `Status: ${row.status || "-"}`,
-      `Ausgabe: ${row.handover_date || "-"}`,
-      `Rückgabe: ${row.return_date || "-"}`,
-      "",
-      "Unterschrift Mitarbeiter: ___________________________",
-      "Unterschrift Kunde: ________________________________",
-    ], `schluessel-${row.key_name || "uebergabe"}.pdf`);
+    const customerName = String(row.customer_name || "").trim();
+    const objectName = String(row.object_name || "").trim();
+    const customer = customerList.find((item) => customerLabel(item).toLowerCase() === customerName.toLowerCase());
+    const site = sites.find((item) => {
+      const siteName = String(item.name || "").trim().toLowerCase();
+      const siteCustomer = String(item.customer_name || item.customer || "").trim().toLowerCase();
+      return (objectName && siteName === objectName.toLowerCase()) || (customerName && siteCustomer === customerName.toLowerCase());
+    });
+
+    const addressParts = [
+      customerLabel(customer) || customerName || String(site?.customer_name || "").trim(),
+      String(customer?.address || site?.customer_address || site?.address || objectName || "").trim(),
+    ].filter(Boolean);
+
+    downloadKeyHandoverPdf({
+      employeeName: String(row.employee_name || "-"),
+      objectAddress: addressParts.join(", ") || "-",
+      keyAmount: String(row.key_name || "-"),
+      keyNumber: String(row.key_number || "-"),
+      filename: `schluesseluebergabe-${safeFilename(row.employee_name || row.key_number || row.key_name)}.pdf`,
+    });
   }
 
   function openAbsence(row?: Row) {
@@ -1515,7 +1642,6 @@ function Keys(p: any) {
 function Times(p: any) {
   const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
-  const systemNotifications = openNotifications.filter((item: Row) => item.notification_type !== "overtime_request");
 
   return (
     <div>
@@ -1524,7 +1650,7 @@ function Times(p: any) {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-black text-amber-950">Überstundenanfragen</h3>
-              <p className="text-sm font-bold text-amber-700">Ich kann hier direkt entscheiden, ob ein Mitarbeiter länger arbeiten darf.</p>
+              <p className="text-sm font-bold text-amber-700">Ich entscheide hier nur, ob ein Mitarbeiter länger arbeiten darf.</p>
             </div>
             <Status color="yellow">{overtimeRequests.length} offen</Status>
           </div>
@@ -1543,22 +1669,6 @@ function Times(p: any) {
                   <Button primary onClick={() => p.decideNotification(note, true)}>Genehmigen</Button>
                   <Button danger onClick={() => p.decideNotification(note, false)}>Ablehnen</Button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {systemNotifications.length > 0 && (
-        <Card className="mb-5 p-5">
-          <h3 className="mb-3 font-black text-slate-950">Automatische Meldungen</h3>
-          <div className="grid gap-3 md:grid-cols-2">
-            {systemNotifications.map((note: Row) => (
-              <div key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-black text-slate-950">{note.title}</p>
-                <p className="mt-1 text-sm font-bold text-slate-600">{note.message}</p>
-                <p className="mt-2 text-xs text-slate-400">{dateText(note.created_at)} · {note.notification_type || "Meldung"}</p>
-                <div className="mt-3"><Button onClick={() => p.closeNotification(note)}>Erledigt</Button></div>
               </div>
             ))}
           </div>
