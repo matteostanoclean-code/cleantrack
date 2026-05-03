@@ -236,6 +236,7 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     cleaned.planned_minutes = numericValue(cleaned.planned_minutes, 0);
     cleaned.worked_minutes = numericValue(cleaned.worked_minutes, 0);
     cleaned.payroll_minutes = numericValue(cleaned.payroll_minutes, Number(cleaned.worked_minutes || 0));
+    cleaned.pause_minutes = numericValue(cleaned.pause_minutes, 0);
     if (isEmpty(cleaned.status)) cleaned.status = cleaned.approved === true ? "approved" : "open";
   }
 

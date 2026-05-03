@@ -60,37 +60,42 @@ function todayRange() {
   return { start: start.toISOString(), end: end.toISOString(), workDate: localDateOnly(now) };
 }
 
-function currentClockState(entries: Row[]) {
-  const chronological = [...entries].sort((a, b) => new Date(a.created_at || a.check_in_at || 0).getTime() - new Date(b.created_at || b.check_in_at || 0).getTime());
-  const last = chronological[chronological.length - 1];
-  const action = String(last?.action || "");
-  if (action === "start" || action === "break_end") return "working";
-  if (action === "break_start") return "pause";
-  if (action === "end" || action === "check_out") return "ended";
-  return "idle";
+function activeStatuses() {
+  return ["running", "paused"];
 }
 
-function workedMinutesFromEntries(entries: Row[]) {
-  const chronological = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  let total = 0;
-  let lastStart: Date | null = null;
+function finishedStatuses() {
+  return ["open", "approved", "auto_closed", "rejected"];
+}
 
-  for (const entry of chronological) {
-    const time = new Date(entry.created_at);
-    if (entry.action === "start" || entry.action === "break_end") lastStart = time;
-    if ((entry.action === "break_start" || entry.action === "end") && lastStart) {
-      total += Math.max(0, Math.round((time.getTime() - lastStart.getTime()) / 60000));
-      lastStart = null;
-    }
-  }
+function minutesBetween(start?: string | null, end?: string | null) {
+  if (!start || !end) return 0;
+  const a = new Date(start).getTime();
+  const b = new Date(end).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return Math.max(0, Math.round((b - a) / 60000));
+}
 
-  if (lastStart) total += Math.max(0, Math.round((Date.now() - lastStart.getTime()) / 60000));
-  return total;
+function calculateWorkedMinutes(row: Row, endIso = new Date().toISOString()) {
+  const start = row.check_in_at || row.created_at;
+  if (!start) return 0;
+  const end = row.check_out_at || endIso;
+  const total = minutesBetween(start, end);
+  const pause = Number(row.pause_minutes || 0);
+  const runningPause = row.pause_started_at ? minutesBetween(row.pause_started_at, endIso) : 0;
+  return Math.max(0, total - pause - runningPause);
+}
+
+function payableMinutes(row: Row, task: Row, endIso = new Date().toISOString()) {
+  const worked = calculateWorkedMinutes(row, endIso);
+  const max = Number(task.max_minutes || task.planned_minutes || 0);
+  return max > 0 ? Math.min(max, worked) : worked;
 }
 
 async function requireEmployee(request: Request) {
   const { supabaseUrl, serviceRoleKey } = getEnv();
   const token = getBearerToken(request);
+
   if (!token) {
     return { error: NextResponse.json({ error: "Nicht angemeldet." }, { status: 401 }), supabaseAdmin: null, profile: null };
   }
@@ -117,6 +122,21 @@ async function requireEmployee(request: Request) {
   return { error: null, supabaseAdmin, profile };
 }
 
+async function loadTaskAndSite(supabaseAdmin: any, taskId: string) {
+  const { data: task, error: taskError } = await supabaseAdmin
+    .from("tasks")
+    .select("*")
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (taskError || !task) return { task: null, site: null, error: "Einsatz wurde nicht gefunden." };
+
+  const { data: site } = task.work_site_id
+    ? await supabaseAdmin.from("work_sites").select("*").eq("id", task.work_site_id).maybeSingle()
+    : { data: null };
+
+  return { task, site, error: "" };
+}
 
 export async function GET(request: Request) {
   try {
@@ -128,53 +148,42 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Mitarbeiter konnte nicht geladen werden." }, { status: 500 });
     }
 
-    const { start, end, workDate } = todayRange();
+    const url = new URL(request.url);
+    const taskId = String(url.searchParams.get("task_id") || "").trim();
+    if (!taskId) return NextResponse.json({ error: "Einsatz fehlt." }, { status: 400 });
 
-    const { data: createdRows, error: createdError } = await supabaseAdmin
+    const { task, error } = await loadTaskAndSite(supabaseAdmin, taskId);
+    if (error || !task) return NextResponse.json({ error }, { status: 404 });
+
+    const { start, end } = todayRange();
+    const { data: entries } = await supabaseAdmin
       .from("time_entries")
       .select("*")
       .eq("employee_name", profile.name)
+      .eq("task_id", task.id)
       .gte("created_at", start)
       .lte("created_at", end)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
-    if (createdError) {
-      return NextResponse.json({ error: createdError.message }, { status: 500 });
-    }
-
-    const { data: workDateRows } = await supabaseAdmin
-      .from("time_entries")
-      .select("*")
-      .eq("employee_name", profile.name)
-      .eq("work_date", workDate)
-      .order("created_at", { ascending: false });
-
-    const map = new Map<string, Row>();
-    for (const row of [...(createdRows || []), ...(workDateRows || [])]) {
-      if (row?.id) map.set(String(row.id), row);
-    }
-
-    const entries = [...map.values()].sort((a, b) => new Date(b.created_at || b.check_in_at || 0).getTime() - new Date(a.created_at || a.check_in_at || 0).getTime());
-    const state = currentClockState(entries);
-    const worked_minutes = workedMinutesFromEntries(entries);
-    const payroll_minutes = Math.max(worked_minutes, entries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || entry.worked_minutes || 0), 0));
+    const active = (entries || []).find((row: Row) => activeStatuses().includes(String(row.status || "")));
+    const worked = (entries || []).reduce((sum: number, row: Row) => sum + calculateWorkedMinutes(row), 0);
+    const wage = (entries || []).reduce((sum: number, row: Row) => sum + payableMinutes(row, task), 0);
 
     return NextResponse.json({
       success: true,
-      entries,
-      state,
-      worked_minutes,
-      payroll_minutes,
-      work_date: workDate,
+      status: active?.status || "idle",
+      active_entry_id: active?.id || null,
+      worked_minutes: worked,
+      payroll_minutes: wage,
+      entries: entries || [],
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Serverfehler beim Laden der Zeiten." },
+      { error: error instanceof Error ? error.message : "Serverfehler bei der Zeiterfassung." },
       { status: 500 }
     );
   }
 }
-
 
 export async function POST(request: Request) {
   try {
@@ -192,20 +201,12 @@ export async function POST(request: Request) {
 
     if (!taskId) return NextResponse.json({ error: "Einsatz fehlt." }, { status: 400 });
 
-    const { data: task, error: taskError } = await supabaseAdmin
-      .from("tasks")
-      .select("*")
-      .eq("id", taskId)
-      .maybeSingle();
+    const { task, site, error } = await loadTaskAndSite(supabaseAdmin, taskId);
+    if (error || !task) return NextResponse.json({ error }, { status: 404 });
 
-    if (taskError || !task) return NextResponse.json({ error: "Einsatz wurde nicht gefunden." }, { status: 404 });
     if (task.employee_name && task.employee_name !== profile.name) {
       return NextResponse.json({ error: "Dieser Einsatz ist einem anderen Mitarbeiter zugewiesen." }, { status: 403 });
     }
-
-    const { data: site } = task.work_site_id
-      ? await supabaseAdmin.from("work_sites").select("*").eq("id", task.work_site_id).maybeSingle()
-      : { data: null };
 
     if (action === "request_overtime") {
       const overtimeMinutes = Math.max(1, Number(body.overtime_minutes || 15));
@@ -223,7 +224,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, message: "Für diesen Einsatz wartet bereits eine Überstundenanfrage auf Freigabe." });
       }
 
-      const { error } = await supabaseAdmin.from("admin_notifications").insert([
+      const { error: requestError } = await supabaseAdmin.from("admin_notifications").insert([
         {
           employee_name: profile.name,
           title: "Überstunden angefragt",
@@ -236,7 +237,8 @@ export async function POST(request: Request) {
           site: task.site || site?.name || null,
         },
       ]);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      if (requestError) return NextResponse.json({ error: requestError.message }, { status: 500 });
       return NextResponse.json({ success: true, message: "Überstundenanfrage wurde gesendet." });
     }
 
@@ -244,10 +246,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unbekannte Zeitaktion." }, { status: 400 });
     }
 
+    const max = Number(task.max_minutes || task.planned_minutes || 0);
+    if (max <= 0) {
+      return NextResponse.json(
+        { error: "Für diesen Einsatz fehlt die Planzeit. Bitte im Einsatz eine Planzeit in Minuten eintragen." },
+        { status: 400 }
+      );
+    }
+
+    const { start, end, workDate } = todayRange();
+
+    const { data: todaysEntries } = await supabaseAdmin
+      .from("time_entries")
+      .select("*")
+      .eq("employee_name", profile.name)
+      .eq("task_id", task.id)
+      .gte("created_at", start)
+      .lte("created_at", end)
+      .order("created_at", { ascending: true });
+
+    const activeEntry = (todaysEntries || []).find((row: Row) => activeStatuses().includes(String(row.status || "")));
+    const workedBefore = (todaysEntries || [])
+      .filter((row: Row) => !activeStatuses().includes(String(row.status || "")))
+      .reduce((sum: number, row: Row) => sum + calculateWorkedMinutes(row), 0);
+
+    const nowIso = new Date().toISOString();
+    const autoClockOut = body.reason === "max_time_reached" || body.reason === "left_geofence";
+
     if (action === "start") {
       const localTime = String(body.local_time || "").slice(0, 5);
       if (!isTimeInsideWindow(localTime, task.start_time, task.end_time)) {
         return NextResponse.json({ error: `Einstempeln ist nur im Zeitfenster ${task.start_time || "--:--"} - ${task.end_time || "--:--"} möglich.` }, { status: 400 });
+      }
+
+      if (activeEntry) {
+        return NextResponse.json({ success: true, message: "Arbeitszeit läuft bereits.", status: activeEntry.status });
       }
 
       if (site?.latitude && site?.longitude) {
@@ -262,123 +295,151 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: `Du bist ${Math.round(distance)} m vom Objekt entfernt. Erlaubt sind ${radius} m.` }, { status: 400 });
         }
       }
+
+      if (max > 0 && workedBefore >= max) {
+        return NextResponse.json(
+          { error: "Die geplante Arbeitszeit ist erreicht. Bitte zuerst Überstunden anfragen und auf Freigabe warten." },
+          { status: 400 }
+        );
+      }
+
+      const { error: insertError } = await supabaseAdmin.from("time_entries").insert([
+        {
+          employee_name: profile.name,
+          work_date: workDate,
+          work_site_name: task.site || site?.name || null,
+          site: task.site || site?.name || null,
+          work_site_id: task.work_site_id || null,
+          task_id: task.id,
+          action: "start",
+          entry_type: "session",
+          status: "running",
+          reason: body.reason || "manual",
+          check_in_at: nowIso,
+          check_out_at: null,
+          pause_minutes: 0,
+          pause_started_at: null,
+          latitude: body.latitude ?? null,
+          longitude: body.longitude ?? null,
+          planned_minutes: max,
+          worked_minutes: 0,
+          payroll_minutes: 0,
+          approved: false,
+        },
+      ]);
+
+      if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+      return NextResponse.json({ success: true, message: "Arbeitszeit gestartet.", status: "running" });
     }
 
-    const { start, end, workDate } = todayRange();
-    const { data: entries } = await supabaseAdmin
-      .from("time_entries")
-      .select("*")
-      .eq("employee_name", profile.name)
-      .eq("task_id", task.id)
-      .gte("created_at", start)
-      .lte("created_at", end)
-      .order("created_at", { ascending: true });
-
-    const worked = workedMinutesFromEntries(entries || []);
-    const max = Number(task.max_minutes || task.planned_minutes || 0);
-    const autoClockOut = body.reason === "max_time_reached" || body.reason === "left_geofence";
-    const state = currentClockState(entries || []);
-
-    if (max <= 0) {
-      return NextResponse.json(
-        { error: "Für diesen Einsatz fehlt die Planzeit. Bitte im Einsatz eine Planzeit in Minuten eintragen." },
-        { status: 400 }
-      );
+    if (!activeEntry) {
+      return NextResponse.json({ error: "Es läuft keine Arbeitszeit für diesen Einsatz." }, { status: 400 });
     }
 
-    if (action === "start" && state === "working") {
-      return NextResponse.json({ error: "Die Arbeitszeit läuft bereits." }, { status: 400 });
+    if (action === "break_start") {
+      if (activeEntry.status === "paused") return NextResponse.json({ success: true, message: "Pause läuft bereits.", status: "paused" });
+
+      const worked = calculateWorkedMinutes({ ...activeEntry, pause_started_at: null }, nowIso);
+      const { error: updateError } = await supabaseAdmin
+        .from("time_entries")
+        .update({
+          action: "break_start",
+          status: "paused",
+          pause_started_at: nowIso,
+          worked_minutes: worked,
+          payroll_minutes: Math.min(max, worked),
+        })
+        .eq("id", activeEntry.id);
+
+      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return NextResponse.json({ success: true, message: "Pause gestartet.", status: "paused" });
     }
 
-    if (action === "break_start" && state !== "working") {
-      return NextResponse.json({ error: "Pause kann nur gestartet werden, wenn die Arbeitszeit läuft." }, { status: 400 });
+    if (action === "break_end") {
+      if (activeEntry.status !== "paused") return NextResponse.json({ error: "Es läuft keine Pause." }, { status: 400 });
+
+      const additionalPause = minutesBetween(activeEntry.pause_started_at, nowIso);
+      const pauseMinutes = Number(activeEntry.pause_minutes || 0) + additionalPause;
+      const worked = calculateWorkedMinutes({ ...activeEntry, pause_minutes: pauseMinutes, pause_started_at: null }, nowIso);
+
+      if (max > 0 && worked >= max) {
+        return NextResponse.json(
+          { error: "Die geplante Arbeitszeit ist erreicht. Bitte zuerst Überstunden anfragen und auf Freigabe warten." },
+          { status: 400 }
+        );
+      }
+
+      const { error: updateError } = await supabaseAdmin
+        .from("time_entries")
+        .update({
+          action: "break_end",
+          status: "running",
+          pause_started_at: null,
+          pause_minutes: pauseMinutes,
+          worked_minutes: worked,
+          payroll_minutes: Math.min(max, worked),
+        })
+        .eq("id", activeEntry.id);
+
+      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return NextResponse.json({ success: true, message: "Pause beendet.", status: "running" });
     }
 
-    if (action === "break_end" && state !== "pause") {
-      return NextResponse.json({ error: "Pause kann nur beendet werden, wenn eine Pause läuft." }, { status: 400 });
-    }
-
-    if (action === "end" && state === "idle") {
-      return NextResponse.json({ error: "Es läuft keine Arbeitszeit, die beendet werden kann." }, { status: 400 });
-    }
-
-    if (action === "start" && state === "ended") {
-      return NextResponse.json({ error: "Dieser Einsatz wurde heute bereits beendet." }, { status: 400 });
-    }
-
-    if ((action === "start" || action === "break_end") && max > 0 && worked >= max) {
-      return NextResponse.json(
-        { error: "Die geplante Arbeitszeit ist erreicht. Bitte zuerst Überstunden anfragen und auf Freigabe warten." },
-        { status: 400 }
-      );
-    }
-
-    const nowIso = new Date().toISOString();
-    const payload: Row = {
-      employee_name: profile.name,
-      work_site_name: task.site || site?.name || null,
-      site: task.site || site?.name || null,
-      work_site_id: task.work_site_id || null,
-      task_id: task.id,
-      action,
-      auto_clock_out: autoClockOut,
-      reason: body.reason || "manual",
-      latitude: body.latitude ?? null,
-      longitude: body.longitude ?? null,
-      work_date: workDate,
-      planned_minutes: max,
-      worked_minutes: action === "end" ? Math.min(max || worked, worked) : worked,
-      payroll_minutes: action === "end" ? Math.min(max || worked, worked) : 0,
-      entry_type: "stamp",
-      status: action === "end" ? (autoClockOut ? "auto_closed" : "open") : "open",
-    };
-
-    if (action === "start") payload.check_in_at = nowIso;
     if (action === "end") {
-      payload.check_out_at = nowIso;
+      let pauseMinutes = Number(activeEntry.pause_minutes || 0);
+      if (activeEntry.status === "paused" && activeEntry.pause_started_at) {
+        pauseMinutes += minutesBetween(activeEntry.pause_started_at, nowIso);
+      }
+
+      const worked = calculateWorkedMinutes({ ...activeEntry, pause_minutes: pauseMinutes, pause_started_at: null, check_out_at: nowIso }, nowIso);
+      const payroll = Math.min(max, worked);
+
+      const { error: updateError } = await supabaseAdmin
+        .from("time_entries")
+        .update({
+          action: "end",
+          status: autoClockOut ? "auto_closed" : "open",
+          auto_clock_out: autoClockOut,
+          reason: body.reason || activeEntry.reason || "manual",
+          check_out_at: nowIso,
+          pause_started_at: null,
+          pause_minutes: pauseMinutes,
+          worked_minutes: worked,
+          payroll_minutes: payroll,
+          latitude: body.latitude ?? activeEntry.latitude ?? null,
+          longitude: body.longitude ?? activeEntry.longitude ?? null,
+        })
+        .eq("id", activeEntry.id);
+
+      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+
+      if (body.reason === "left_geofence" || body.reason === "max_time_reached") {
+        await supabaseAdmin.from("admin_notifications").insert([
+          {
+            employee_name: profile.name,
+            title: body.reason === "left_geofence" ? "Automatisch ausgestempelt" : "Planzeit erreicht",
+            message: body.reason === "left_geofence"
+              ? `${profile.name} hat den GPS-Bereich bei ${task.site || site?.name || "einem Objekt"} verlassen.`
+              : `${profile.name} hat die geplante Arbeitszeit bei ${task.site || site?.name || "einem Objekt"} erreicht.`,
+            notification_type: body.reason === "left_geofence" ? "auto_clock_out" : "planned_time_reached",
+            status: "open",
+            task_id: task.id,
+            work_site_id: task.work_site_id || null,
+            site: task.site || site?.name || null,
+          },
+        ]);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: autoClockOut ? "Arbeitszeit automatisch beendet." : "Arbeitszeit beendet.",
+        status: autoClockOut ? "auto_closed" : "open",
+        worked_minutes: worked,
+        payroll_minutes: payroll,
+      });
     }
 
-    const { error: insertError } = await supabaseAdmin.from("time_entries").insert([payload]);
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
-
-    if (body.reason === "left_geofence") {
-      await supabaseAdmin.from("admin_notifications").insert([
-        {
-          employee_name: profile.name,
-          title: "Automatisch ausgestempelt",
-          message: `${profile.name} hat den GPS-Bereich bei ${task.site || site?.name || "einem Objekt"} verlassen.`,
-          notification_type: "auto_clock_out",
-          status: "open",
-          task_id: task.id,
-          work_site_id: task.work_site_id || null,
-          site: task.site || site?.name || null,
-        },
-      ]);
-    }
-
-    if (body.reason === "max_time_reached") {
-      await supabaseAdmin.from("admin_notifications").insert([
-        {
-          employee_name: profile.name,
-          title: "Planzeit erreicht",
-          message: `${profile.name} hat die geplante Arbeitszeit bei ${task.site || site?.name || "einem Objekt"} erreicht.`,
-          notification_type: "planned_time_reached",
-          status: "open",
-          task_id: task.id,
-          work_site_id: task.work_site_id || null,
-          site: task.site || site?.name || null,
-        },
-      ]);
-    }
-
-    const messages: Row = {
-      start: "Arbeitszeit gestartet.",
-      break_start: "Pause gestartet.",
-      break_end: "Pause beendet.",
-      end: autoClockOut ? "Arbeitszeit automatisch beendet." : "Arbeitszeit beendet.",
-    };
-
-    return NextResponse.json({ success: true, message: messages[action] || "Gespeichert." });
+    return NextResponse.json({ error: "Unbekannte Zeitaktion." }, { status: 400 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Serverfehler bei der Zeiterfassung." },
