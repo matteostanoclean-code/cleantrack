@@ -179,6 +179,14 @@ export default function AdminPage() {
   const [chatEmployee, setChatEmployee] = useState("");
   const [chatText, setChatText] = useState("");
 
+  const [employeeModal, setEmployeeModal] = useState(false);
+  const [employeeName, setEmployeeName] = useState("");
+  const [employeeEmail, setEmployeeEmail] = useState("");
+  const [employeePhone, setEmployeePhone] = useState("");
+  const [employeeInviteLink, setEmployeeInviteLink] = useState("");
+  const [employeeWhatsappLink, setEmployeeWhatsappLink] = useState("");
+  const [employeeCreating, setEmployeeCreating] = useState(false);
+
   const [customerModal, setCustomerModal] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -605,14 +613,73 @@ export default function AdminPage() {
     await loadChat(chatEmployee);
   }
 
+  function openEmployeeModal() {
+    setEmployeeName("");
+    setEmployeeEmail("");
+    setEmployeePhone("");
+    setEmployeeInviteLink("");
+    setEmployeeWhatsappLink("");
+    setEmployeeModal(true);
+  }
+
+  async function createEmployeeInvite() {
+    if (!employeeName.trim() || !employeeEmail.trim()) {
+      setMessage("Bitte Name und E-Mail für den Mitarbeiter eintragen.");
+      return;
+    }
+
+    setEmployeeCreating(true);
+    setMessage("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      if (!token) {
+        setMessage("Bitte als Admin neu einloggen. Die Sitzung fehlt.");
+        return;
+      }
+
+      const response = await fetch("/api/admin/create-employee-invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: employeeName,
+          email: employeeEmail,
+          phone: employeePhone,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || "Mitarbeiter konnte nicht angelegt werden.");
+        return;
+      }
+
+      setEmployeeInviteLink(result.inviteLink || "");
+      setEmployeeWhatsappLink(result.whatsappLink || "");
+      setMessage("Einladung wurde erstellt. Link kopieren und an den Mitarbeiter senden.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Fehler beim Mitarbeiter anlegen.");
+    } finally {
+      setEmployeeCreating(false);
+    }
+  }
+
   if (loading) return <main className="p-8">Lade...</main>;
   if (!allowed) return <main className="min-h-screen bg-slate-100 p-8"><div className="rounded-2xl bg-white p-8"><h1 className="text-2xl font-bold">Kein Zugriff</h1><p className="text-slate-500">Dieser Bereich ist nur für Administratoren sichtbar.</p></div></main>;
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#e0f2fe_0,#f8fafc_34%,#eef2ff_100%)] text-slate-900">
       <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto bg-[#111a35] p-5 text-white lg:block">
-          <div className="mb-6 flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 font-black">C</div><div><p className="font-bold">Matteo Stano Clean</p><p className="font-bold">Gebäudereinigung</p></div></div>
+        <aside className="sticky top-0 hidden h-screen w-[292px] shrink-0 overflow-y-auto border-r border-white/10 bg-[#071225] p-5 text-white shadow-2xl lg:block">
+          <div className="mb-6 rounded-2xl bg-black/25 p-4 ring-1 ring-white/10">
+            <img src="/logo.png" alt="Matteo Stano Clean" className="mx-auto h-24 w-auto object-contain" />
+          </div>
           <div className="mb-6 rounded-lg bg-white/10 px-4 py-3"><input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-transparent outline-none placeholder:text-white/70" placeholder="🔍 Suche" /></div>
           <nav className="space-y-5">
             <NavGroup items={[["planung", "▦", "Einsatzplaner", 0], ["zeitfreigabe", "⏱", "Zeitenfreigabe", pendingEntries.length], ["abwesenheiten", "✈", "Abwesenheiten", openAbsences], ["lohn", "💰", "Lohnabrechnung", 0]]} tab={tab} setTab={setTab} />
@@ -648,12 +715,19 @@ export default function AdminPage() {
           <div className="mt-8 border-t border-white/10 pt-5"><p className="font-bold">Matteo Stano</p><p className="text-sm text-white/60">Admin</p></div>
         </aside>
         <section className="flex-1 overflow-x-hidden p-4 lg:p-8">
-          {message && <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3 font-bold text-blue-700">{message}</div>}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+            <div>
+              <p className="text-sm font-semibold text-blue-600">Heute startklar machen</p>
+              <h2 className="text-xl font-black text-slate-950">CleanTrack Verwaltung</h2>
+            </div>
+            <button type="button" onClick={() => setTab("mitarbeiter")} className="rounded-2xl bg-slate-950 px-5 py-3 font-bold text-white shadow-sm transition hover:bg-blue-700">+ Mitarbeiter</button>
+          </div>
+          {message && <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800 shadow-sm">{message}</div>}
           {tab === "planung" && <Planner week={week} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setPrev={() => setSelectedDate(addDays(selectedDate, -7))} setNext={() => setSelectedDate(addDays(selectedDate, 7))} setToday={() => setSelectedDate(new Date())} employees={activeEmployees} tasks={tasks} openTask={openTask} editTask={editTask} deleteTask={deleteTask} />}
           {tab === "zeitfreigabe" && <TimeApproval entries={pendingEntries} approve={(row: any) => approveEntry(row, true)} reject={(row: any) => approveEntry(row, false)} />}
           {tab === "abwesenheiten" && <Absences employees={activeEmployees} absences={absences} absenceEmployee={absenceEmployee} setAbsenceEmployee={setAbsenceEmployee} absenceType={absenceType} setAbsenceType={setAbsenceType} absenceStart={absenceStart} setAbsenceStart={setAbsenceStart} absenceEnd={absenceEnd} setAbsenceEnd={setAbsenceEnd} absenceReason={absenceReason} setAbsenceReason={setAbsenceReason} createAbsence={createAbsence} decideAbsence={decideAbsence} />}
           {tab === "lohn" && <Payroll employees={activeEmployees} entries={entries} />}
-          {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} />}
+          {tab === "mitarbeiter" && <Employees employees={employees} entries={entries} absences={absences} tasks={tasks} openCreate={openEmployeeModal} />}
           {tab === "objekte" && <Objects sites={activeSites} siteId={siteId} siteName={siteName} setSiteName={setSiteName} siteAddress={siteAddress} setSiteAddress={setSiteAddress} siteRadius={siteRadius} setSiteRadius={setSiteRadius} siteLat={siteLat} setSiteLat={setSiteLat} siteLng={siteLng} setSiteLng={setSiteLng} siteNotes={siteNotes} setSiteNotes={setSiteNotes} geo={geocode} geoLoading={geoLoading} saveSite={saveSite} editSite={editSite} deactivate={async (id: string) => { await supabase.from("work_sites").update({ active: false }).eq("id", id); await loadSites(); }} />}
           {tab === "kunden" && <Customers sites={sites} openCustomer={openCustomer} />}
           {tab === "kontakte" && <Contacts contacts={contacts} sites={sites} employees={employees} openContact={openContact} deleteContact={async (r: any) => { await supabase.from("customer_contacts").delete().eq("id", r.id); await loadContacts(); }} />}
@@ -667,6 +741,7 @@ export default function AdminPage() {
         </section>
       </div>
       {taskModal && <TaskModal close={() => setTaskModal(false)} taskId={taskId} mode={taskMode} setMode={setTaskMode} sites={activeSites} employees={activeEmployees} taskSite={taskSite} setTaskSite={setTaskSite} taskTitle={taskTitle} setTaskTitle={setTaskTitle} taskDate={taskDate} setTaskDate={setTaskDate} taskFrom={taskFrom} setTaskFrom={setTaskFrom} taskTo={taskTo} setTaskTo={setTaskTo} taskDuration={taskDuration} setTaskDuration={setTaskDuration} taskEmployee={taskEmployee} taskRepeatDays={taskRepeatDays} setTaskRepeatDays={setTaskRepeatDays} setTaskEmployee={setTaskEmployee} taskRepeatEnd={taskRepeatEnd} setTaskRepeatEnd={setTaskRepeatEnd} taskRepeatEvery={taskRepeatEvery} setTaskRepeatEvery={setTaskRepeatEvery} taskNotes={taskNotes} setTaskNotes={setTaskNotes} save={saveTask} />}
+      {employeeModal && <EmployeeModal close={() => setEmployeeModal(false)} name={employeeName} setName={setEmployeeName} email={employeeEmail} setEmail={setEmployeeEmail} phone={employeePhone} setPhone={setEmployeePhone} inviteLink={employeeInviteLink} whatsappLink={employeeWhatsappLink} loading={employeeCreating} create={createEmployeeInvite} />}
       {customerModal && <CustomerModal close={() => setCustomerModal(false)} save={saveCustomer} customerId={customerId} customerName={customerName} setCustomerName={setCustomerName} customerNumber={customerNumber} setCustomerNumber={setCustomerNumber} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerEmail={customerEmail} setCustomerEmail={setCustomerEmail} customerNotes={customerNotes} setCustomerNotes={setCustomerNotes} />}
       {contactModal && <ContactModal close={() => setContactModal(false)} save={saveContact} contactId={contactId} contactName={contactName} setContactName={setContactName} contactCompany={contactCompany} setContactCompany={setContactCompany} contactPhone={contactPhone} setContactPhone={setContactPhone} contactEmail={contactEmail} setContactEmail={setContactEmail} contactRole={contactRole} setContactRole={setContactRole} contactNotes={contactNotes} setContactNotes={setContactNotes} />}
     </main>
@@ -1276,11 +1351,44 @@ function vacationDaysForEmployee(employeeName: string, absences: Row[]) {
 }
 
 function Employees(p: any) {
+  const activeCount = p.employees.filter((e: Row) => e.active !== false && e.role !== "admin").length;
+  const inviteCount = p.employees.filter((e: Row) => e.auth_user_id).length;
+  const monthMinutes = p.employees.reduce((sum: number, e: Row) => sum + minutesWorkedForEmployee(e.name, p.entries || []), 0);
+
   return (
     <div>
-      <Header icon="👥" title="Mitarbeiter"><Button>Exportieren</Button><Button primary>⊕ Mitarbeiter erstellen</Button></Header>
+      <Header icon="👥" title="Mitarbeiter">
+        <Button>Exportieren</Button>
+        <Button primary onClick={p.openCreate}>⊕ Mitarbeiter anlegen</Button>
+      </Header>
+
+      <div className="mb-5 grid gap-4 md:grid-cols-3">
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">Aktive Mitarbeiter</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{activeCount}</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">Mit Login verbunden</p>
+          <p className="mt-2 text-3xl font-black text-blue-600">{inviteCount}</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">Gearbeitet / geladener Zeitraum</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{hours(monthMinutes)} Std.</p>
+        </Card>
+      </div>
+
+      <Card className="mb-5 p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">Neuen Mitarbeiter starten</h2>
+            <p className="mt-1 text-sm text-slate-500">Ich lege zuerst eine Einladung an. Der Mitarbeiter öffnet den Link, vergibt sein Passwort und wird danach automatisch in Supabase Auth und im Profil angelegt.</p>
+          </div>
+          <Button primary onClick={p.openCreate}>Einladung erstellen</Button>
+        </div>
+      </Card>
+
       <Toolbar><Button>Spalten⌄</Button></Toolbar>
-      <Table headers={["Name", "Nummer", "Adresse", "Arbeitszeit", "Urlaub", "Kosten", "Zuletzt aktiv", "Status"]}>
+      <Table headers={["Name", "Nummer", "Adresse", "Arbeitszeit", "Urlaub", "Kosten", "Login", "Status"]}>
         {p.employees.map((e: Row, i: number) => {
           const minutes = minutesWorkedForEmployee(e.name, p.entries || []);
           const hourly = Number(e.hourly_rate || 0);
@@ -1290,19 +1398,67 @@ function Employees(p: any) {
           const vacationTotal = Number(e.vacation_days || e.annual_vacation_days || 0);
 
           return (
-            <tr key={e.id}>
-              <td className="px-4 py-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<b>{e.name}</b></div></td>
+            <tr key={e.id} className="transition hover:bg-slate-50">
+              <td className="px-4 py-3"><div className="flex items-center gap-3">{e.avatar_url ? <img src={e.avatar_url} alt={e.name} className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white">{initials(e.name)}</span>}<div><b>{e.name}</b><p className="text-xs text-slate-400">{e.email || "Keine E-Mail"}</p></div></div></td>
               <td className="px-4 py-3">{e.employee_number || i + 1}</td>
               <td className="px-4 py-3 whitespace-pre-line">{e.address || e.street || "-"}</td>
               <td className="px-4 py-3"><b>{hours(minutes)} Std.</b><p className="text-xs text-slate-400">Monat/geladen</p></td>
               <td className="px-4 py-3">{vacationUsed} / {vacationTotal || "-"} Tage</td>
               <td className="px-4 py-3 font-bold">{cost.toFixed(2)} €</td>
-              <td className="px-4 py-3">{e.last_active ? String(e.last_active) : "-"}</td>
+              <td className="px-4 py-3"><span className={e.auth_user_id ? "rounded bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700" : "rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700"}>{e.auth_user_id ? "Aktiviert" : "Noch kein Login"}</span></td>
               <td className="px-4 py-3"><span className={e.active === false ? "rounded bg-slate-300 px-2 py-1 text-xs font-bold text-slate-700" : "rounded bg-green-500 px-2 py-1 text-xs font-bold text-white"}>{e.active === false ? "Passiv" : "Aktiv"}</span></td>
             </tr>
           );
         })}
       </Table>
+    </div>
+  );
+}
+
+function EmployeeModal(p: any) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-blue-600">Mitarbeiter anlegen</p>
+            <h2 className="text-2xl font-black text-slate-950">Einladung erstellen</h2>
+            <p className="mt-1 text-sm text-slate-500">Der Mitarbeiter bekommt einen Aktivierungslink und erstellt sein Passwort selbst.</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-full bg-slate-100 px-3 py-2 font-black text-slate-500 hover:bg-slate-200">×</button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Name *</span>
+            <input value={p.name} onChange={(e) => p.setName(e.target.value)} className="field" placeholder="z. B. Max Mustermann" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-600">E-Mail *</span>
+            <input value={p.email} onChange={(e) => p.setEmail(e.target.value)} className="field" placeholder="max@email.de" type="email" />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="mb-1 block text-sm font-bold text-slate-600">Telefon / WhatsApp</span>
+            <input value={p.phone} onChange={(e) => p.setPhone(e.target.value)} className="field" placeholder="0176 12345678" />
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <Button onClick={p.close}>Schließen</Button>
+          <Button primary onClick={p.create} className={p.loading ? "opacity-70" : ""}>{p.loading ? "Wird erstellt..." : "Einladung erstellen"}</Button>
+        </div>
+
+        {p.inviteLink && (
+          <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+            <p className="font-black text-blue-900">Einladung ist fertig</p>
+            <p className="mt-1 break-all rounded-xl bg-white p-3 text-sm text-slate-700">{p.inviteLink}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => navigator.clipboard?.writeText(p.inviteLink)} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Link kopieren</button>
+              {p.whatsappLink && <a href={p.whatsappLink} target="_blank" className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white">Per WhatsApp senden</a>}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
