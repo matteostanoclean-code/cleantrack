@@ -38,7 +38,7 @@ async function findAuthUserByEmail(supabaseAdmin: SupabaseAdmin, email: string) 
 
     if (error) throw error;
 
-    const user = data.users.find((item) => normalizeEmail(item.email || "") === normalizedEmail);
+    const user = data.users.find((item: any) => normalizeEmail(item.email || "") === normalizedEmail);
     if (user) return user;
 
     if (data.users.length < 1000) break;

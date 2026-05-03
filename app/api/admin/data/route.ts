@@ -132,7 +132,7 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
 
 function sanitizePayload(table: string, payload: unknown) {
   if (Array.isArray(payload)) {
-    return payload.map((item) => sanitizeRow(table, (item || {}) as Record<string, unknown>));
+    return payload.map((item: unknown) => sanitizeRow(table, (item || {}) as Record<string, unknown>));
   }
   return sanitizeRow(table, (payload || {}) as Record<string, unknown>);
 }
