@@ -28,7 +28,7 @@ const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_num
 const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
 const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
-const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false };
+const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false, repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false };
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_name: "", object_name: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
@@ -75,6 +75,57 @@ function numberOrFallback(value: unknown, fallback: number) {
   const num = Number(text);
   return Number.isFinite(num) ? num : fallback;
 }
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function weekdayKey(date: Date) {
+  const keys = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  return keys[date.getDay()];
+}
+
+function uniqueDates(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function buildScheduleDates(form: Row) {
+  const start = new Date(String(form.task_date || today));
+  const mode = String(form.repeat_mode || "once");
+  if (mode !== "repeat") return [isoDate(start)];
+
+  const end = form.recurrence_end_date ? new Date(String(form.recurrence_end_date)) : addDays(start, 28);
+  const interval = Math.max(1, Number(form.recurrence_interval || 1));
+  const unit = String(form.recurrence_unit || "week");
+  const selectedDays = Array.isArray(form.recurrence_days) ? form.recurrence_days : [];
+  const dates: string[] = [];
+
+  if (unit === "week") {
+    let cursor = new Date(start);
+    while (cursor <= end && dates.length < 370) {
+      const diffDays = Math.floor((cursor.getTime() - start.getTime()) / 86400000);
+      const weekIndex = Math.floor(diffDays / 7);
+      const dayMatches = selectedDays.length === 0 || selectedDays.includes(weekdayKey(cursor));
+      if (weekIndex % interval === 0 && dayMatches) dates.push(isoDate(cursor));
+      cursor = addDays(cursor, 1);
+    }
+  } else {
+    let cursor = new Date(start);
+    while (cursor <= end && dates.length < 370) {
+      dates.push(isoDate(cursor));
+      cursor = addDays(cursor, unit === "day" ? interval : interval * 30);
+    }
+  }
+
+  return uniqueDates(dates.length ? dates : [isoDate(start)]);
+}
+
 
 
 function downloadCsv(filename: string, rows: Row[]) {
@@ -159,6 +210,7 @@ export default function AdminPage() {
   const [absences, setAbsences] = useState<Row[]>([]);
   const [materials, setMaterials] = useState<Row[]>([]);
   const [materialReports, setMaterialReports] = useState<Row[]>([]);
+  const [adminNotifications, setAdminNotifications] = useState<Row[]>([]);
   const [devices, setDevices] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
   const [contacts, setContacts] = useState<Row[]>([]);
@@ -230,7 +282,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, deviceRows, keyRows, contactRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
       selectTable("customers", "name", true),
       selectTable("work_sites", "name", true),
@@ -239,6 +291,7 @@ export default function AdminPage() {
       selectTable("absence_requests", "start_date", false),
       selectTable("material_products", "name", true),
       selectTable("material_reports", "created_at", false, 300),
+      selectTable("admin_notifications", "created_at", false, 300),
       selectTable("equipment_items", "name", true),
       selectTable("key_items", "key_name", true),
       selectTable("customer_contacts", "name", true),
@@ -251,6 +304,7 @@ export default function AdminPage() {
     setAbsences(absenceRows);
     setMaterials(materialRows);
     setMaterialReports(materialReportRows);
+    setAdminNotifications(notificationRows);
     setDevices(deviceRows);
     setKeys(keyRows);
     setContacts(contactRows);
@@ -268,12 +322,13 @@ export default function AdminPage() {
       tasks: filterRows(tasks, q),
       materials: filterRows(materials, q),
       materialReports: filterRows(materialReports, q),
+      adminNotifications: filterRows(adminNotifications, q),
       devices: filterRows(devices, q),
       keys: filterRows(keys, q),
       entries: filterRows(entries, q),
       absences: filterRows(absences, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, materials, materialReports, devices, keys, entries, absences]);
+  }, [search, employees, sites, customerList, contacts, tasks, materials, materialReports, adminNotifications, devices, keys, entries, absences]);
 
   async function insertOrUpdate(table: string, id: string, payload: Row) {
     setSaving(true);
@@ -530,6 +585,7 @@ export default function AdminPage() {
 
     const linkedSite = sites.find((site) => site.id === row.work_site_id || site.name === row.site);
     setTaskForm({
+      ...emptyTask,
       id: String(row.id || ""),
       title: String(row.title || "Unterhaltsreinigung"),
       task_date: String(row.task_date || today),
@@ -544,6 +600,9 @@ export default function AdminPage() {
       priority: String(row.priority || "Normal"),
       notes: String(row.notes || ""),
       done: Boolean(row.done),
+      travel_minutes: String(row.travel_minutes ?? "0"),
+      break_minutes: String(row.break_minutes ?? "0"),
+      notify_employee: row.notify_employee !== false,
     });
     setModal("task");
   }
@@ -551,9 +610,8 @@ export default function AdminPage() {
   async function saveTask() {
     const site = sites.find((item) => item.id === taskForm.work_site_id);
     const customer = customerList.find((item) => item.id === taskForm.customer_id) || customerList.find((item) => item.name === site?.customer_name);
-    await insertOrUpdate("tasks", taskForm.id, {
+    const basePayload = {
       title: taskForm.title,
-      task_date: taskForm.task_date,
       start_time: taskForm.start_time,
       end_time: taskForm.end_time,
       planned_minutes: Number(taskForm.planned_minutes || 0),
@@ -563,10 +621,50 @@ export default function AdminPage() {
       customer_name: customer?.name || site?.customer_name || taskForm.customer_name || null,
       site: site?.name || taskForm.site,
       work_site_id: taskForm.work_site_id || null,
-      priority: taskForm.priority,
+      priority: "Normal",
       notes: taskForm.notes || null,
-      done: taskForm.done,
-    });
+      done: false,
+      travel_minutes: Number(taskForm.travel_minutes || 0),
+      break_minutes: Number(taskForm.break_minutes || 0),
+      notify_employee: taskForm.notify_employee !== false,
+      schedule_type: taskForm.repeat_mode === "repeat" ? "repeat" : "once",
+      recurrence_interval: Number(taskForm.recurrence_interval || 1),
+      recurrence_unit: taskForm.recurrence_unit || "week",
+      recurrence_days: Array.isArray(taskForm.recurrence_days) ? taskForm.recurrence_days : [],
+      recurrence_end_date: taskForm.repeat_mode === "repeat" ? taskForm.recurrence_end_date || null : null,
+    };
+
+    if (taskForm.id || taskForm.repeat_mode !== "repeat") {
+      await insertOrUpdate("tasks", taskForm.id, { ...basePayload, task_date: taskForm.task_date });
+      return;
+    }
+
+    const dates = buildScheduleDates(taskForm);
+    const recurrenceGroupId = crypto.randomUUID();
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({
+        action: "insert",
+        table: "tasks",
+        payload: dates.map((date) => ({
+          ...basePayload,
+          task_date: date,
+          recurrence_group_id: recurrenceGroupId,
+        })),
+      });
+      setMessage(`${dates.length} Einsatz/Einsätze gespeichert.`);
+      if (taskForm.create_another) {
+        setTaskForm((old: any) => ({ ...old, id: "", title: "", notes: "" }));
+      } else {
+        setModal(null);
+      }
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Einsätze konnten nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openMaterial(row?: Row) {
@@ -862,7 +960,7 @@ export default function AdminPage() {
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
-          {tab === "zeiten" && <Times rows={filtered.entries} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+          {tab === "zeiten" && <Times rows={filtered.entries} notifications={filtered.adminNotifications} approve={approveEntry} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
           {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={(row: Row, status: string) => insertOrUpdate("absence_requests", row.id, { status })} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
@@ -1112,7 +1210,7 @@ function Planning(p: any) {
         </Card>
       </div>
 
-      <Table headers={["Datum", "Zeit", "Kunde", "Objekt", "Mitarbeiter", "GPS", "Status", "Aktion"]}>
+      <Table headers={["Datum", "Zeitfenster", "Kunde", "Objekt", "Mitarbeiter", "Planzeit", "GPS", "Aktion"]}>
         {p.tasks.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine Einsätze geplant" /></td></tr> : p.tasks.map((task: Row) => {
           const site = p.sites.find((item: Row) => item.id === task.work_site_id || item.name === task.site);
           const gpsOk = Boolean(site?.latitude && site?.longitude);
@@ -1123,8 +1221,8 @@ function Planning(p: any) {
               <td className="px-4 py-3">{task.customer_name || site?.customer_name || "-"}</td>
               <td className="px-4 py-3 font-black">{task.site || site?.name || "-"}</td>
               <td className="px-4 py-3">{task.employee_name || "Nicht zugewiesen"}</td>
+              <td className="px-4 py-3 font-bold">{task.planned_minutes || task.max_minutes || 0} Min.</td>
               <td className="px-4 py-3"><Status color={gpsOk ? "green" : "yellow"}>{gpsOk ? "bereit" : "fehlt"}</Status></td>
-              <td className="px-4 py-3"><Status color={task.done ? "green" : "gray"}>{task.done ? "Erledigt" : "Offen"}</Status></td>
               <td className="px-4 py-3"><Actions edit={() => p.editTask(task)} del={() => p.deleteTask(task)} /></td>
             </tr>
           );
@@ -1214,8 +1312,30 @@ function Keys(p: any) {
 }
 
 function Times(p: any) {
-  return <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen und freigeben" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}</ListPage>;
+  const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
+  return (
+    <div>
+      {openNotifications.length > 0 && (
+        <Card className="mb-5 p-5">
+          <h3 className="mb-3 font-black text-slate-950">Meldungen zur Zeiterfassung</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            {openNotifications.map((note: Row) => (
+              <div key={note.id} className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="font-black text-amber-900">{note.title}</p>
+                <p className="mt-1 text-sm font-bold text-amber-700">{note.message}</p>
+                <p className="mt-2 text-xs text-amber-600">{dateText(note.created_at)} · {note.notification_type || "Meldung"}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden sehen und freigeben" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
+        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.created_at || r.work_date)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes || r.planned_minutes || 0)} Std.</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+      </ListPage>
+    </div>
+  );
 }
+
 
 function Absences(p: any) {
   return <ListPage icon="✈" title="Abwesenheiten" sub="Urlaub, Krankheit und Freistellung" rows={p.rows} headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]} createLabel="+ Abwesenheit" onCreate={p.openCreate}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.absence_type}</td><td className="px-4 py-3">{dateText(r.start_date)}</td><td className="px-4 py-3">{dateText(r.end_date)}</td><td className="px-4 py-3"><Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || "open"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.decide(r, "approved")}>OK</Button><Button danger onClick={() => p.decide(r, "rejected")}>Nein</Button><Button onClick={() => p.openEdit(r)}>Bearbeiten</Button><Button danger onClick={() => p.deleteRow(r)}>Löschen</Button></div></td></tr>)}</ListPage>;
@@ -1310,6 +1430,20 @@ function TaskModal(p: any) {
   const filteredSites = selectedCustomerId ? p.sites.filter((site: Row) => site.customer_id === selectedCustomerId || site.customer_name === p.customers.find((c: Row) => c.id === selectedCustomerId)?.name) : p.sites;
   const selectedSite = p.sites.find((site: Row) => site.id === p.form.work_site_id);
   const gpsReady = Boolean(selectedSite?.latitude && selectedSite?.longitude);
+  const weekdayLabels = [
+    ["MO", "M"],
+    ["TU", "D"],
+    ["WE", "M"],
+    ["TH", "D"],
+    ["FR", "F"],
+    ["SA", "S"],
+    ["SU", "S"],
+  ];
+  const selectedDays = Array.isArray(p.form.recurrence_days) ? p.form.recurrence_days : [];
+  const toggleDay = (key: string) => {
+    const next = selectedDays.includes(key) ? selectedDays.filter((item: string) => item !== key) : [...selectedDays, key];
+    p.setForm({ ...p.form, recurrence_days: next });
+  };
 
   return (
     <ModalShell title={p.form.id ? "Einsatz bearbeiten" : "Neuen Einsatz planen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
@@ -1338,18 +1472,48 @@ function TaskModal(p: any) {
           {p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}
         </Select>
       </Field>
-      <Field label="Datum"><Input type="date" value={p.form.task_date} onChange={(e) => p.setForm({ ...p.form, task_date: e.target.value })} /></Field>
-      <Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field>
-      <Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field>
-      <Field label="Planzeit Minuten"><Input type="number" value={p.form.planned_minutes} onChange={(e) => p.setForm({ ...p.form, planned_minutes: e.target.value })} /></Field>
-      <Field label="Leistung / Aufgabe"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} /></Field>
-      <Field label="Priorität"><Select value={p.form.priority} onChange={(e) => p.setForm({ ...p.form, priority: e.target.value })}><option>Normal</option><option>Hoch</option><option>Dringend</option></Select></Field>
-      <Field label="Status"><Select value={p.form.done ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, done: e.target.value === "true" })}><option value="false">Offen</option><option value="true">Erledigt</option></Select></Field>
+      <Field label="Auftrag / Leistung"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} placeholder="z. B. Unterhaltsreinigung" /></Field>
+
+      <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4">
+        <div className="mb-5 flex flex-wrap gap-2">
+          <button type="button" onClick={() => p.setForm({ ...p.form, repeat_mode: "once" })} className={`rounded-xl border px-4 py-2 text-sm font-bold ${p.form.repeat_mode !== "repeat" ? "border-blue-500 bg-white text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>Einmalig</button>
+          <button type="button" onClick={() => p.setForm({ ...p.form, repeat_mode: "repeat" })} className={`rounded-xl border px-4 py-2 text-sm font-bold ${p.form.repeat_mode === "repeat" ? "border-blue-500 bg-white text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>Wiederholend</button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-4">
+          <Field label="Startdatum"><Input type="date" value={p.form.task_date} onChange={(e) => p.setForm({ ...p.form, task_date: e.target.value })} /></Field>
+          <Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field>
+          <Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field>
+          <Field label="Planzeit"><Input type="number" min="0" value={p.form.planned_minutes} onChange={(e) => p.setForm({ ...p.form, planned_minutes: e.target.value })} placeholder="Minuten" /></Field>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button type="button" onClick={() => p.setForm({ ...p.form, travel_minutes: String(Number(p.form.travel_minutes || 0) + 15) })} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600">+ Fahrzeit hinzufügen</button>
+          <button type="button" onClick={() => p.setForm({ ...p.form, break_minutes: String(Number(p.form.break_minutes || 0) + 15) })} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600">+ Pausenzeit hinzufügen</button>
+          {(Number(p.form.travel_minutes || 0) > 0 || Number(p.form.break_minutes || 0) > 0) && <span className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-500">Fahrt {p.form.travel_minutes || 0} Min. · Pause {p.form.break_minutes || 0} Min.</span>}
+        </div>
+
+        {p.form.repeat_mode === "repeat" && (
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <Field label="Wiederholen alle"><div className="grid grid-cols-[90px_1fr] gap-2"><Input type="number" min="1" value={p.form.recurrence_interval} onChange={(e) => p.setForm({ ...p.form, recurrence_interval: e.target.value })} /><Select value={p.form.recurrence_unit} onChange={(e) => p.setForm({ ...p.form, recurrence_unit: e.target.value })}><option value="week">Woche</option><option value="day">Tag</option><option value="month">Monat</option></Select></div></Field>
+            <Field label="Enddatum"><Input type="date" value={p.form.recurrence_end_date} onChange={(e) => p.setForm({ ...p.form, recurrence_end_date: e.target.value })} /></Field>
+            <Field label="Wiederholen am" wide>
+              <div className="flex flex-wrap gap-2">
+                {weekdayLabels.map(([key, label]) => <button key={key} type="button" onClick={() => toggleDay(key)} className={`flex h-11 w-11 items-center justify-center rounded-full border text-sm font-black ${selectedDays.includes(key) ? "border-blue-500 bg-blue-100 text-blue-700" : "border-slate-200 bg-white text-slate-500"}`}>{label}</button>)}
+              </div>
+            </Field>
+          </div>
+        )}
+      </div>
+
       <Field label="GPS-Status"><div className={`field font-black ${gpsReady ? "text-emerald-700" : "text-amber-700"}`}>{p.form.work_site_id ? (gpsReady ? "GPS-Daten vorhanden" : "GPS fehlt beim Objekt") : "Objekt auswählen"}</div></Field>
+      <Field label="Mitarbeiter benachrichtigen"><label className="field flex items-center gap-3 font-bold"><input type="checkbox" checked={p.form.notify_employee !== false} onChange={(e) => p.setForm({ ...p.form, notify_employee: e.target.checked })} /> Benachrichtigung senden</label></Field>
+      <Field label="Weiteren Einsatz erstellen"><label className="field flex items-center gap-3 font-bold"><input type="checkbox" checked={Boolean(p.form.create_another)} onChange={(e) => p.setForm({ ...p.form, create_another: e.target.checked })} /> Nach dem Speichern offen lassen</label></Field>
       <Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
     </ModalShell>
   );
 }
+
 
 function MaterialModal(p: any) {
   return <ModalShell title={p.form.id ? "Artikel bearbeiten" : "Neuen Artikel erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Artikel"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Objekt-Verknüpfung"><Select value={p.form.work_site_id} onChange={(e) => { const site = p.sites.find((s: Row) => s.id === e.target.value); p.setForm({ ...p.form, work_site_id: e.target.value, object_name: site?.name || "" }); }}><option value="">Für alle Objekte</option>{p.sites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field><Field label="Kategorie"><Input value={p.form.category} onChange={(e) => p.setForm({ ...p.form, category: e.target.value })} /></Field><Field label="Einheit"><Input value={p.form.unit} onChange={(e) => p.setForm({ ...p.form, unit: e.target.value })} /></Field><Field label="Bestand"><Input type="number" value={p.form.current_stock} onChange={(e) => p.setForm({ ...p.form, current_stock: e.target.value })} /></Field><Field label="Mindestbestand"><Input type="number" value={p.form.min_stock} onChange={(e) => p.setForm({ ...p.form, min_stock: e.target.value })} /></Field><Field label="Lieferant"><Input value={p.form.supplier} onChange={(e) => p.setForm({ ...p.form, supplier: e.target.value })} /></Field><Field label="Bild-URL" wide><Input value={p.form.image_url} onChange={(e) => p.setForm({ ...p.form, image_url: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>;

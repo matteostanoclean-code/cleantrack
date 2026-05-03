@@ -76,9 +76,14 @@ type TimeEntry = {
   id: string;
   employee_name: string;
   work_site_name: string | null;
+  site?: string | null;
+  work_site_id?: string | null;
+  task_id?: string | null;
   action: "start" | "break_start" | "break_end" | "end";
   created_at: string;
   auto_clock_out: boolean | null;
+  worked_minutes?: number | null;
+  reason?: string | null;
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -118,6 +123,48 @@ function sortTasksByTime(items: Task[]) {
   return [...items].sort((a, b) => `${a.start_time || "99:99"}`.localeCompare(`${b.start_time || "99:99"}`));
 }
 
+function toMinutes(time: string | null | undefined) {
+  if (!time) return 0;
+  const [h, m] = time.slice(0, 5).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function isNowInsideWindow(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return true;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const a = toMinutes(start);
+  let b = toMinutes(end);
+  let c = current;
+  if (b < a) b += 1440;
+  if (c < a && b > 1440) c += 1440;
+  return c >= a && c <= b;
+}
+
+function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const r = 6371000;
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function getCurrentPosition(): Promise<{ latitude: number; longitude: number } | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 }
+    );
+  });
+}
+
+
 export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: Tab }) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [email, setEmail] = useState("");
@@ -152,6 +199,10 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [status, setStatus] = useState<Status>("none");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [loadingData, setLoadingData] = useState(false);
+  const [clockSaving, setClockSaving] = useState(false);
+  const [clockNotice, setClockNotice] = useState("");
+  const autoClockOutRef = useRef(false);
+  const lastOvertimeRequestRef = useRef("");
 
   const name = profile?.name || "";
   const role = profile?.role || "employee";
@@ -164,6 +215,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const pauseMinutes = useMemo(() => calculatePauseMinutes(todayEntries), [todayEntries]);
   const progress = plannedMinutes > 0 ? Math.min(100, Math.round((workedMinutes / plannedMinutes) * 100)) : 0;
   const selectedTask = todayTasks.find((task) => task.id === selectedTaskId) || todayTasks.find((task) => !task.done) || todayTasks[0] || null;
+  const selectedSite = selectedTask ? workSites.find((site) => site.id === selectedTask.work_site_id || site.name === selectedTask.site) || null : null;
 
   useEffect(() => {
     checkExistingSession();
@@ -211,6 +263,39 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     if (last.action === "break_start") setStatus("break");
     if (last.action === "end") setStatus("none");
   }, [todayEntries]);
+
+  useEffect(() => {
+    if (status !== "working" || !selectedTask) return;
+    const maxMinutes = Number(selectedTask.max_minutes || selectedTask.planned_minutes || 0);
+    if (!maxMinutes || workedMinutes < maxMinutes || autoClockOutRef.current) return;
+
+    autoClockOutRef.current = true;
+    createEntry("end", "max_time_reached");
+    setClockNotice("Die geplante Zeit ist erreicht. Ich habe automatisch ausgestempelt. Wenn ich länger brauche, frage ich Überstunden an.");
+  }, [status, selectedTask?.id, selectedTask?.max_minutes, selectedTask?.planned_minutes, workedMinutes]);
+
+  useEffect(() => {
+    if (status !== "working" || !selectedTask || !selectedSite?.latitude || !selectedSite?.longitude) return;
+    if (!navigator.geolocation) return;
+
+    const radius = Number(selectedSite.allowed_radius_m || 50);
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (autoClockOutRef.current) return;
+        const distance = distanceMeters(pos.coords.latitude, pos.coords.longitude, Number(selectedSite.latitude), Number(selectedSite.longitude));
+        if (distance > radius) {
+          autoClockOutRef.current = true;
+          createEntry("end", "left_geofence");
+          setClockNotice(`Ich bin ${Math.round(distance)} m vom Objekt entfernt. Die Arbeitszeit wurde automatisch beendet.`);
+        }
+      },
+      () => undefined,
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [status, selectedTask?.id, selectedSite?.id]);
+
 
   async function checkExistingSession() {
     const { data } = await supabase.auth.getSession();
@@ -399,31 +484,89 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     return total;
   }
 
-  async function createEntry(action: TimeEntry["action"]) {
+  async function createEntry(action: TimeEntry["action"], reason = "manual") {
     if (!name) return;
     setMessage("");
+    setClockNotice("");
 
     const task = selectedTask;
-    const site = task?.site || workSites.find((item) => item.id === task?.work_site_id)?.name || "Ohne Objekt";
-
-    const { error } = await supabase.from("time_entries").insert([
-      {
-        employee_name: name,
-        work_site_name: site,
-        action,
-        task_id: task?.id || null,
-        auto_clock_out: false,
-      },
-    ]);
-
-    if (error) {
-      setMessage("Zeit konnte nicht gespeichert werden. Bitte Supabase/Rechte prüfen.");
+    if (!task) {
+      setMessage("Ich habe keinen Einsatz für heute gefunden.");
       return;
     }
 
-    await loadTodayEntries(name);
-    setMessage(action === "start" ? "Arbeitszeit gestartet." : action === "end" ? "Arbeitszeit beendet." : action === "break_start" ? "Pause gestartet." : "Pause beendet.");
+    if (action === "start" && !isNowInsideWindow(task.start_time, task.end_time)) {
+      setMessage(`Einstempeln ist nur im Zeitfenster ${formatClock(task.start_time)} - ${formatClock(task.end_time)} möglich.`);
+      return;
+    }
+
+    if (action === "start") {
+      autoClockOutRef.current = false;
+    }
+
+    setClockSaving(true);
+    try {
+      const position = await getCurrentPosition();
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+      const response = await fetch("/api/time/clock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action,
+          task_id: task.id,
+          reason,
+          local_time: new Date().toTimeString().slice(0, 5),
+          latitude: position?.latitude ?? null,
+          longitude: position?.longitude ?? null,
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Zeit konnte nicht gespeichert werden.");
+
+      await loadTodayEntries(name);
+      setMessage(json.message || (action === "start" ? "Arbeitszeit gestartet." : action === "end" ? "Arbeitszeit beendet." : action === "break_start" ? "Pause gestartet." : "Pause beendet."));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Zeit konnte nicht gespeichert werden.");
+    } finally {
+      setClockSaving(false);
+    }
   }
+
+  async function requestOvertime(minutes: number) {
+    if (!selectedTask || !name) return;
+    const requestKey = `${selectedTask.id}-${minutes}-${todayISO()}`;
+    if (lastOvertimeRequestRef.current === requestKey) {
+      setClockNotice("Überstundenanfrage wurde bereits gesendet.");
+      return;
+    }
+
+    setClockSaving(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+      const response = await fetch("/api/time/clock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "request_overtime", task_id: selectedTask.id, overtime_minutes: minutes }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Überstunden konnten nicht angefragt werden.");
+      lastOvertimeRequestRef.current = requestKey;
+      setClockNotice("Überstunden wurden angefragt. Ich warte auf Freigabe.");
+      await loadNotifications(name);
+    } catch (error) {
+      setClockNotice(error instanceof Error ? error.message : "Überstunden konnten nicht angefragt werden.");
+    } finally {
+      setClockSaving(false);
+    }
+  }
+
 
   async function toggleTask(task: Task) {
     const { error } = await supabase.from("tasks").update({ done: !task.done }).eq("id", task.id);
@@ -611,10 +754,15 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             status={status}
             selectedTaskId={selectedTaskId}
             setSelectedTaskId={setSelectedTaskId}
+            selectedTask={selectedTask}
+            selectedSite={selectedSite}
             workedMinutes={workedMinutes}
             pauseMinutes={pauseMinutes}
             message={message}
+            clockNotice={clockNotice}
+            clockSaving={clockSaving}
             createEntry={createEntry}
+            requestOvertime={requestOvertime}
             openTab={openTab}
           />
         )}
@@ -784,12 +932,22 @@ function ClockScreen(props: {
   status: Status;
   selectedTaskId: string;
   setSelectedTaskId: (id: string) => void;
+  selectedTask: Task | null;
+  selectedSite: WorkSite | null;
   workedMinutes: number;
   pauseMinutes: number;
   message: string;
-  createEntry: (action: TimeEntry["action"]) => void;
+  clockNotice: string;
+  clockSaving: boolean;
+  createEntry: (action: TimeEntry["action"], reason?: string) => void;
+  requestOvertime: (minutes: number) => void;
   openTab: (tab: Tab) => void;
 }) {
+  const maxMinutes = Number(props.selectedTask?.max_minutes || props.selectedTask?.planned_minutes || 0);
+  const remaining = maxMinutes ? Math.max(0, maxMinutes - props.workedMinutes) : 0;
+  const gpsReady = Boolean(props.selectedSite?.latitude && props.selectedSite?.longitude);
+  const canRequestOvertime = Boolean(props.selectedTask && maxMinutes && props.workedMinutes >= maxMinutes);
+
   return (
     <SimplePage title="Stundenzettel" openTab={props.openTab}>
       <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
@@ -797,26 +955,41 @@ function ClockScreen(props: {
           <div><p className="text-sm font-bold text-slate-400">Heute geleistet</p><p className="text-4xl font-black">{formatMinutes(props.workedMinutes)}</p></div>
           <div className="text-right"><p className="text-sm font-bold text-slate-400">Pause</p><p className="text-xl font-black">{formatMinutes(props.pauseMinutes)}</p></div>
         </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-400">Zeitfenster</p><p className="font-black">{formatClock(props.selectedTask?.start_time || null)} - {formatClock(props.selectedTask?.end_time || null)}</p></div>
+          <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-400">Rest-Planzeit</p><p className="font-black">{formatMinutes(remaining)}</p></div>
+        </div>
+
         <div className="mt-5 rounded-2xl bg-slate-50 p-3">
           <select className="w-full bg-transparent font-bold outline-none" value={props.selectedTaskId} onChange={(e) => props.setSelectedTaskId(e.target.value)}>
-            <option value="">Aufgabe automatisch wählen</option>
-            {props.tasks.map((task) => <option key={task.id} value={task.id}>{task.site || "Objekt"} · {task.title}</option>)}
+            <option value="">Einsatz automatisch wählen</option>
+            {props.tasks.map((task) => <option key={task.id} value={task.id}>{formatClock(task.start_time)} - {formatClock(task.end_time)} · {task.site || "Objekt"} · {task.title}</option>)}
           </select>
         </div>
+
+        {props.selectedTask && <div className="mt-3 rounded-2xl bg-blue-50 p-3 text-sm font-bold text-blue-800">{props.selectedTask.site || "Objekt"} · {props.selectedTask.title}</div>}
+        <div className={`mt-3 rounded-2xl p-3 text-sm font-black ${gpsReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{gpsReady ? `GPS aktiv · Radius ${props.selectedSite?.allowed_radius_m || 50} m` : "GPS fehlt beim Objekt. Bitte im Adminbereich am Objekt setzen."}</div>
+
         <div className="mt-5 grid grid-cols-2 gap-3">
-          {props.status === "none" && <button type="button" onClick={() => props.createEntry("start")} className="col-span-2 rounded-2xl bg-blue-600 py-4 text-white font-black">Einstempeln</button>}
-          {props.status === "working" && <><button type="button" onClick={() => props.createEntry("break_start")} className="rounded-2xl bg-orange-100 py-4 text-orange-700 font-black">Pause</button><button type="button" onClick={() => props.createEntry("end")} className="rounded-2xl bg-red-100 py-4 text-red-700 font-black">Ausstempeln</button></>}
-          {props.status === "break" && <button type="button" onClick={() => props.createEntry("break_end")} className="col-span-2 rounded-2xl bg-green-600 py-4 text-white font-black">Pause beenden</button>}
+          {props.status === "none" && <button type="button" disabled={props.clockSaving} onClick={() => props.createEntry("start")} className="col-span-2 rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">Einstempeln</button>}
+          {props.status === "working" && <><button type="button" disabled={props.clockSaving} onClick={() => props.createEntry("break_start")} className="rounded-2xl bg-orange-100 py-4 text-orange-700 font-black disabled:opacity-60">Pause</button><button type="button" disabled={props.clockSaving} onClick={() => props.createEntry("end")} className="rounded-2xl bg-red-100 py-4 text-red-700 font-black disabled:opacity-60">Ausstempeln</button></>}
+          {props.status === "break" && <button type="button" disabled={props.clockSaving} onClick={() => props.createEntry("break_end")} className="col-span-2 rounded-2xl bg-green-600 py-4 text-white font-black disabled:opacity-60">Pause beenden</button>}
         </div>
+
+        {canRequestOvertime && <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="font-black text-amber-800">Planzeit erreicht</p><p className="mt-1 text-sm font-bold text-amber-700">Wenn ich länger brauche, muss ich Überstunden anfragen.</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => props.requestOvertime(15)} className="rounded-xl bg-white py-3 font-black text-amber-700">+15 Min. anfragen</button><button type="button" onClick={() => props.requestOvertime(30)} className="rounded-xl bg-white py-3 font-black text-amber-700">+30 Min. anfragen</button></div></div>}
+
+        {props.clockNotice && <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-700">{props.clockNotice}</p>}
         {props.message && <p className="mt-4 text-center text-sm font-bold text-blue-600">{props.message}</p>}
       </div>
       <div className="mt-5 space-y-3">
         {props.entries.length === 0 && <EmptyState text="Keine Zeiten erfasst" />}
-        {props.entries.map((entry) => <div key={entry.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{entryLabel(entry.action)}</p><p className="text-xs text-slate-400">{new Date(entry.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} · {entry.work_site_name || "Ohne Objekt"}</p></div>)}
+        {props.entries.map((entry) => <div key={entry.id} className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100"><p className="font-black">{entryLabel(entry.action)}</p><p className="text-xs text-slate-400">{new Date(entry.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} · {entry.work_site_name || entry.site || "Ohne Objekt"}{entry.auto_clock_out ? " · automatisch" : ""}</p></div>)}
       </div>
     </SimplePage>
   );
 }
+
 
 function ScheduleScreen({ tasks, openTab }: { tasks: Task[]; openTab: (tab: Tab) => void }) {
   const today = todayISO();
