@@ -134,6 +134,7 @@ export async function POST(request: Request) {
     if ("employee_number" in body) update.employee_number = nullableText(body.employee_number);
     if ("address" in body) update.address = nullableText(body.address);
     if ("hourly_rate" in body) update.hourly_rate = numberValue(body.hourly_rate, 0);
+    if ("monthly_hour_limit" in body) update.monthly_hour_limit = numberValue(body.monthly_hour_limit, 0);
 
     if ("vacation_days" in body) {
       const days = numberValue(body.vacation_days, 0);

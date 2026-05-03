@@ -51,11 +51,11 @@ function toLocalIso(date: Date) {
 const today = toLocalIso(new Date());
 
 const emptyEmployeeInvite = { name: "", email: "", phone: "" };
-const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", vacation_days: "0", active: true };
+const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", monthly_hour_limit: "0", vacation_days: "0", active: true };
 const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
-const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
-const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false };
+const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", monthly_hour_quota: "0", latitude: "", longitude: "", notes: "", active: true };
+const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false, paid_minutes: "120" };
 
 function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
   return {
@@ -66,6 +66,7 @@ function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
     start_time: mode === "task" ? "" : "08:00",
     end_time: mode === "task" ? "" : "10:00",
     planned_minutes: mode === "task" ? "0" : "120",
+    paid_minutes: mode === "task" ? "0" : "120",
     item_type: mode,
     task_type: mode,
     priority: mode === "task" ? "Mittel" : "Normal",
@@ -305,6 +306,57 @@ function findScheduleConflict(tasks: Row[], form: Row, dates: string[]) {
     if (!dates.includes(dateOnly(task.task_date))) return false;
     return timesOverlap(form.start_time, form.end_time, task.start_time, task.end_time);
   }) || null;
+}
+
+function sameMonth(dateValue: unknown, monthDate: Date) {
+  if (!dateValue) return false;
+  const date = parseLocalDate(String(dateValue));
+  return date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth();
+}
+
+function monthName(date: Date) {
+  return date.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+}
+
+function formatHours(value: unknown) {
+  const total = Math.max(0, Number(value || 0));
+  const h = Math.floor(total / 60);
+  const m = Math.round(total % 60);
+  return `${h}:${String(m).padStart(2, "0")}h`;
+}
+
+function employeeMonthlyLimit(employee: Row) {
+  return Number(employee.monthly_hour_limit || employee.monthly_hours || employee.monthly_limit_minutes || 0);
+}
+
+function employeePlannedMinutesForMonth(tasks: Row[], employee: Row, monthDate: Date) {
+  const name = String(employee.name || "").trim();
+  return tasks
+    .filter((task) => String(task.employee_name || "").trim() === name && sameMonth(task.task_date || task.due_date, monthDate))
+    .reduce((sum, task) => sum + taskDuration(task), 0);
+}
+
+function siteHourQuotaMinutes(site: Row | undefined | null) {
+  const hours = Number(site?.monthly_hour_quota || site?.monthly_hours || site?.hour_quota || 0);
+  return Number.isFinite(hours) ? Math.max(0, Math.round(hours * 60)) : 0;
+}
+
+function sitePlannedMinutesForMonth(tasks: Row[], site: Row | undefined | null, monthDate: Date, currentTaskId?: string) {
+  if (!site) return 0;
+  return tasks
+    .filter((task) => {
+      if (currentTaskId && String(task.id || "") === String(currentTaskId)) return false;
+      const sameSite = String(task.work_site_id || "") === String(site.id || "") || String(task.site || "") === String(site.name || "");
+      return sameSite && sameMonth(task.task_date || task.due_date, monthDate) && task.item_type !== "task" && task.task_type !== "task";
+    })
+    .reduce((sum, task) => sum + taskDuration(task), 0);
+}
+
+function paidMinutesFromForm(form: Row) {
+  const planned = Number(form.planned_minutes || 0);
+  const travel = Number(form.travel_minutes || 0);
+  const pause = Number(form.break_minutes || 0);
+  return Math.max(0, planned + travel - pause);
 }
 
 
@@ -825,6 +877,7 @@ export default function AdminPage() {
       employee_number: String(row.employee_number || ""),
       address: String(row.address || row.street || ""),
       hourly_rate: String(row.hourly_rate ?? "0"),
+      monthly_hour_limit: String(row.monthly_hour_limit ?? row.monthly_hours ?? "0"),
       vacation_days: String(row.vacation_days ?? row.annual_vacation_days ?? "0"),
       active: row.active !== false,
     });
@@ -840,6 +893,7 @@ export default function AdminPage() {
       employee_number: employeeEdit.employee_number || null,
       address: employeeEdit.address || null,
       hourly_rate: Number(employeeEdit.hourly_rate || 0),
+      monthly_hour_limit: Number(employeeEdit.monthly_hour_limit || 0),
       vacation_days: Number(employeeEdit.vacation_days || 0),
       active: employeeEdit.active,
     }, "Mitarbeiter gespeichert.");
@@ -964,6 +1018,7 @@ export default function AdminPage() {
       customer_name: String(row.customer_name || ""),
       address: String(row.address || ""),
       allowed_radius_m: String(row.allowed_radius_m ?? "50"),
+      monthly_hour_quota: String(row.monthly_hour_quota ?? row.monthly_hours ?? row.hour_quota ?? "0"),
       latitude: String(row.latitude ?? ""),
       longitude: String(row.longitude ?? ""),
       notes: String(row.notes || ""),
@@ -980,6 +1035,7 @@ export default function AdminPage() {
       customer_name: customerLabel(customer) || siteForm.customer_name || null,
       address: siteForm.address,
       allowed_radius_m: numberOrFallback(siteForm.allowed_radius_m, 50),
+      monthly_hour_quota: numberOrFallback(siteForm.monthly_hour_quota, 0),
       latitude: siteForm.latitude === "" ? null : numberOrFallback(siteForm.latitude, 0),
       longitude: siteForm.longitude === "" ? null : numberOrFallback(siteForm.longitude, 0),
       notes: siteForm.notes || null,
@@ -1007,6 +1063,7 @@ export default function AdminPage() {
       start_time: String(row.start_time || (rowIsTask ? "" : "08:00")),
       end_time: String(row.end_time || (rowIsTask ? "" : "10:00")),
       planned_minutes: String(row.planned_minutes || row.max_minutes || (rowIsTask ? "0" : minutes(row.start_time, row.end_time) || "120")),
+      paid_minutes: String(row.paid_minutes || row.wage_minutes || row.planned_minutes || row.max_minutes || (rowIsTask ? "0" : minutes(row.start_time, row.end_time) || "120")),
       customer_id: String(row.customer_id || linkedSite?.customer_id || ""),
       customer_name: String(row.customer_name || linkedSite?.customer_name || ""),
       site: String(row.site || linkedSite?.name || ""),
@@ -1081,6 +1138,8 @@ export default function AdminPage() {
       end_time: taskForm.end_time,
       planned_minutes: Number(taskForm.planned_minutes || 0),
       max_minutes: Number(taskForm.planned_minutes || 0),
+      paid_minutes: paidMinutesFromForm(taskForm),
+      wage_minutes: paidMinutesFromForm(taskForm),
       employee_name: taskForm.employee_name || null,
       customer_id: customerIdForDb,
       customer_name: customerNameForDb,
@@ -1604,7 +1663,7 @@ export default function AdminPage() {
       {modal === "customer" && <CustomerModal close={() => setModal(null)} form={customerForm} setForm={setCustomerForm} save={saveCustomer} saving={saving} />}
       {modal === "contact" && <ContactModal close={() => setModal(null)} form={contactForm} setForm={setContactForm} save={saveContact} saving={saving} />}
       {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} customers={customerList} geocode={geocodeSiteAddress} geocoding={geocoding} />}
-      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} mode={tab === "aufgaben" ? "task" : "einsatz"} />}
+      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} mode={tab === "aufgaben" ? "task" : "einsatz"} assignments={assignmentRows} />}
       {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} sites={sites} />}
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
       {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
@@ -1801,6 +1860,7 @@ function Planning(p: any) {
   const rangeLabel = `${dateText(days[0])} → ${dateText(days[days.length - 1])}`;
   const kw = weekNumber(baseDate);
   const searchText = localSearch.trim().toLowerCase();
+  const planMonth = parseLocalDate(days[0]);
 
   const tasksInRange = p.tasks.filter((task: Row) => {
     const taskDate = dateOnly(task.task_date || task.due_date);
@@ -1849,6 +1909,16 @@ function Planning(p: any) {
     return tasksInRange
       .filter((task: Row) => task.employee_name === employee.name)
       .reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+  }
+
+  function monthlyWorkload(employee: Row) {
+    return employeePlannedMinutesForMonth(p.tasks || [], employee, planMonth);
+  }
+
+  function unassignedTasksFor(day: string) {
+    return tasksInRange
+      .filter((task: Row) => !task.employee_name && dateOnly(task.task_date) === day)
+      .sort((a: Row, b: Row) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
   }
 
   const tourGroups = p.sites
@@ -1934,8 +2004,51 @@ function Planning(p: any) {
               {days.map((day) => <div key={day} className="border-r border-slate-200 p-3 text-center text-sm font-black text-slate-600 last:border-r-0">{dayShort(day)}</div>)}
             </div>
 
+            {!employeeFilter && (
+              <div className="grid min-h-[118px] border-b border-slate-100 bg-amber-50/60" style={{ gridTemplateColumns: `260px repeat(${days.length}, minmax(160px, 1fr))` }}>
+                <div className="border-r border-amber-200 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500 text-sm font-black text-white">?</div>
+                    <div className="min-w-0">
+                      <p className="truncate font-black text-slate-950">Ungeplant</p>
+                      <p className="text-xs font-bold text-amber-700">Einsätze ohne Mitarbeiter</p>
+                    </div>
+                  </div>
+                </div>
+                {days.map((day) => {
+                  const dayTasks = unassignedTasksFor(day);
+                  return (
+                    <div key={`unassigned-${day}`} className="min-h-[118px] border-r border-amber-100 p-2 last:border-r-0">
+                      <div className="space-y-2">
+                        {dayTasks.map((task: Row) => {
+                          const site = taskSite(task);
+                          return (
+                            <button key={task.id} type="button" onClick={() => p.editTask(task)} className="w-full rounded-xl border border-amber-300 bg-white p-3 text-left text-xs shadow-sm hover:border-blue-300 hover:bg-blue-50">
+                              <div className="mb-1 flex items-center justify-between gap-2 text-slate-500">
+                                <span className="font-bold">{task.start_time || "--:--"} → {task.end_time || "--:--"}</span>
+                                <span>zuweisen</span>
+                              </div>
+                              <p className="truncate font-black text-slate-950">{task.site || site?.name || "Ohne Objekt"}</p>
+                              <p className="mt-1 inline-flex rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-700">{task.title || "Einsatz"}</p>
+                            </button>
+                          );
+                        })}
+                        {dayTasks.length === 0 && <div className="min-h-[38px] rounded-xl border border-dashed border-amber-200 bg-white/50" />}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {visibleEmployees.map((employee: Row) => {
               const weekMinutes = workload(employee);
+              const monthMinutes = monthlyWorkload(employee);
+              const limitMinutes = employeeMonthlyLimit(employee) * 60;
+              const remainingMinutes = limitMinutes - monthMinutes;
+              const usagePercent = limitMinutes > 0 ? Math.min(100, Math.round((monthMinutes / limitMinutes) * 100)) : monthMinutes > 0 ? 100 : 0;
+              const freePercent = limitMinutes > 0 ? Math.max(0, 100 - usagePercent) : 0;
+              const overload = limitMinutes <= 0 ? monthMinutes > 0 : monthMinutes > limitMinutes;
               return (
                 <div key={employee.id || employee.name} className="grid min-h-[136px] border-b border-slate-100 last:border-b-0" style={{ gridTemplateColumns: `260px repeat(${days.length}, minmax(160px, 1fr))` }}>
                   <div className="border-r border-slate-200 p-4">
@@ -1946,9 +2059,13 @@ function Planning(p: any) {
                         <p className="text-xs font-bold text-slate-400">{prettyHours(weekMinutes)} Std. geplant</p>
                       </div>
                     </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="h-2 rounded-full bg-red-400" style={{ width: `${Math.min(100, Math.max(16, weekMinutes / 24))}%` }} />
-                      <div className="h-2 rounded-full bg-red-400" style={{ width: `${Math.min(100, Math.max(16, weekMinutes / 24))}%` }} />
+                    <div className="mt-4 space-y-2" title={`Stunden für ${monthName(planMonth)}\nEingeplant: ${formatHours(monthMinutes)}\nLimit: ${limitMinutes ? formatHours(limitMinutes) : "00:00h"}\nNoch verfügbar: ${remainingMinutes >= 0 ? formatHours(remainingMinutes) : `-${formatHours(Math.abs(remainingMinutes))}`}`}>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className={`h-full rounded-full ${overload ? "bg-red-500" : "bg-blue-500"}`} style={{ width: `${Math.max(0, usagePercent)}%` }} />
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className={`h-full rounded-full ${overload ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${freePercent}%` }} />
+                      </div>
                     </div>
                   </div>
 
@@ -2044,7 +2161,7 @@ function Contacts(p: any) {
 }
 
 function Sites(p: any) {
-  return <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td><td className="px-4 py-3">{r.allowed_radius_m || 50} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "Kontingent", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3 font-bold">{Number(r.monthly_hour_quota || 0) ? `${r.monthly_hour_quota} Std./Monat` : "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td><td className="px-4 py-3">{r.allowed_radius_m || 50} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
 function Tasks(p: any) {
@@ -2422,7 +2539,7 @@ function EmployeeInviteModal(p: any) {
 }
 
 function EmployeeEditModal(p: any) {
-  return <ModalShell title="Mitarbeiter bearbeiten" close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="Personalnummer"><Input value={p.form.employee_number} onChange={(e) => p.setForm({ ...p.form, employee_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Stundenlohn"><Input type="number" step="0.01" value={p.form.hourly_rate} onChange={(e) => p.setForm({ ...p.form, hourly_rate: e.target.value })} /></Field><Field label="Urlaubstage"><Input type="number" step="0.5" value={p.form.vacation_days} onChange={(e) => p.setForm({ ...p.form, vacation_days: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field></ModalShell>;
+  return <ModalShell title="Mitarbeiter bearbeiten" close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="Personalnummer"><Input value={p.form.employee_number} onChange={(e) => p.setForm({ ...p.form, employee_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Stundenlohn"><Input type="number" step="0.01" value={p.form.hourly_rate} onChange={(e) => p.setForm({ ...p.form, hourly_rate: e.target.value })} /></Field><Field label="Monatslimit Stunden"><Input type="number" step="0.25" value={p.form.monthly_hour_limit} onChange={(e) => p.setForm({ ...p.form, monthly_hour_limit: e.target.value })} placeholder="z. B. 80" /></Field><Field label="Urlaubstage"><Input type="number" step="0.5" value={p.form.vacation_days} onChange={(e) => p.setForm({ ...p.form, vacation_days: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field></ModalShell>;
 }
 
 function CustomerModal(p: any) { return <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
@@ -2439,6 +2556,7 @@ function SiteModal(p: any) {
       <Field label="Objektname"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field>
       <Field label="Adresse" wide><Input required value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field>
       <Field label="GPS-Radius Meter"><Input type="number" value={p.form.allowed_radius_m} onChange={(e) => p.setForm({ ...p.form, allowed_radius_m: e.target.value })} /></Field>
+      <Field label="Stundenkontingent / Monat"><Input type="number" step="0.25" value={p.form.monthly_hour_quota} onChange={(e) => p.setForm({ ...p.form, monthly_hour_quota: e.target.value })} placeholder="z. B. 44" /></Field>
       <Field label="GPS automatisch holen"><button type="button" onClick={p.geocode} disabled={p.geocoding} className="field text-left font-black text-blue-700 disabled:opacity-60">{p.geocoding ? "GPS wird gesucht..." : "GPS aus Adresse holen"}</button></Field>
       <Field label="Latitude"><Input value={p.form.latitude} onChange={(e) => p.setForm({ ...p.form, latitude: e.target.value })} /></Field>
       <Field label="Longitude"><Input value={p.form.longitude} onChange={(e) => p.setForm({ ...p.form, longitude: e.target.value })} /></Field>
@@ -2475,6 +2593,11 @@ function TaskModal(p: any) {
   };
   const selectedSite = p.sites.find((site: Row) => site.id === p.form.work_site_id);
   const gpsReady = Boolean(selectedSite?.latitude && selectedSite?.longitude);
+  const assignmentMonth = parseLocalDate(p.form.task_date || today);
+  const objectPlannedMinutes = sitePlannedMinutesForMonth(p.assignments || [], selectedSite, assignmentMonth, p.form.id) + Number(p.form.planned_minutes || 0);
+  const objectQuotaMinutes = siteHourQuotaMinutes(selectedSite);
+  const objectRemainingMinutes = objectQuotaMinutes - objectPlannedMinutes;
+  const currentPaidMinutes = paidMinutesFromForm(p.form);
   const weekdayLabels = [
     ["MO", "M"],
     ["TU", "D"],
@@ -2518,10 +2641,7 @@ function TaskModal(p: any) {
           </Select>
         </Field>
         <Field label="Mitarbeiter">
-          <Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
-            <option value="">Mitarbeiter auswählen</option>
-            {p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}
-          </Select>
+          <EmployeePicker value={p.form.employee_name} employees={p.employees} onChange={(name) => p.setForm({ ...p.form, employee_name: name })} />
         </Field>
         <Field label="Mitarbeiter benachrichtigen"><label className="field flex items-center gap-3 font-bold"><input type="checkbox" checked={p.form.notify_employee !== false} onChange={(e) => p.setForm({ ...p.form, notify_employee: e.target.checked })} /> Benachrichtigung senden</label></Field>
         <Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} placeholder="Beschreibung" /></Field>
@@ -2544,12 +2664,26 @@ function TaskModal(p: any) {
         </Select>
       </Field>
       <Field label="Mitarbeiter">
-        <Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
-          <option value="">Mitarbeiter auswählen</option>
-          {p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}
-        </Select>
+        <EmployeePicker value={p.form.employee_name} employees={p.employees} onChange={(name) => p.setForm({ ...p.form, employee_name: name })} />
       </Field>
       <Field label="Auftrag / Leistung"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} placeholder="z. B. Unterhaltsreinigung" /></Field>
+
+      <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-black text-slate-950">{monthName(assignmentMonth)}</p>
+            <p className="mt-1 text-sm text-slate-500">Objekt-Kontingent für diesen Monat</p>
+          </div>
+          <div className="grid min-w-[320px] gap-2 text-sm">
+            <div className="flex justify-between gap-6"><span className="text-slate-500">Geplant:</span><strong>{formatHours(objectPlannedMinutes)}</strong></div>
+            <div className="flex justify-between gap-6"><span className="text-slate-500">Stundenkontingent:</span><strong>{objectQuotaMinutes ? formatHours(objectQuotaMinutes) : "-"}</strong></div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full ${objectQuotaMinutes && objectPlannedMinutes > objectQuotaMinutes ? "bg-red-500" : "bg-blue-500"}`} style={{ width: `${objectQuotaMinutes ? Math.min(100, Math.round((objectPlannedMinutes / objectQuotaMinutes) * 100)) : objectPlannedMinutes ? 100 : 0}%` }} />
+            </div>
+            <div className="flex justify-between gap-6"><span className="text-slate-500">Noch verfügbar:</span><strong className={objectQuotaMinutes && objectRemainingMinutes < 0 ? "text-red-600" : "text-slate-950"}>{objectQuotaMinutes ? (objectRemainingMinutes >= 0 ? formatHours(objectRemainingMinutes) : `-${formatHours(Math.abs(objectRemainingMinutes))}`) : "-"}</strong></div>
+          </div>
+        </div>
+      </div>
 
       <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4">
         <div className="mb-5 flex flex-wrap gap-2">
@@ -2570,6 +2704,14 @@ function TaskModal(p: any) {
           {(Number(p.form.travel_minutes || 0) > 0 || Number(p.form.break_minutes || 0) > 0) && <span className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-500">Fahrt {p.form.travel_minutes || 0} Min. · Pause {p.form.break_minutes || 0} Min.</span>}
         </div>
 
+        <div className="mt-5 border-t border-slate-200 pt-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-black text-slate-600">Lohnzeit in diesem Auftrag</span>
+            <span className="text-lg font-black text-slate-950">{formatHours(currentPaidMinutes)}</span>
+          </div>
+          <p className="mt-1 text-xs font-semibold text-slate-400">Planzeit + Fahrzeit − Pausenzeit</p>
+        </div>
+
         {p.form.repeat_mode === "repeat" && (
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <Field label="Wiederholen alle"><div className="grid grid-cols-[90px_1fr] gap-2"><Input type="number" min="1" value={p.form.recurrence_interval} onChange={(e) => p.setForm({ ...p.form, recurrence_interval: e.target.value })} /><Select value={p.form.recurrence_unit} onChange={(e) => p.setForm({ ...p.form, recurrence_unit: e.target.value })}><option value="week">Woche</option><option value="day">Tag</option><option value="month">Monat</option></Select></div></Field>
@@ -2588,6 +2730,53 @@ function TaskModal(p: any) {
       <Field label="Weiteren Einsatz erstellen"><label className="field flex items-center gap-3 font-bold"><input type="checkbox" checked={Boolean(p.form.create_another)} onChange={(e) => p.setForm({ ...p.form, create_another: e.target.checked })} /> Nach dem Speichern offen lassen</label></Field>
       <Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
     </ModalShell>
+  );
+}
+
+
+function EmployeePicker({ value, employees, onChange }: { value: string; employees: Row[]; onChange: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selected = employees.find((employee) => employee.name === value);
+  const filteredEmployees = employees.filter((employee) => {
+    const haystack = `${employee.name || ""} ${employee.employee_group || ""} ${employee.role || ""}`.toLowerCase();
+    return !query.trim() || haystack.includes(query.trim().toLowerCase());
+  });
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {value ? (
+          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">{initials(selected?.name || value)}</span>
+            {value}
+            <button type="button" onClick={() => onChange("")} className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-400 text-xs font-black text-white">×</button>
+          </span>
+        ) : <span className="px-2 py-2 text-sm font-semibold text-slate-400">Noch kein Mitarbeiter ausgewählt</span>}
+        <button type="button" onClick={() => setOpen((old) => !old)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-black text-white">Hinzufügen +</button>
+        {value && <button type="button" onClick={() => onChange("")} className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-black text-amber-700">Auf ungeplant setzen</button>}
+      </div>
+
+      {open && (
+        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="p-3">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} autoFocus className="w-full rounded-xl border border-blue-300 bg-white px-4 py-3 text-sm font-semibold outline-none" placeholder="Nach Name, Gruppe oder Tag suchen" />
+          </div>
+          <div className="max-h-72 overflow-y-auto pb-2">
+            {filteredEmployees.length === 0 && <p className="px-4 py-4 text-sm font-bold text-slate-400">Keine Mitarbeiter gefunden</p>}
+            {filteredEmployees.map((employee) => (
+              <button key={employee.id || employee.name} type="button" onClick={() => { onChange(employee.name); setOpen(false); setQuery(""); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-blue-50 ${employee.name === value ? "bg-blue-50" : ""}`}>
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-black text-white">{initials(employee.name || "CT")}</span>
+                <span>
+                  <span className="block text-xs font-bold text-slate-400">{employee.employee_group || employee.role || "Servicekraft"}</span>
+                  <span className="block font-bold text-slate-800">{employee.name}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
