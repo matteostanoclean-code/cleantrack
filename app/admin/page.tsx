@@ -28,7 +28,24 @@ const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_num
 const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
 const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "50", latitude: "", longitude: "", notes: "", active: true };
-const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", notes: "", done: false, repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false };
+const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false };
+
+function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
+  return {
+    ...emptyTask,
+    title: mode === "task" ? "" : "Unterhaltsreinigung",
+    due_date: today,
+    task_date: today,
+    start_time: mode === "task" ? "" : "08:00",
+    end_time: mode === "task" ? "" : "10:00",
+    planned_minutes: mode === "task" ? "0" : "120",
+    item_type: mode,
+    task_type: mode,
+    priority: mode === "task" ? "Mittel" : "Normal",
+    task_category: "Reklamation",
+    status: "open",
+  };
+}
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_name: "", object_name: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
@@ -286,7 +303,7 @@ export default function AdminPage() {
   async function loadAll() {
     const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
-      selectTable("customers", "name", true),
+      selectTable("customers", "created_at", false, undefined, true),
       selectTable("work_sites", "name", true),
       selectTable("tasks", "task_date", false),
       selectTable("time_entries", "created_at", false, 800),
@@ -314,6 +331,8 @@ export default function AdminPage() {
 
   const activeEmployees = employees.filter((item) => item.role !== "admin" && item.active !== false);
   const customerList = useMemo(() => customers.length ? customers : customerRowsFromSites(sites), [customers, sites]);
+  const assignmentRows = useMemo(() => tasks.filter((task) => task.item_type !== "task" && task.task_type !== "task"), [tasks]);
+  const actionTaskRows = useMemo(() => tasks.filter((task) => task.item_type === "task" || task.task_type === "task"), [tasks]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return {
@@ -322,6 +341,8 @@ export default function AdminPage() {
       customers: filterRows(customerList, q),
       contacts: filterRows(contacts, q),
       tasks: filterRows(tasks, q),
+      assignments: filterRows(assignmentRows, q),
+      actionTasks: filterRows(actionTaskRows, q),
       materials: filterRows(materials, q),
       materialReports: filterRows(materialReports, q),
       adminNotifications: filterRows(adminNotifications, q),
@@ -330,7 +351,7 @@ export default function AdminPage() {
       entries: filterRows(entries, q),
       absences: filterRows(absences, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, materials, materialReports, adminNotifications, devices, keys, entries, absences]);
+  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences]);
 
   async function insertOrUpdate(table: string, id: string, payload: Row) {
     setSaving(true);
@@ -579,29 +600,37 @@ export default function AdminPage() {
   }
 
   function openTask(row?: Row) {
+    const mode: "einsatz" | "task" = tab === "aufgaben" ? "task" : "einsatz";
     if (!row) {
-      setTaskForm(emptyTask);
+      setTaskForm(createEmptyTaskForm(mode));
       setModal("task");
       return;
     }
 
     const linkedSite = sites.find((site) => site.id === row.work_site_id || site.name === row.site);
+    const rowIsTask = row.item_type === "task" || row.task_type === "task" || tab === "aufgaben";
+    const editMode: "einsatz" | "task" = rowIsTask ? "task" : "einsatz";
     setTaskForm({
-      ...emptyTask,
+      ...createEmptyTaskForm(editMode),
       id: String(row.id || ""),
-      title: String(row.title || "Unterhaltsreinigung"),
-      task_date: String(row.task_date || today),
-      start_time: String(row.start_time || "08:00"),
-      end_time: String(row.end_time || "10:00"),
-      planned_minutes: String(row.planned_minutes || row.max_minutes || minutes(row.start_time, row.end_time) || "120"),
+      title: String(row.title || (rowIsTask ? "" : "Unterhaltsreinigung")),
+      task_date: String(row.task_date || row.due_date || today),
+      due_date: String(row.due_date || row.task_date || today),
+      start_time: String(row.start_time || (rowIsTask ? "" : "08:00")),
+      end_time: String(row.end_time || (rowIsTask ? "" : "10:00")),
+      planned_minutes: String(row.planned_minutes || row.max_minutes || (rowIsTask ? "0" : minutes(row.start_time, row.end_time) || "120")),
       customer_id: String(row.customer_id || linkedSite?.customer_id || ""),
       customer_name: String(row.customer_name || linkedSite?.customer_name || ""),
       site: String(row.site || linkedSite?.name || ""),
       work_site_id: String(row.work_site_id || linkedSite?.id || ""),
       employee_name: String(row.employee_name || ""),
-      priority: String(row.priority || "Normal"),
+      priority: String(row.priority || (rowIsTask ? "Mittel" : "Normal")),
+      task_category: String(row.task_category || row.category || "Reklamation"),
+      status: String(row.status || (row.done ? "done" : "open")),
       notes: String(row.notes || ""),
       done: Boolean(row.done),
+      item_type: editMode,
+      task_type: editMode,
       travel_minutes: String(row.travel_minutes ?? "0"),
       break_minutes: String(row.break_minutes ?? "0"),
       notify_employee: row.notify_employee !== false,
@@ -610,8 +639,39 @@ export default function AdminPage() {
   }
 
   async function saveTask() {
+    const isActionTask = tab === "aufgaben" || taskForm.item_type === "task" || taskForm.task_type === "task";
     const site = sites.find((item) => item.id === taskForm.work_site_id);
     const customer = customerList.find((item) => item.id === taskForm.customer_id) || customerList.find((item) => item.name === site?.customer_name);
+
+    if (isActionTask) {
+      const taskDate = taskForm.due_date || taskForm.task_date || today;
+      const payload = {
+        title: taskForm.title,
+        task_date: taskDate,
+        due_date: taskDate,
+        start_time: null,
+        end_time: null,
+        planned_minutes: 0,
+        max_minutes: 0,
+        employee_name: taskForm.employee_name || null,
+        customer_id: taskForm.customer_id || site?.customer_id || null,
+        customer_name: customer?.name || site?.customer_name || taskForm.customer_name || null,
+        site: site?.name || taskForm.site || null,
+        work_site_id: taskForm.work_site_id || null,
+        priority: taskForm.priority || "Mittel",
+        task_category: taskForm.task_category || "Sonstiges",
+        status: taskForm.status || "open",
+        notes: taskForm.notes || null,
+        done: taskForm.status === "done" || taskForm.done === true,
+        notify_employee: taskForm.notify_employee !== false,
+        item_type: "task",
+        task_type: "task",
+        schedule_type: "once",
+      };
+      await insertOrUpdate("tasks", taskForm.id, payload);
+      return;
+    }
+
     const basePayload = {
       title: taskForm.title,
       start_time: taskForm.start_time,
@@ -624,13 +684,15 @@ export default function AdminPage() {
       site: site?.name || taskForm.site,
       work_site_id: taskForm.work_site_id || null,
       priority: "Normal",
+      task_category: null,
+      status: "open",
       notes: taskForm.notes || null,
       done: false,
       travel_minutes: Number(taskForm.travel_minutes || 0),
       break_minutes: Number(taskForm.break_minutes || 0),
       notify_employee: taskForm.notify_employee !== false,
-      item_type: tab === "aufgaben" ? "task" : "einsatz",
-      task_type: tab === "aufgaben" ? "task" : "einsatz",
+      item_type: "einsatz",
+      task_type: "einsatz",
       schedule_type: taskForm.repeat_mode === "repeat" ? "repeat" : "once",
       recurrence_interval: Number(taskForm.recurrence_interval || 1),
       recurrence_unit: taskForm.recurrence_unit || "week",
@@ -639,7 +701,7 @@ export default function AdminPage() {
     };
 
     if (taskForm.id || taskForm.repeat_mode !== "repeat") {
-      await insertOrUpdate("tasks", taskForm.id, { ...basePayload, task_date: taskForm.task_date });
+      await insertOrUpdate("tasks", taskForm.id, { ...basePayload, task_date: taskForm.task_date, due_date: taskForm.task_date });
       return;
     }
 
@@ -654,12 +716,13 @@ export default function AdminPage() {
         payload: dates.map((date) => ({
           ...basePayload,
           task_date: date,
+          due_date: date,
           recurrence_group_id: recurrenceGroupId,
         })),
       });
       setMessage(`${dates.length} Einsatz/Einsätze gespeichert.`);
       if (taskForm.create_another) {
-        setTaskForm((old: any) => ({ ...old, id: "", title: "", notes: "" }));
+        setTaskForm((old: any) => ({ ...createEmptyTaskForm("einsatz"), customer_id: old.customer_id, customer_name: old.customer_name, work_site_id: old.work_site_id, site: old.site, employee_name: old.employee_name }));
       } else {
         setModal(null);
       }
@@ -1042,12 +1105,12 @@ export default function AdminPage() {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.tasks} employees={activeEmployees} sites={sites} customers={customerList} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} />}
+          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
-          {tab === "aufgaben" && <Tasks rows={filtered.tasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", tasks)} />}
+          {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -1062,7 +1125,7 @@ export default function AdminPage() {
       {modal === "customer" && <CustomerModal close={() => setModal(null)} form={customerForm} setForm={setCustomerForm} save={saveCustomer} saving={saving} />}
       {modal === "contact" && <ContactModal close={() => setModal(null)} form={contactForm} setForm={setContactForm} save={saveContact} saving={saving} />}
       {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} customers={customerList} geocode={geocodeSiteAddress} geocoding={geocoding} />}
-      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} />}
+      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} mode={tab === "aufgaben" ? "task" : "einsatz"} />}
       {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} sites={sites} />}
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
       {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
@@ -1350,7 +1413,7 @@ function Sites(p: any) {
 }
 
 function Tasks(p: any) {
-  return <ListPage icon="✓" title="Aufgaben" sub="Aufgaben und Einsätze für Mitarbeiter" rows={p.rows} headers={["Datum", "Zeit", "Auftrag", "Objekt", "Mitarbeiter", "Priorität", "Status", "Aktion"]} createLabel="+ Aufgabe erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.task_date)}</td><td className="px-4 py-3">{r.start_time} - {r.end_time}</td><td className="px-4 py-3 font-black">{r.title}</td><td className="px-4 py-3">{r.site || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.priority === "Dringend" ? "red" : r.priority === "Hoch" ? "yellow" : "blue"}>{r.priority || "Normal"}</Status></td><td className="px-4 py-3"><Status color={r.done ? "green" : "gray"}>{r.done ? "Erledigt" : "Offen"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return <ListPage icon="✓" title="Aufgaben" sub="Zusätzliche Aufgaben zu Kunden, Objekten oder Mitarbeitern. Einsätze bleiben in der Einsatzplanung." rows={p.rows} headers={["Fällig", "Typ", "Aufgabe", "Objekt", "Mitarbeiter", "Priorität", "Status", "Aktion"]} createLabel="+ Aufgabe erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine separaten Aufgaben angelegt" /></td></tr> : p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.due_date || r.task_date)}</td><td className="px-4 py-3"><Status color="blue">{r.task_category || "Sonstiges"}</Status></td><td className="px-4 py-3 font-black">{r.title}</td><td className="px-4 py-3">{r.site || "-"}</td><td className="px-4 py-3">{r.employee_name || "-"}</td><td className="px-4 py-3"><Status color={r.priority === "Dringend" ? "red" : r.priority === "Hoch" ? "yellow" : "blue"}>{r.priority || "Mittel"}</Status></td><td className="px-4 py-3"><Status color={r.done || r.status === "done" ? "green" : "gray"}>{r.done || r.status === "done" ? "Erledigt" : "Offen"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
 function Materials(p: any) {
@@ -1570,6 +1633,52 @@ function TaskModal(p: any) {
     const next = selectedDays.includes(key) ? selectedDays.filter((item: string) => item !== key) : [...selectedDays, key];
     p.setForm({ ...p.form, recurrence_days: next });
   };
+
+  const isActionTask = p.mode === "task" || p.form.item_type === "task" || p.form.task_type === "task";
+  if (isActionTask) {
+    return (
+      <ModalShell title={p.form.id ? "Aufgabe bearbeiten" : "Neue Aufgabe erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+        <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4">
+          <p className="mb-3 font-black text-slate-950">Allgemeine Informationen</p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Titel" wide><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} placeholder="z. B. Nacharbeit" /></Field>
+            <Field label="Aufgabentyp"><Select value={p.form.task_category} onChange={(e) => p.setForm({ ...p.form, task_category: e.target.value })}><option>Reklamation</option><option>Personal</option><option>Kundenanfrage</option><option>Sonstiges</option></Select></Field>
+            <Field label="Priorität"><Select value={p.form.priority} onChange={(e) => p.setForm({ ...p.form, priority: e.target.value })}><option>Niedrig</option><option>Mittel</option><option>Hoch</option><option>Dringend</option></Select></Field>
+            <Field label="Fälligkeitsdatum"><Input type="date" value={p.form.due_date || p.form.task_date} onChange={(e) => p.setForm({ ...p.form, due_date: e.target.value, task_date: e.target.value })} /></Field>
+            <Field label="Status"><Select value={p.form.status || (p.form.done ? "done" : "open")} onChange={(e) => p.setForm({ ...p.form, status: e.target.value, done: e.target.value === "done" })}><option value="open">Offen</option><option value="done">Erledigt</option></Select></Field>
+          </div>
+        </div>
+
+        <Field label="Kunde">
+          <Select value={p.form.customer_id} onChange={(e) => {
+            const customer = p.customers.find((c: Row) => c.id === e.target.value);
+            p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "", work_site_id: "", site: "" });
+          }}>
+            <option value="">Kunde auswählen</option>
+            {p.customers.map((c: Row) => <option key={c.id} value={c.id}>{c.name || c.customer_name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Objekt">
+          <Select value={p.form.work_site_id} onChange={(e) => {
+            const site = p.sites.find((s: Row) => s.id === e.target.value);
+            const customer = p.customers.find((c: Row) => c.id === site?.customer_id || c.name === site?.customer_name);
+            p.setForm({ ...p.form, work_site_id: e.target.value, site: site?.name || "", customer_id: site?.customer_id || customer?.id || p.form.customer_id, customer_name: site?.customer_name || customer?.name || p.form.customer_name });
+          }}>
+            <option value="">Objekt auswählen</option>
+            {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.customer_name ? ` · ${s.customer_name}` : ""}</option>)}
+          </Select>
+        </Field>
+        <Field label="Mitarbeiter">
+          <Select value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
+            <option value="">Mitarbeiter auswählen</option>
+            {p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Mitarbeiter benachrichtigen"><label className="field flex items-center gap-3 font-bold"><input type="checkbox" checked={p.form.notify_employee !== false} onChange={(e) => p.setForm({ ...p.form, notify_employee: e.target.checked })} /> Benachrichtigung senden</label></Field>
+        <Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} placeholder="Beschreibung" /></Field>
+      </ModalShell>
+    );
+  }
 
   return (
     <ModalShell title={p.form.id ? "Einsatz bearbeiten" : "Neuen Einsatz planen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>

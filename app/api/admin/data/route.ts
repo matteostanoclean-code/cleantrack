@@ -193,9 +193,24 @@ export async function POST(request: Request) {
       if (body.limit) {
         query = query.limit(Number(body.limit));
       }
-      const { data, error } = await query;
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, data: data || [] });
+      let result = await query;
+
+      if (result.error && /column .* does not exist|Could not find|schema cache/i.test(result.error.message || "")) {
+        // Bestehende Datenbanken können ältere Spaltennamen haben.
+        // Damit die Admin-Oberfläche nicht überall blockiert, versuchen wir ohne Sortierung erneut.
+        let retryQuery = supabaseAdmin.from(table).select(String(body.select || "*"));
+        const retryFilters = cleanFilter(body.filters);
+        for (const [key, value] of Object.entries(retryFilters)) {
+          retryQuery = retryQuery.eq(key, value as never);
+        }
+        if (body.limit) {
+          retryQuery = retryQuery.limit(Number(body.limit));
+        }
+        result = await retryQuery;
+      }
+
+      if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+      return NextResponse.json({ success: true, data: result.data || [] });
     }
 
     if (action === "insert") {
