@@ -22,7 +22,33 @@ type Tab =
 type Row = Record<string, any>;
 type ModalType = "employeeInvite" | "employeeEdit" | "customer" | "contact" | "site" | "task" | "material" | "device" | "key" | "absence" | null;
 
-const today = new Date().toISOString().slice(0, 10);
+function parseLocalDate(value?: string | Date | null) {
+  if (value instanceof Date) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    return new Date(year, month, day);
+  }
+
+  const fallback = text ? new Date(text) : new Date();
+  return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
+}
+
+function toLocalIso(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+const today = toLocalIso(new Date());
 
 const emptyEmployeeInvite = { name: "", email: "", phone: "" };
 const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", vacation_days: "0", active: true };
@@ -84,7 +110,7 @@ function prettyHours(value: unknown) {
 
 function dateText(value?: string) {
   if (!value) return "-";
-  return new Date(value).toLocaleDateString("de-DE");
+  return parseLocalDate(value).toLocaleDateString("de-DE");
 }
 
 
@@ -146,7 +172,7 @@ function addDays(date: Date, days: number) {
 }
 
 function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return toLocalIso(date);
 }
 
 function weekdayKey(date: Date) {
@@ -159,11 +185,11 @@ function uniqueDates(values: string[]) {
 }
 
 function buildScheduleDates(form: Row) {
-  const start = new Date(String(form.task_date || today));
+  const start = parseLocalDate(String(form.task_date || today));
   const mode = String(form.repeat_mode || "once");
   if (mode !== "repeat") return [isoDate(start)];
 
-  const end = form.recurrence_end_date ? new Date(String(form.recurrence_end_date)) : addDays(start, 28);
+  const end = form.recurrence_end_date ? parseLocalDate(String(form.recurrence_end_date)) : addDays(start, 28);
   const interval = Math.max(1, Number(form.recurrence_interval || 1));
   const unit = String(form.recurrence_unit || "week");
   const selectedDays = Array.isArray(form.recurrence_days) ? form.recurrence_days : [];
@@ -197,8 +223,7 @@ function dateOnly(value: unknown) {
 }
 
 function startOfWeekMonday(value?: string) {
-  const base = value ? new Date(value) : new Date();
-  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  const d = parseLocalDate(value || today);
   const day = d.getDay() || 7;
   d.setDate(d.getDate() - day + 1);
   return d;
@@ -213,7 +238,7 @@ function weekNumber(date: Date) {
 }
 
 function dayShort(date: string) {
-  return new Date(date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  return parseLocalDate(date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
 }
 
 function taskDuration(task: Row) {
@@ -1795,7 +1820,12 @@ function Planning(p: any) {
 
   const unassigned = tasksInRange.filter((task: Row) => !task.employee_name).length;
   const missingGps = p.sites.filter((site: Row) => !site.latitude || !site.longitude).length;
-  const absentToday = p.employees.filter((employee: Row) => Boolean(employeeAbsenceForDate(p.absences || [], employee.name, today))).length;
+  const absentInRange = p.employees.filter((employee: Row) =>
+    days.some((day) => {
+      const absence = employeeAbsenceForDate(p.absences || [], employee.name, day);
+      return Boolean(absence && absenceIsBlocking(absence));
+    })
+  ).length;
 
   function jump(offsetDays: number) {
     setWeekStart(isoDate(addDays(baseDate, offsetDays)));
@@ -1862,7 +1892,7 @@ function Planning(p: any) {
           <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-bold text-slate-500">
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{tasksInRange.length}</p>Einsätze</div>
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{unassigned}</p>ohne MA</div>
-            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{absentToday}</p>abwesend</div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-950">{absentInRange}</p>abwesend</div>
           </div>
         </Card>
       </div>
