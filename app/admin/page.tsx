@@ -1511,7 +1511,7 @@ const basePayload = {
 
   function openAbsence(row?: Row) {
     setAbsenceForm(row ? {
-      id: String(row.id || ""),
+      id: Array.isArray(row.source_ids) ? "" : String(row.id || ""),
       employee_name: String(row.employee_name || ""),
       absence_type: String(row.absence_type || "Urlaub"),
       start_date: String(row.start_date || today),
@@ -1648,7 +1648,7 @@ const basePayload = {
     const startText = String(row?.start_time || row?.check_in_at || "").slice(11, 16) || "08:00";
     const endText = String(row?.end_time || row?.check_out_at || "").slice(11, 16) || "10:00";
     setTimeCorrectionForm(row ? {
-      id: String(row.id || ""),
+      id: Array.isArray(row.source_ids) ? "" : String(row.id || ""),
       employee_name: String(row.employee_name || ""),
       work_date: String(dateOnly(row.work_date || row.check_in_at || row.created_at) || today),
       start_time: startText === "T" ? "08:00" : startText,
@@ -1703,7 +1703,35 @@ const basePayload = {
   }
 
   async function approveEntry(row: Row, approved: boolean) {
-    await insertOrUpdate("time_entries", row.id, { approved, status: approved ? "approved" : "rejected" });
+    const ids = Array.isArray(row.source_ids) && row.source_ids.length > 0 ? row.source_ids : [row.id].filter(Boolean);
+
+    if (ids.length > 1) {
+      setSaving(true);
+      setMessage("");
+      try {
+        for (const id of ids) {
+          await adminCall({
+            action: "update",
+            table: "time_entries",
+            id,
+            payload: {
+              approved,
+              status: approved ? "approved" : "rejected",
+              payroll_minutes: approved ? undefined : 0,
+            },
+          });
+        }
+        setMessage(approved ? "Zeit freigegeben." : "Zeit abgelehnt.");
+        await loadAll();
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Zeit konnte nicht freigegeben werden.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    await insertOrUpdate("time_entries", String(ids[0] || row.id || ""), { approved, status: approved ? "approved" : "rejected" });
   }
 
   async function decideAdminNotification(note: Row, approved: boolean) {
@@ -2797,17 +2825,105 @@ function sessionKey(row: Row) {
   return [row.employee_name || "", row.task_id || "manual", timeEntryDate(row) || dateOnly(row.created_at)].join("|");
 }
 
-function approvedPayrollRows(allRows: Row[]) {
-  const approvedSessionKeys = new Set(
-    allRows
-      .filter((row) => isApprovedEntry(row) && isReviewableTimeRow(row))
-      .map(sessionKey)
-  );
+function timeLabelFromDate(value: unknown) {
+  const text = String(value || "");
+  if (!text) return "";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+}
 
-  return allRows.filter((row) => {
-    if (isManualOrAbsence(row)) return isApprovedEntry(row);
-    return approvedSessionKeys.has(sessionKey(row));
-  });
+function sessionTimeRange(rows: Row[]) {
+  const chronological = [...rows].sort((a, b) => rowTime(a).getTime() - rowTime(b).getTime());
+  const startRow = chronological.find((row) => row.check_in_at || isClockStart(row));
+  const stopRows = chronological.filter((row) => row.check_out_at || isClockStop(row));
+  const stopRow = stopRows[stopRows.length - 1];
+
+  const start = startRow?.check_in_at || startRow?.created_at || "";
+  const end = stopRow?.check_out_at || stopRow?.created_at || "";
+
+  return {
+    start,
+    end,
+    label: `${timeLabelFromDate(start) || "--:--"} - ${timeLabelFromDate(end) || "--:--"}`,
+  };
+}
+
+function sessionStatus(rows: Row[]) {
+  if (rows.some((row) => normalizedStatus(row.status) === "rejected")) return "rejected";
+  if (rows.some((row) => isApprovedEntry(row))) return "approved";
+  if (rows.some((row) => row.auto_clock_out || entryAction(row) === "auto_clock_out")) return "auto_closed";
+  return "open";
+}
+
+function sessionReason(rows: Row[]) {
+  if (rows.some((row) => row.reason === "left_geofence")) return "GPS verlassen";
+  if (rows.some((row) => row.reason === "max_time_reached")) return "Planzeit erreicht";
+  const reason = rows.map((row) => String(row.reason || row.absence_type || "").trim()).find(Boolean);
+  return reason || "Stempelzeit";
+}
+
+function timeSessionSummaries(allRows: Row[]) {
+  const groups = new Map<string, Row[]>();
+
+  for (const row of allRows) {
+    const minutesValue = singleRowMinutes(row, false);
+    const isZeroManual = isManualOrAbsence(row) && minutesValue <= 0 && !String(row.reason || row.absence_type || "").toLowerCase().includes("unbezahlt");
+    if (isZeroManual) continue;
+
+    const key = isManualOrAbsence(row)
+      ? `${sessionKey(row)}|${row.id || row.created_at || Math.random()}`
+      : sessionKey(row);
+
+    const current = groups.get(key) || [];
+    current.push(row);
+    groups.set(key, current);
+  }
+
+  return [...groups.entries()]
+    .map(([key, rows]) => {
+      const first = rows.find((row) => row.site || row.work_site || row.work_site_name) || rows[0] || {};
+      const worked = totalWorkedMinutes(rows);
+      const wage = totalPayableMinutes(rows);
+      const planned = rows.reduce((sum, row) => Math.max(sum, Number(row.planned_minutes || 0)), 0);
+      const range = sessionTimeRange(rows);
+      const status = sessionStatus(rows);
+      const approved = status === "approved";
+      const rejected = status === "rejected";
+      const autoClockOut = rows.some((row) => row.auto_clock_out || entryAction(row) === "auto_clock_out");
+
+      return {
+        ...first,
+        id: `summary-${key}`,
+        source_ids: rows.map((row) => row.id).filter(Boolean),
+        source_rows: rows,
+        is_time_summary: true,
+        employee_name: first.employee_name,
+        work_date: timeEntryDate(first),
+        site: first.site || first.work_site || first.work_site_name || "-",
+        work_site_name: first.work_site_name || first.site || first.work_site || "-",
+        work_site_id: first.work_site_id || null,
+        task_id: first.task_id || null,
+        check_in_at: range.start,
+        check_out_at: range.end,
+        time_range: range.label,
+        worked_minutes: worked,
+        payroll_minutes: wage,
+        planned_minutes: planned,
+        approved,
+        status,
+        auto_clock_out: autoClockOut,
+        reason: sessionReason(rows),
+        entry_count: rows.length,
+        is_rejected: rejected,
+      };
+    })
+    .filter((row) => Number(row.worked_minutes || row.payroll_minutes || row.planned_minutes || 0) > 0 || String(row.reason || "").toLowerCase().includes("unbezahlt"))
+    .sort((a, b) => String(a.work_date || "").localeCompare(String(b.work_date || "")) || String(a.employee_name || "").localeCompare(String(b.employee_name || "")) || String(a.time_range || "").localeCompare(String(b.time_range || "")));
+}
+
+function approvedPayrollRows(allRows: Row[]) {
+  return timeSessionSummaries(allRows).filter(isApprovedEntry);
 }
 
 function timeEntryDate(row: Row) {
@@ -2897,10 +3013,11 @@ function Times(p: any) {
   const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
   const monthRows = (p.rows || []).filter((row: Row) => monthFromValue(payrollDate(row)) === selectedMonth);
-  const reviewRows = monthRows.filter(isReviewableTimeRow).filter((row: Row) => !(isManualOrAbsence(row) && singleRowMinutes(row) <= 0 && !String(row.reason || row.absence_type || "").toLowerCase().includes("unbezahlt")));
+  const reviewRows = timeSessionSummaries(monthRows);
   const approvedRows = reviewRows.filter(isApprovedEntry);
   const openRows = reviewRows.filter((row: Row) => !isApprovedEntry(row) && normalizedStatus(row.status) !== "rejected");
-  const approvedSessionRows = approvedPayrollRows(monthRows);
+  const approvedSessionRows = approvedRows;
+  const daySessionRows = timeSessionSummaries((p.rows || []).filter((row: Row) => timeEntryDate(row) === selectedDay));
 
   const payrollRows = (p.employees || [])
     .map((employee: Row) => {
@@ -2909,7 +3026,7 @@ function Times(p: any) {
       const hourlyRate = Number(employee.hourly_rate || 0);
       return {
         employee_name: employee.name || "-",
-        entries: employeeRows.filter(isReviewableTimeRow).length,
+        entries: employeeRows.length,
         minutes: totalMinutes,
         hours: Number((totalMinutes / 60).toFixed(2)),
         hourly_rate: hourlyRate,
@@ -2981,6 +3098,49 @@ function Times(p: any) {
       <DailyClosing selectedDay={selectedDay} setSelectedDay={setSelectedDay} employees={p.employees || []} tasks={p.tasks || []} entries={p.rows || []} absences={p.absences || []} approve={p.approve} />
 
       <Card className="mb-5 p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-slate-950">Tageskarten</h3>
+            <p className="text-sm font-bold text-slate-500">Ich sehe hier pro Mitarbeiter und Einsatz eine zusammengefasste Arbeitszeit statt einzelner Stempelzeilen.</p>
+          </div>
+          <Status color="blue">{daySessionRows.length} Karten</Status>
+        </div>
+        <div className="grid gap-3 xl:grid-cols-2">
+          {daySessionRows.length === 0 ? <Empty text="Für diesen Tag gibt es noch keine zusammengefassten Zeiten." /> : daySessionRows.map((row: Row) => (
+            <div key={row.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-black text-slate-950">{row.employee_name}</p>
+                  <p className="mt-1 text-sm font-bold text-slate-600">{row.site || "-"}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">{row.time_range} · {row.entry_count || 0} Stempel</p>
+                </div>
+                <Status color={row.approved ? "green" : row.is_rejected ? "red" : row.auto_clock_out ? "yellow" : "gray"}>{row.approved ? "freigegeben" : row.is_rejected ? "abgelehnt" : row.auto_clock_out ? "automatisch" : "offen"}</Status>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-xl bg-white p-3">
+                  <p className="text-xs font-black uppercase text-slate-400">Arbeitszeit</p>
+                  <p className="mt-1 font-black">{prettyHours(row.worked_minutes)} Std.</p>
+                </div>
+                <div className="rounded-xl bg-white p-3">
+                  <p className="text-xs font-black uppercase text-slate-400">Lohnzeit</p>
+                  <p className="mt-1 font-black">{prettyHours(row.payroll_minutes)} Std.</p>
+                </div>
+                <div className="rounded-xl bg-white p-3">
+                  <p className="text-xs font-black uppercase text-slate-400">Grund</p>
+                  <p className="mt-1 truncate font-black">{row.reason || "-"}</p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button primary onClick={() => p.approve(row, true)}>Freigeben</Button>
+                <Button onClick={() => p.openCorrection(row)}>Korrigieren</Button>
+                <Button danger onClick={() => p.approve(row, false)}>Ablehnen</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="mb-5 p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h3 className="font-black text-slate-950">Live-Status heute</h3>
@@ -3031,8 +3191,8 @@ function Times(p: any) {
         </div>
       </Card>
 
-      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={reviewRows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Lohnzeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
-        {reviewRows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(workedEntryMinutes(r))} Std.</td><td className="px-4 py-3 font-bold">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+      <ListPage icon="⏱" title="Zeitenfreigabe" sub="Zusammengefasste Arbeitstage/Einsätze prüfen und freigeben" rows={reviewRows} headers={["Datum", "Mitarbeiter", "Objekt", "Zeit", "Arbeitszeit", "Lohnzeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
+        {reviewRows.length === 0 ? <tr><td colSpan={9}><Empty text="Keine prüfbaren Zeiten vorhanden." /></td></tr> : reviewRows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3 font-bold">{r.time_range || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes)} Std.</td><td className="px-4 py-3 font-bold">{prettyHours(r.payroll_minutes)} Std.</td><td className="px-4 py-3">{r.reason || "Stempelzeit"}</td><td className="px-4 py-3"><Status color={r.approved ? "green" : r.is_rejected ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.approved ? "freigegeben" : r.is_rejected ? "abgelehnt" : r.auto_clock_out ? "automatisch" : "offen"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );
