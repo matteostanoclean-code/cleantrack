@@ -284,6 +284,91 @@ function canRetryTaskSchema(table: string, error: unknown) {
   return table === "tasks" && isSchemaColumnError(error);
 }
 
+function missingColumnName(error: unknown) {
+  const message = String((error as { message?: string })?.message || error || "");
+  const patterns = [
+    /column ["']?([a-zA-Z0-9_]+)["']? does not exist/i,
+    /Could not find the ['"]?([a-zA-Z0-9_]+)['"]? column/i,
+    /Could not find .* ['"]([a-zA-Z0-9_]+)['"].*schema cache/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+
+  return "";
+}
+
+function removeColumnFromPayload(payload: unknown, column: string) {
+  if (!column) return payload;
+
+  if (Array.isArray(payload)) {
+    return payload.map((item: unknown) => {
+      const row = { ...((item || {}) as Record<string, unknown>) };
+      delete row[column];
+      return row;
+    });
+  }
+
+  const row = { ...((payload || {}) as Record<string, unknown>) };
+  delete row[column];
+  return row;
+}
+
+async function safeInsert(supabaseAdmin: any, table: string, payload: unknown) {
+  let nextPayload = payload;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const result = await supabaseAdmin.from(table).insert(nextPayload).select("*");
+    if (!result.error) return result;
+
+    const column = missingColumnName(result.error);
+    if (!column || !isSchemaColumnError(result.error)) return result;
+
+    nextPayload = removeColumnFromPayload(nextPayload, column);
+  }
+
+  return await supabaseAdmin.from(table).insert(nextPayload).select("*");
+}
+
+async function safeUpdate(supabaseAdmin: any, table: string, id: string, payload: unknown) {
+  let nextPayload = payload;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const result = await supabaseAdmin.from(table).update(nextPayload).eq("id", id).select("*");
+    if (!result.error) return result;
+
+    const column = missingColumnName(result.error);
+    if (!column || !isSchemaColumnError(result.error)) return result;
+
+    nextPayload = removeColumnFromPayload(nextPayload, column);
+  }
+
+  return await supabaseAdmin.from(table).update(nextPayload).eq("id", id).select("*");
+}
+
+function friendlyDatabaseError(error: unknown) {
+  const message = String((error as { message?: string })?.message || error || "");
+  const column = missingColumnName(error);
+
+  if (/schema cache|column .* does not exist|Could not find/i.test(message)) {
+    return column
+      ? `Datenbank-Schema ist nicht aktuell. Die Spalte "${column}" fehlt. Bitte final_schema_update.sql in Supabase ausführen.`
+      : "Datenbank-Schema ist nicht aktuell. Bitte final_schema_update.sql in Supabase ausführen.";
+  }
+
+  if (/violates check constraint/i.test(message)) {
+    return "Eine alte Datenbank-Regel blockiert das Speichern. Bitte final_schema_update.sql in Supabase ausführen.";
+  }
+
+  if (/violates not-null constraint|null value/i.test(message)) {
+    return "Ein Pflichtfeld fehlt oder eine alte Pflichtregel blockiert das Speichern. Bitte final_schema_update.sql in Supabase ausführen.";
+  }
+
+  return message;
+}
+
 export async function POST(request: Request) {
   try {
     const adminCheck = await requireAdmin(request);
@@ -331,20 +416,20 @@ export async function POST(request: Request) {
         result = await retryQuery;
       }
 
-      if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+      if (result.error) return NextResponse.json({ error: friendlyDatabaseError(result.error) }, { status: 500 });
       return NextResponse.json({ success: true, data: stripSensitiveRows(adminCheck.profile, table, result.data || []) });
     }
 
     if (action === "insert") {
       const payload = sanitizePayload(table, body.payload);
-      let { data, error } = await supabaseAdmin.from(table).insert(payload).select("*");
+      let { data, error } = await safeInsert(supabaseAdmin, table, payload);
       if (error && canRetryTaskSchema(table, error)) {
         const retryPayload = fallbackTaskPayload(payload);
-        const retry = await supabaseAdmin.from(table).insert(retryPayload).select("*");
+        const retry = await safeInsert(supabaseAdmin, table, retryPayload);
         data = retry.data;
         error = retry.error;
       }
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) return NextResponse.json({ error: friendlyDatabaseError(error) }, { status: 500 });
       return NextResponse.json({ success: true, data });
     }
 
@@ -352,14 +437,14 @@ export async function POST(request: Request) {
       const id = String(body.id || "").trim();
       if (!id) return NextResponse.json({ error: "ID fehlt." }, { status: 400 });
       const payload = sanitizePayload(table, body.payload || {});
-      let { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select("*");
+      let { data, error } = await safeUpdate(supabaseAdmin, table, id, payload);
       if (error && canRetryTaskSchema(table, error)) {
         const retryPayload = fallbackTaskPayload(payload);
-        const retry = await supabaseAdmin.from(table).update(retryPayload).eq("id", id).select("*");
+        const retry = await safeUpdate(supabaseAdmin, table, id, retryPayload);
         data = retry.data;
         error = retry.error;
       }
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) return NextResponse.json({ error: friendlyDatabaseError(error) }, { status: 500 });
       return NextResponse.json({ success: true, data });
     }
 
@@ -367,7 +452,7 @@ export async function POST(request: Request) {
       const id = String(body.id || "").trim();
       if (!id) return NextResponse.json({ error: "ID fehlt." }, { status: 400 });
       const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) return NextResponse.json({ error: friendlyDatabaseError(error) }, { status: 500 });
       return NextResponse.json({ success: true });
     }
 

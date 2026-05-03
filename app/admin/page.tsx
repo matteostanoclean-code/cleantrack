@@ -84,6 +84,26 @@ function euro(value: unknown) {
   return `${Number(value || 0).toFixed(2)} €`;
 }
 
+function friendlyUiError(value: unknown) {
+  const message = String(value || "").trim();
+
+  if (/final_schema_update\.sql/i.test(message)) return message;
+
+  if (/schema cache|column .* does not exist|Could not find/i.test(message)) {
+    return "Datenbank-Schema ist nicht aktuell. Bitte final_schema_update.sql in Supabase ausführen.";
+  }
+
+  if (/violates check constraint/i.test(message)) {
+    return "Eine alte Datenbank-Regel blockiert das Speichern. Bitte final_schema_update.sql in Supabase ausführen.";
+  }
+
+  if (/violates not-null constraint|null value/i.test(message)) {
+    return "Ein Pflichtfeld fehlt oder eine alte Pflichtregel blockiert das Speichern. Bitte final_schema_update.sql in Supabase ausführen.";
+  }
+
+  return message || "Aktion fehlgeschlagen.";
+}
+
 function initials(name: string) {
   return name
     .split(" ")
@@ -807,7 +827,7 @@ export default function AdminPage() {
       body: JSON.stringify(body),
     });
     const json = await response.json();
-    if (!response.ok) throw new Error(json.error || "Admin-Aktion fehlgeschlagen.");
+    if (!response.ok) throw new Error(friendlyUiError(json.error || "Admin-Aktion fehlgeschlagen."));
     return json;
   }
 
