@@ -1196,6 +1196,49 @@ export default function AdminPage() {
     }
   }
 
+  async function reassignTask(row: Row, employeeName: string) {
+    const nextEmployee = String(employeeName || "").trim();
+    const taskDate = dateOnly(row.task_date || row.due_date || today);
+
+    if (!row.id) {
+      setMessage("Einsatz konnte nicht verschoben werden: Einsatz-ID fehlt.");
+      return;
+    }
+
+    if (nextEmployee) {
+      const absenceConflict = findBlockingAbsence(absences, nextEmployee, [taskDate]);
+      if (absenceConflict) {
+        setMessage(`${nextEmployee} ist am ${dateText(absenceConflict.start_date)} bis ${dateText(absenceConflict.end_date || absenceConflict.start_date)} als ${absenceConflict.absence_type || "abwesend"} eingetragen. Einsatz wurde nicht verschoben.`);
+        return;
+      }
+
+      const scheduleConflict = findScheduleConflict(assignmentRows, { ...row, employee_name: nextEmployee }, [taskDate]);
+      if (scheduleConflict) {
+        setMessage(`${nextEmployee} hat am ${dateText(scheduleConflict.task_date)} bereits einen Einsatz von ${scheduleConflict.start_time || "--:--"} bis ${scheduleConflict.end_time || "--:--"}. Einsatz wurde nicht verschoben.`);
+        return;
+      }
+    }
+
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({
+        action: "update",
+        table: "tasks",
+        id: row.id,
+        payload: {
+          employee_name: nextEmployee || null,
+        },
+      });
+      setMessage(nextEmployee ? `Einsatz wurde auf ${nextEmployee} verschoben.` : "Einsatz wurde auf ungeplant gesetzt.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Einsatz konnte nicht verschoben werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openMaterial(row?: Row) {
     setMaterialForm(row ? {
       id: String(row.id || ""),
@@ -1642,7 +1685,7 @@ export default function AdminPage() {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} openTask={openTask} editTask={openTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
+          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
@@ -1663,7 +1706,7 @@ export default function AdminPage() {
       {modal === "customer" && <CustomerModal close={() => setModal(null)} form={customerForm} setForm={setCustomerForm} save={saveCustomer} saving={saving} />}
       {modal === "contact" && <ContactModal close={() => setModal(null)} form={contactForm} setForm={setContactForm} save={saveContact} saving={saving} />}
       {modal === "site" && <SiteModal close={() => setModal(null)} form={siteForm} setForm={setSiteForm} save={saveSite} saving={saving} customers={customerList} geocode={geocodeSiteAddress} geocoding={geocoding} />}
-      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} mode={tab === "aufgaben" ? "task" : "einsatz"} assignments={assignmentRows} />}
+      {modal === "task" && <TaskModal close={() => setModal(null)} form={taskForm} setForm={setTaskForm} save={saveTask} saving={saving} employees={activeEmployees} customers={customerList} sites={sites} mode={tab === "aufgaben" ? "task" : "einsatz"} assignments={assignmentRows} absences={absences} />}
       {modal === "material" && <MaterialModal close={() => setModal(null)} form={materialForm} setForm={setMaterialForm} save={saveMaterial} saving={saving} sites={sites} />}
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
       {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
@@ -2030,6 +2073,7 @@ function Planning(p: any) {
                               </div>
                               <p className="truncate font-black text-slate-950">{task.site || site?.name || "Ohne Objekt"}</p>
                               <p className="mt-1 inline-flex rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-700">{task.title || "Einsatz"}</p>
+                              <ReassignSelect task={task} employees={p.employees} onChange={p.reassignTask} />
                             </button>
                           );
                         })}
@@ -2066,6 +2110,10 @@ function Planning(p: any) {
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                         <div className={`h-full rounded-full ${overload ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${freePercent}%` }} />
                       </div>
+                      <div className="flex items-center justify-between gap-2 text-[11px] font-black text-slate-400">
+                        <span>{formatHours(monthMinutes)} geplant</span>
+                        <span className={remainingMinutes < 0 ? "text-red-600" : "text-emerald-600"}>{limitMinutes ? `${remainingMinutes >= 0 ? formatHours(remainingMinutes) : `-${formatHours(Math.abs(remainingMinutes))}`} frei` : "Limit fehlt"}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -2095,6 +2143,7 @@ function Planning(p: any) {
                                 <p className="truncate font-black text-slate-950">{task.site || site?.name || "Ohne Objekt"}</p>
                                 <p className="mt-1 inline-flex rounded-lg bg-orange-100 px-2 py-1 text-[11px] font-black text-orange-700">{task.title || "Einsatz"}</p>
                                 {conflict && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1 font-black text-red-700">Konflikt: Mitarbeiter abwesend</p>}
+                                <ReassignSelect task={task} employees={p.employees} onChange={p.reassignTask} />
                               </button>
                             );
                           })}
@@ -2135,6 +2184,24 @@ function Planning(p: any) {
         </Table>
       </div>
     </div>
+  );
+}
+
+function ReassignSelect({ task, employees, onChange }: { task: Row; employees: Row[]; onChange: (task: Row, employeeName: string) => void }) {
+  return (
+    <select
+      value={task.employee_name || ""}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => {
+        event.stopPropagation();
+        onChange(task, event.target.value);
+      }}
+      className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-black text-slate-700 outline-none hover:border-blue-300"
+      title="Schicht direkt zu anderem Mitarbeiter verschieben"
+    >
+      <option value="">Ungeplant</option>
+      {employees.map((employee: Row) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
+    </select>
   );
 }
 
@@ -2641,7 +2708,7 @@ function TaskModal(p: any) {
           </Select>
         </Field>
         <Field label="Mitarbeiter">
-          <EmployeePicker value={p.form.employee_name} employees={p.employees} onChange={(name) => p.setForm({ ...p.form, employee_name: name })} />
+          <EmployeePicker value={p.form.employee_name} employees={p.employees} assignments={p.assignments || []} absences={p.absences || []} taskDate={p.form.task_date || p.form.due_date} currentTaskId={p.form.id} onChange={(name) => p.setForm({ ...p.form, employee_name: name })} />
         </Field>
         <Field label="Mitarbeiter benachrichtigen"><label className="field flex items-center gap-3 font-bold"><input type="checkbox" checked={p.form.notify_employee !== false} onChange={(e) => p.setForm({ ...p.form, notify_employee: e.target.checked })} /> Benachrichtigung senden</label></Field>
         <Field label="Beschreibung" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} placeholder="Beschreibung" /></Field>
@@ -2664,7 +2731,7 @@ function TaskModal(p: any) {
         </Select>
       </Field>
       <Field label="Mitarbeiter">
-        <EmployeePicker value={p.form.employee_name} employees={p.employees} onChange={(name) => p.setForm({ ...p.form, employee_name: name })} />
+        <EmployeePicker value={p.form.employee_name} employees={p.employees} assignments={p.assignments || []} absences={p.absences || []} taskDate={p.form.task_date || p.form.due_date} currentTaskId={p.form.id} onChange={(name) => p.setForm({ ...p.form, employee_name: name })} />
       </Field>
       <Field label="Auftrag / Leistung"><Input required value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} placeholder="z. B. Unterhaltsreinigung" /></Field>
 
@@ -2734,7 +2801,7 @@ function TaskModal(p: any) {
 }
 
 
-function EmployeePicker({ value, employees, onChange }: { value: string; employees: Row[]; onChange: (name: string) => void }) {
+function EmployeePicker({ value, employees, assignments = [], absences = [], taskDate, currentTaskId, onChange }: { value: string; employees: Row[]; assignments?: Row[]; absences?: Row[]; taskDate?: string; currentTaskId?: string; onChange: (name: string) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = employees.find((employee) => employee.name === value);
@@ -2742,6 +2809,8 @@ function EmployeePicker({ value, employees, onChange }: { value: string; employe
     const haystack = `${employee.name || ""} ${employee.employee_group || ""} ${employee.role || ""}`.toLowerCase();
     return !query.trim() || haystack.includes(query.trim().toLowerCase());
   });
+  const pickerDate = dateOnly(taskDate || today);
+  const pickerMonth = parseLocalDate(pickerDate || today);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-2">
@@ -2764,15 +2833,27 @@ function EmployeePicker({ value, employees, onChange }: { value: string; employe
           </div>
           <div className="max-h-72 overflow-y-auto pb-2">
             {filteredEmployees.length === 0 && <p className="px-4 py-4 text-sm font-bold text-slate-400">Keine Mitarbeiter gefunden</p>}
-            {filteredEmployees.map((employee) => (
-              <button key={employee.id || employee.name} type="button" onClick={() => { onChange(employee.name); setOpen(false); setQuery(""); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-blue-50 ${employee.name === value ? "bg-blue-50" : ""}`}>
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-black text-white">{initials(employee.name || "CT")}</span>
-                <span>
-                  <span className="block text-xs font-bold text-slate-400">{employee.employee_group || employee.role || "Servicekraft"}</span>
-                  <span className="block font-bold text-slate-800">{employee.name}</span>
-                </span>
-              </button>
-            ))}
+            {filteredEmployees.map((employee) => {
+              const monthMinutes = employeePlannedMinutesForMonth(assignments, employee, pickerMonth);
+              const limitMinutes = employeeMonthlyLimit(employee) * 60;
+              const remainingMinutes = limitMinutes - monthMinutes;
+              const absence = employeeAbsenceForDate(absences, employee.name, pickerDate);
+              const blocked = Boolean(absence && absenceIsBlocking(absence));
+              return (
+                <button key={employee.id || employee.name} type="button" onClick={() => { onChange(employee.name); setOpen(false); setQuery(""); }} className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-blue-50 ${employee.name === value ? "bg-blue-50" : ""} ${blocked ? "opacity-70" : ""}`}>
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-black text-white">{initials(employee.name || "CT")}</span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-bold text-slate-400">{employee.employee_group || employee.role || "Servicekraft"}</span>
+                      <span className="block truncate font-bold text-slate-800">{employee.name}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right text-[11px] font-black">
+                    {blocked ? <span className="rounded-full bg-red-100 px-2 py-1 text-red-700">abwesend</span> : limitMinutes ? <span className={remainingMinutes < 0 ? "text-red-600" : "text-emerald-600"}>{remainingMinutes >= 0 ? formatHours(remainingMinutes) : `-${formatHours(Math.abs(remainingMinutes))}`} frei</span> : <span className="text-slate-400">kein Limit</span>}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
