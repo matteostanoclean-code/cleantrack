@@ -44,13 +44,30 @@ function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) 
   return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function localDateOnly(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function todayRange() {
   const now = new Date();
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const end = new Date(now);
   end.setHours(23, 59, 59, 999);
-  return { start: start.toISOString(), end: end.toISOString() };
+  return { start: start.toISOString(), end: end.toISOString(), workDate: localDateOnly(now) };
+}
+
+function currentClockState(entries: Row[]) {
+  const chronological = [...entries].sort((a, b) => new Date(a.created_at || a.check_in_at || 0).getTime() - new Date(b.created_at || b.check_in_at || 0).getTime());
+  const last = chronological[chronological.length - 1];
+  const action = String(last?.action || "");
+  if (action === "start" || action === "break_end") return "working";
+  if (action === "break_start") return "pause";
+  if (action === "end" || action === "check_out") return "ended";
+  return "idle";
 }
 
 function workedMinutesFromEntries(entries: Row[]) {
@@ -188,7 +205,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { start, end } = todayRange();
+    const { start, end, workDate } = todayRange();
     const { data: entries } = await supabaseAdmin
       .from("time_entries")
       .select("*")
@@ -201,6 +218,34 @@ export async function POST(request: Request) {
     const worked = workedMinutesFromEntries(entries || []);
     const max = Number(task.max_minutes || task.planned_minutes || 0);
     const autoClockOut = body.reason === "max_time_reached" || body.reason === "left_geofence";
+    const state = currentClockState(entries || []);
+
+    if (max <= 0) {
+      return NextResponse.json(
+        { error: "Für diesen Einsatz fehlt die Planzeit. Bitte im Einsatz eine Planzeit in Minuten eintragen." },
+        { status: 400 }
+      );
+    }
+
+    if (action === "start" && state === "working") {
+      return NextResponse.json({ error: "Die Arbeitszeit läuft bereits." }, { status: 400 });
+    }
+
+    if (action === "break_start" && state !== "working") {
+      return NextResponse.json({ error: "Pause kann nur gestartet werden, wenn die Arbeitszeit läuft." }, { status: 400 });
+    }
+
+    if (action === "break_end" && state !== "pause") {
+      return NextResponse.json({ error: "Pause kann nur beendet werden, wenn eine Pause läuft." }, { status: 400 });
+    }
+
+    if (action === "end" && state === "idle") {
+      return NextResponse.json({ error: "Es läuft keine Arbeitszeit, die beendet werden kann." }, { status: 400 });
+    }
+
+    if (action === "start" && state === "ended") {
+      return NextResponse.json({ error: "Dieser Einsatz wurde heute bereits beendet." }, { status: 400 });
+    }
 
     if ((action === "start" || action === "break_end") && max > 0 && worked >= max) {
       return NextResponse.json(
@@ -221,14 +266,17 @@ export async function POST(request: Request) {
       reason: body.reason || "manual",
       latitude: body.latitude ?? null,
       longitude: body.longitude ?? null,
+      work_date: workDate,
       planned_minutes: max,
       worked_minutes: action === "end" ? Math.min(max || worked, worked) : worked,
+      payroll_minutes: action === "end" ? Math.min(max || worked, worked) : 0,
+      entry_type: "stamp",
+      status: action === "end" ? (autoClockOut ? "auto_closed" : "open") : "open",
     };
 
     if (action === "start") payload.check_in_at = nowIso;
     if (action === "end") {
       payload.check_out_at = nowIso;
-      payload.status = autoClockOut ? "auto_closed" : "open";
     }
 
     const { error: insertError } = await supabaseAdmin.from("time_entries").insert([payload]);

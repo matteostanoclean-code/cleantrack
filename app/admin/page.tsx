@@ -20,7 +20,7 @@ type Tab =
   | "chat";
 
 type Row = Record<string, any>;
-type ModalType = "employeeInvite" | "employeeEdit" | "customer" | "contact" | "site" | "task" | "material" | "device" | "key" | "absence" | null;
+type ModalType = "employeeInvite" | "employeeEdit" | "customer" | "contact" | "site" | "task" | "material" | "device" | "key" | "absence" | "timeCorrection" | null;
 
 function parseLocalDate(value?: string | Date | null) {
   if (value instanceof Date) {
@@ -78,6 +78,7 @@ const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_id: "", customer_name: "", customer_address: "", work_site_id: "", object_name: "", object_address: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
 const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
+const emptyTimeCorrection = { id: "", employee_name: "", work_date: today, start_time: "08:00", end_time: "10:00", site: "", work_site_id: "", reason: "Manuelle Korrektur", notes: "", approved: true };
 
 function euro(value: unknown) {
   return `${Number(value || 0).toFixed(2)} €`;
@@ -128,6 +129,21 @@ function customerLabel(row: Row | undefined | null) {
 
 function customerAddress(row: Row | undefined | null) {
   return String(row?.address || row?.customer_address || "").trim();
+}
+
+function siteOptionLabel(site: Row | undefined | null) {
+  const name = String(site?.name || site?.site || "").trim();
+  const customer = String(site?.customer_name || "").trim();
+  if (!customer || customer.toLowerCase() === name.toLowerCase()) return name || customer || "Objekt ohne Namen";
+  return `${name || "Objekt ohne Namen"} · ${customer}`;
+}
+
+function plannedMinutesValue(row: Row) {
+  const planned = Number(row.planned_minutes ?? 0);
+  if (Number.isFinite(planned) && planned > 0) return planned;
+  const max = Number(row.max_minutes ?? 0);
+  if (Number.isFinite(max) && max > 0) return max;
+  return 0;
 }
 
 function customerValue(row: Row | undefined | null) {
@@ -243,8 +259,7 @@ function dayShort(date: string) {
 }
 
 function taskDuration(task: Row) {
-  const planned = Number(task.planned_minutes ?? 0);
-  return Number.isFinite(planned) ? Math.max(0, planned) : 0;
+  return plannedMinutesValue(task);
 }
 
 function normalizedStatus(value: unknown) {
@@ -759,6 +774,7 @@ export default function AdminPage() {
   const [deviceForm, setDeviceForm] = useState(emptyDevice);
   const [keyForm, setKeyForm] = useState(emptyKey);
   const [absenceForm, setAbsenceForm] = useState(emptyAbsence);
+  const [timeCorrectionForm, setTimeCorrectionForm] = useState(emptyTimeCorrection);
   const [chatEmployee, setChatEmployee] = useState("");
   const [chatText, setChatText] = useState("");
 
@@ -1224,12 +1240,26 @@ export default function AdminPage() {
       return;
     }
 
-    const basePayload = {
+        const plannedMinutes = Number(taskForm.planned_minutes || 0);
+    if (!taskForm.work_site_id) {
+      setMessage("Bitte Objekt / Standort auswählen.");
+      return;
+    }
+    if (!String(taskForm.title || "").trim()) {
+      setMessage("Bitte Auftrag / Leistung eintragen.");
+      return;
+    }
+    if (!Number.isFinite(plannedMinutes) || plannedMinutes <= 0) {
+      setMessage("Bitte Planzeit in Minuten eintragen. Von/Bis ist nur das Einstempel-Zeitfenster.");
+      return;
+    }
+
+const basePayload = {
       title: taskForm.title,
       start_time: taskForm.start_time,
       end_time: taskForm.end_time,
-      planned_minutes: Number(taskForm.planned_minutes || 0),
-      max_minutes: Number(taskForm.planned_minutes || 0),
+      planned_minutes: plannedMinutes,
+      max_minutes: plannedMinutes,
       paid_minutes: paidMinutesFromForm(taskForm),
       wage_minutes: paidMinutesFromForm(taskForm),
       employee_name: taskForm.employee_name || null,
@@ -1589,6 +1619,64 @@ export default function AdminPage() {
     }
   }
 
+  function openTimeCorrection(row?: Row) {
+    const startText = String(row?.start_time || row?.check_in_at || "").slice(11, 16) || "08:00";
+    const endText = String(row?.end_time || row?.check_out_at || "").slice(11, 16) || "10:00";
+    setTimeCorrectionForm(row ? {
+      id: String(row.id || ""),
+      employee_name: String(row.employee_name || ""),
+      work_date: String(dateOnly(row.work_date || row.check_in_at || row.created_at) || today),
+      start_time: startText === "T" ? "08:00" : startText,
+      end_time: endText === "T" ? "10:00" : endText,
+      site: String(row.site || row.work_site || row.work_site_name || ""),
+      work_site_id: String(row.work_site_id || ""),
+      reason: String(row.reason || "Manuelle Korrektur"),
+      notes: String(row.notes || ""),
+      approved: row.approved !== false,
+    } : emptyTimeCorrection);
+    setModal("timeCorrection");
+  }
+
+  async function saveTimeCorrection() {
+    const startMinutes = timeToMinutes(timeCorrectionForm.start_time);
+    const endMinutes = timeToMinutes(timeCorrectionForm.end_time);
+    if (startMinutes === null || endMinutes === null) {
+      setMessage("Bitte Start und Ende eintragen.");
+      return;
+    }
+
+    let duration = endMinutes - startMinutes;
+    if (duration < 0) duration += 1440;
+    if (duration <= 0) {
+      setMessage("Die Zeitkorrektur muss größer als 0 Minuten sein.");
+      return;
+    }
+
+    const site = sites.find((item) => item.id === timeCorrectionForm.work_site_id || item.name === timeCorrectionForm.site);
+    const checkIn = new Date(`${timeCorrectionForm.work_date}T${timeCorrectionForm.start_time}:00`);
+    const checkOut = new Date(`${timeCorrectionForm.work_date}T${timeCorrectionForm.end_time}:00`);
+    if (checkOut.getTime() < checkIn.getTime()) checkOut.setDate(checkOut.getDate() + 1);
+
+    await insertOrUpdate("time_entries", timeCorrectionForm.id, {
+      employee_name: timeCorrectionForm.employee_name,
+      work_date: timeCorrectionForm.work_date,
+      check_in_at: checkIn.toISOString(),
+      check_out_at: checkOut.toISOString(),
+      site: site?.name || timeCorrectionForm.site || null,
+      work_site_name: site?.name || timeCorrectionForm.site || null,
+      work_site_id: site?.id || timeCorrectionForm.work_site_id || null,
+      action: "manual",
+      entry_type: "manual",
+      reason: timeCorrectionForm.reason || "Manuelle Korrektur",
+      notes: timeCorrectionForm.notes || null,
+      planned_minutes: duration,
+      worked_minutes: duration,
+      payroll_minutes: duration,
+      approved: Boolean(timeCorrectionForm.approved),
+      status: timeCorrectionForm.approved ? "approved" : "open",
+    });
+  }
+
   async function approveEntry(row: Row, approved: boolean) {
     await insertOrUpdate("time_entries", row.id, { approved, status: approved ? "approved" : "rejected" });
   }
@@ -1851,7 +1939,7 @@ export default function AdminPage() {
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
-          {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} tasks={assignmentRows} absences={absences} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
+          {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} tasks={assignmentRows} absences={absences} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openCorrection={openTimeCorrection} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
           {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={decideAbsence} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
@@ -1867,6 +1955,7 @@ export default function AdminPage() {
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
       {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
       {modal === "absence" && <AbsenceModal close={() => setModal(null)} form={absenceForm} setForm={setAbsenceForm} save={saveAbsence} saving={saving} employees={activeEmployees} />}
+      {modal === "timeCorrection" && <TimeCorrectionModal close={() => setModal(null)} form={timeCorrectionForm} setForm={setTimeCorrectionForm} save={saveTimeCorrection} saving={saving} employees={activeEmployees} sites={sites} />}
     </main>
   );
 }
@@ -2742,11 +2831,32 @@ function Times(p: any) {
       )}
 
       <PageHeader icon="⏱" title="Zeiten & Lohnexport" sub="Ich gebe Zeiten frei und exportiere danach die Monatsstunden.">
+        <Button onClick={() => p.openCorrection()}>Zeit korrigieren</Button>
         <Button onClick={p.exportRows}>Zeiten CSV</Button>
         <Button primary onClick={exportPayroll}>Lohnexport CSV</Button>
       </PageHeader>
 
       <DailyClosing selectedDay={selectedDay} setSelectedDay={setSelectedDay} employees={p.employees || []} tasks={p.tasks || []} entries={p.rows || []} absences={p.absences || []} approve={p.approve} />
+
+      <Card className="mb-5 p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-slate-950">Live-Status heute</h3>
+            <p className="text-sm font-bold text-slate-500">Ich sehe hier, wer gestartet, in Pause oder beendet ist.</p>
+          </div>
+          <Status color="blue">{today}</Status>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {(p.employees || []).filter((employee: Row) => employee.role !== "admin").map((employee: Row) => {
+            const todayEntries = (p.rows || []).filter((entry: Row) => String(entry.employee_name || "") === String(employee.name || "") && timeEntryDate(entry) === today).sort((a: Row, b: Row) => new Date(a.created_at || a.check_in_at || 0).getTime() - new Date(b.created_at || b.check_in_at || 0).getTime());
+            const last = todayEntries[todayEntries.length - 1];
+            const action = String(last?.action || "");
+            const status = action === "start" || action === "break_end" ? "arbeitet" : action === "break_start" ? "Pause" : action === "end" || action === "check_out" ? "beendet" : "nicht gestartet";
+            const color = status === "arbeitet" ? "green" : status === "Pause" ? "yellow" : status === "beendet" ? "gray" : "red";
+            return <div key={employee.id || employee.name} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="font-black text-slate-950">{employee.name}</p><p className="mt-1 text-xs font-bold text-slate-400">{todayEntries.length} Einträge heute</p><div className="mt-3"><Status color={color as any}>{status}</Status></div></div>;
+          })}
+        </div>
+      </Card>
 
       <Card className="mb-5 p-5">
         <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
@@ -2780,7 +2890,7 @@ function Times(p: any) {
       </Card>
 
       <ListPage icon="⏱" title="Zeitenfreigabe" sub="Arbeitszeiten prüfen, Überstunden genehmigen und automatische Ausstempelungen kontrollieren" rows={p.rows} headers={["Datum", "Mitarbeiter", "Objekt", "Arbeitszeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
-        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+        {p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3">{prettyHours(payableMinutes(r))} Std.</td><td className="px-4 py-3">{r.reason === "max_time_reached" ? "Planzeit erreicht" : r.reason === "left_geofence" ? "GPS verlassen" : r.reason || "manuell"}</td><td className="px-4 py-3"><Status color={r.status === "approved" || r.approved ? "green" : r.status === "rejected" ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.auto_clock_out ? "automatisch" : r.status || (r.approved ? "approved" : "offen")}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
       </ListPage>
     </div>
   );
@@ -2946,7 +3056,7 @@ function TaskModal(p: any) {
         <Field label="Objekt">
           <Select value={p.form.work_site_id} onChange={(e) => selectSite(e.target.value)}>
             <option value="">Objekt auswählen</option>
-            {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.customer_name ? ` · ${s.customer_name}` : ""}</option>)}
+            {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{siteOptionLabel(s)}</option>)}
           </Select>
         </Field>
         <Field label="Mitarbeiter">
@@ -2969,7 +3079,7 @@ function TaskModal(p: any) {
       <Field label="Objekt / Standort">
         <Select required value={p.form.work_site_id} onChange={(e) => selectSite(e.target.value)}>
           <option value="">Objekt auswählen</option>
-          {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{s.name}{s.customer_name ? ` · ${s.customer_name}` : ""}</option>)}
+          {filteredSites.map((s: Row) => <option key={s.id} value={s.id}>{siteOptionLabel(s)}</option>)}
         </Select>
       </Field>
       <Field label="Mitarbeiter">
@@ -3171,4 +3281,32 @@ function KeyModal(p: any) {
     </ModalShell>
   );
 }
+function TimeCorrectionModal(p: any) {
+  return (
+    <ModalShell title={p.form.id ? "Zeit korrigieren" : "Zeitkorrektur erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+      <Field label="Mitarbeiter">
+        <Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
+          <option value="">Mitarbeiter auswählen</option>
+          {p.employees.map((employee: Row) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
+        </Select>
+      </Field>
+      <Field label="Objekt">
+        <Select value={p.form.work_site_id} onChange={(e) => {
+          const site = p.sites.find((item: Row) => item.id === e.target.value);
+          p.setForm({ ...p.form, work_site_id: e.target.value, site: site?.name || "" });
+        }}>
+          <option value="">Objekt auswählen</option>
+          {p.sites.map((site: Row) => <option key={site.id || site.name} value={site.id}>{siteOptionLabel(site)}</option>)}
+        </Select>
+      </Field>
+      <Field label="Datum"><Input type="date" value={p.form.work_date} onChange={(e) => p.setForm({ ...p.form, work_date: e.target.value })} /></Field>
+      <Field label="Von"><Input type="time" value={p.form.start_time} onChange={(e) => p.setForm({ ...p.form, start_time: e.target.value })} /></Field>
+      <Field label="Bis"><Input type="time" value={p.form.end_time} onChange={(e) => p.setForm({ ...p.form, end_time: e.target.value })} /></Field>
+      <Field label="Freigabe"><Select value={p.form.approved ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, approved: e.target.value === "true" })}><option value="true">Direkt freigeben</option><option value="false">Offen lassen</option></Select></Field>
+      <Field label="Grund"><Input value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} placeholder="z. B. Mitarbeiter hat vergessen auszustempeln" /></Field>
+      <Field label="Kommentar" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} placeholder="Interner Kommentar" /></Field>
+    </ModalShell>
+  );
+}
+
 function AbsenceModal(p: any) { return <ModalShell title={p.form.id ? "Abwesenheit bearbeiten" : "Abwesenheit erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Mitarbeiter"><Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}><option value="">Mitarbeiter auswählen</option>{p.employees.map((e: Row) => <option key={e.id} value={e.name}>{e.name}</option>)}</Select></Field><Field label="Art"><Select value={p.form.absence_type} onChange={(e) => p.setForm({ ...p.form, absence_type: e.target.value })}><option>Urlaub</option><option>Krank</option><option>Bezahlt Frei</option><option>Unbezahlt Frei</option><option>Sonstiges</option></Select></Field><Field label="Von"><Input type="date" value={p.form.start_date} onChange={(e) => p.setForm({ ...p.form, start_date: e.target.value })} /></Field><Field label="Bis"><Input type="date" value={p.form.end_date} onChange={(e) => p.setForm({ ...p.form, end_date: e.target.value })} /></Field><Field label="Status"><Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}><option value="open">Offen</option><option value="approved">Genehmigt</option><option value="rejected">Abgelehnt</option></Select></Field><Field label="Grund" wide><Textarea value={p.form.reason} onChange={(e) => p.setForm({ ...p.form, reason: e.target.value })} /></Field></ModalShell>; }

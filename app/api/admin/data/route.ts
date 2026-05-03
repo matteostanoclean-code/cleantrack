@@ -224,6 +224,15 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     if (!("active" in cleaned)) cleaned.active = true;
   }
 
+  if (table === "time_entries") {
+    if (isEmpty(cleaned.action)) cleaned.action = "manual";
+    if (isEmpty(cleaned.entry_type)) cleaned.entry_type = "manual";
+    cleaned.planned_minutes = numericValue(cleaned.planned_minutes, 0);
+    cleaned.worked_minutes = numericValue(cleaned.worked_minutes, 0);
+    cleaned.payroll_minutes = numericValue(cleaned.payroll_minutes, Number(cleaned.worked_minutes || 0));
+    if (isEmpty(cleaned.status)) cleaned.status = cleaned.approved === true ? "approved" : "open";
+  }
+
   return cleaned;
 }
 
