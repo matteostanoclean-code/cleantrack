@@ -900,6 +900,7 @@ export default function AdminPage() {
   const [chatEmployee, setChatEmployee] = useState("");
   const [chatText, setChatText] = useState("");
   const [selectedObjectFile, setSelectedObjectFile] = useState<Row | null>(null);
+  const [selectedCustomerFile, setSelectedCustomerFile] = useState<Row | null>(null);
 
   useEffect(() => {
     checkAdmin();
@@ -2268,7 +2269,7 @@ const basePayload = {
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
           {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
-          {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
+          {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedCustomer={selectedCustomerFile} setSelectedCustomer={setSelectedCustomerFile} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
@@ -2997,8 +2998,153 @@ function Employees(p: any) {
   );
 }
 
+function customerMatches(row: Row, customer: Row) {
+  const customerId = String(customer.id || "").trim();
+  const customerName = String(customer.name || customer.customer_name || "").trim().toLowerCase();
+  const rowCustomerId = String(row.customer_id || "").trim();
+  const rowCustomer = String(row.customer_name || row.customer || row.company || "").trim().toLowerCase();
+  return Boolean((customerId && rowCustomerId === customerId) || (customerName && rowCustomer === customerName));
+}
+
+function customerSites(sites: Row[], customer: Row) {
+  return (sites || []).filter((site: Row) => customerMatches(site, customer));
+}
+
+function rowBelongsToCustomerObject(row: Row, sites: Row[], customer: Row) {
+  return customerMatches(row, customer) || customerSites(sites, customer).some((site: Row) => objectMatches(row, site));
+}
+
+function CustomerFile(p: any) {
+  const customer = p.customer;
+  const sites = customerSites(p.sites || [], customer);
+  const tasks = (p.tasks || []).filter((row: Row) => rowBelongsToCustomerObject(row, p.sites || [], customer));
+  const entries = (p.entries || []).filter((row: Row) => rowBelongsToCustomerObject(row, p.sites || [], customer));
+  const materialReports = (p.materialReports || []).filter((row: Row) => rowBelongsToCustomerObject(row, p.sites || [], customer));
+  const qualityReports = (p.qualityReports || []).filter((row: Row) => rowBelongsToCustomerObject(row, p.sites || [], customer));
+  const keys = (p.keys || []).filter((row: Row) => rowBelongsToCustomerObject(row, p.sites || [], customer));
+  const contacts = (p.contacts || []).filter((row: Row) => customerMatches(row, customer));
+  const plannedMinutes = tasks.reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+  const approvedMinutes = totalPayableMinutes(timeSessionSummaries(entries).filter(isApprovedEntry));
+
+  return (
+    <div className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-wide text-blue-600">Kundenakte</p>
+          <h2 className="mt-1 text-2xl font-black text-slate-950">{customer.name || customer.customer_name}</h2>
+          <p className="mt-1 text-sm font-bold text-slate-500">{customer.address || customer.customer_address || "Keine Adresse"}</p>
+          <p className="mt-1 text-xs font-bold text-slate-400">{customer.phone || customer.customer_phone || "Keine Telefonnummer"} · {customer.email || customer.customer_email || "Keine E-Mail"}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => p.openEdit(customer)}>Kunde bearbeiten</Button>
+          <Button onClick={() => p.setSelectedCustomer(null)}>Schließen</Button>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-5">
+        <Metric title="Objekte" value={sites.length} hint="Standorte" />
+        <Metric title="Einsätze" value={tasks.length} hint="geplant" />
+        <Metric title="Planzeit" value={`${prettyHours(plannedMinutes)} Std.`} hint="gesamt" />
+        <Metric title="Lohnzeit" value={`${prettyHours(approvedMinutes)} Std.`} hint="freigegeben" />
+        <Metric title="Nachweise" value={qualityReports.length} hint="Qualität" />
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Objekte dieses Kunden</h3>
+          <div className="mt-3 space-y-2">
+            {sites.length === 0 && <Empty text="Noch keine Objekte für diesen Kunden." />}
+            {sites.map((site: Row) => (
+              <div key={site.id || site.name} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black">{site.name}</p>
+                <p className="text-sm font-bold text-slate-500">{site.address || "Keine Adresse"} · Radius {site.allowed_radius_m || 150} m</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Kontakte</h3>
+          <div className="mt-3 space-y-2">
+            {contacts.length === 0 && <Empty text="Noch keine Kontakte." />}
+            {contacts.map((contact: Row) => (
+              <div key={contact.id || contact.name} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black">{contact.name}</p>
+                <p className="text-sm font-bold text-slate-500">{contact.role || contact.contact_role || "-"} · {contact.phone || "-"} · {contact.email || "-"}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Letzte Einsätze</h3>
+          <div className="mt-3 space-y-2">
+            {tasks.length === 0 && <Empty text="Noch keine Einsätze." />}
+            {tasks.slice(0, 8).map((task: Row) => (
+              <div key={task.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black">{dateText(task.task_date)} · {task.site || "Objekt"}</p>
+                <p className="text-sm font-bold text-slate-500">{task.employee_name || "Nicht zugewiesen"} · {task.start_time || "--:--"} - {task.end_time || "--:--"} · {taskDuration(task)} Min.</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Dokumentation</h3>
+          <div className="mt-3 grid gap-2">
+            <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black text-slate-400">Qualitätsnachweise</p><p className="font-black">{qualityReports.length}</p></div>
+            <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black text-slate-400">Materialmeldungen</p><p className="font-black">{materialReports.length}</p></div>
+            <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black text-slate-400">Schlüssel</p><p className="font-black">{keys.length}</p></div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function Customers(p: any) {
-  return <ListPage icon="🏷" title="Kunden" sub="Hauptmaske für Kundenstammdaten" rows={p.rows} headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Objekte", "Aktion"]} createLabel="+ Kunde erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => { const objectCount = p.sites?.filter((site: Row) => site.customer_id === r.id || site.customer_name === r.name).length || r.object_count || 0; return <tr key={r.id}><td className="px-4 py-3 font-black">{r.name || r.customer_name}</td><td className="px-4 py-3">{r.customer_number || "-"}</td><td className="px-4 py-3">{r.address || r.customer_address || "-"}</td><td className="px-4 py-3">{r.phone || r.customer_phone || "-"}</td><td className="px-4 py-3">{r.email || r.customer_email || "-"}</td><td className="px-4 py-3"><Status color={objectCount > 0 ? "blue" : "gray"}>{objectCount}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>; })}</ListPage>;
+  return (
+    <div>
+      {p.selectedCustomer && (
+        <CustomerFile
+          customer={p.selectedCustomer}
+          sites={p.sites}
+          tasks={p.tasks}
+          entries={p.entries}
+          materialReports={p.materialReports}
+          qualityReports={p.qualityReports}
+          keys={p.keys}
+          contacts={p.contacts}
+          openEdit={p.openEdit}
+          setSelectedCustomer={p.setSelectedCustomer}
+        />
+      )}
+
+      <ListPage icon="🏷" title="Kunden" sub="Hauptmaske für Kundenstammdaten" rows={p.rows} headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Objekte", "Aktion"]} createLabel="+ Kunde erstellen" onCreate={p.openCreate} onExport={p.exportRows}>
+        {p.rows.map((r: Row) => {
+          const objectCount = p.sites?.filter((site: Row) => site.customer_id === r.id || site.customer_name === r.name).length || r.object_count || 0;
+          return (
+            <tr key={r.id}>
+              <td className="px-4 py-3 font-black">
+                <button type="button" onClick={() => p.setSelectedCustomer(r)} className="text-left font-black text-blue-700 hover:underline">{r.name || r.customer_name}</button>
+              </td>
+              <td className="px-4 py-3">{r.customer_number || "-"}</td>
+              <td className="px-4 py-3">{r.address || r.customer_address || "-"}</td>
+              <td className="px-4 py-3">{r.phone || r.customer_phone || "-"}</td>
+              <td className="px-4 py-3">{r.email || r.customer_email || "-"}</td>
+              <td className="px-4 py-3"><Status color={objectCount > 0 ? "blue" : "gray"}>{objectCount}</Status></td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => p.setSelectedCustomer(r)}>Akte</Button>
+                  <Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} />
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </ListPage>
+    </div>
+  );
 }
 
 function Contacts(p: any) {
