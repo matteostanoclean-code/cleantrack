@@ -2951,10 +2951,10 @@ function Employees(p: any) {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-5">
-                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Urlaub</p><p className="font-black">{vacationTakenMonth} Tage</p><p className="text-xs text-slate-400">{vacationOpen} offen</p></div>
-                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Krank</p><p className="font-black">{sickTakenMonth} Tage</p></div>
-                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Bezahlt frei</p><p className="font-black">{paidFreeMonth} Tage</p></div>
-                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Unbezahlt</p><p className="font-black">{unpaidMonth} Tage</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Urlaub</p><p className="font-black">{vacationTakenMonth} Tage</p><p className="text-xs text-slate-400">{vacationOpen} offen · {prettyHours(monthlyAbsenceMinutes(p.entries || [], name, selectedMonth, isVacationAbsence))} Std.</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Krank</p><p className="font-black">{sickTakenMonth} Tage</p><p className="text-xs text-slate-400">{prettyHours(monthlyAbsenceMinutes(p.entries || [], name, selectedMonth, isSickAbsence))} Std.</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Bezahlt frei</p><p className="font-black">{paidFreeMonth} Tage</p><p className="text-xs text-slate-400">{prettyHours(monthlyAbsenceMinutes(p.entries || [], name, selectedMonth, isPaidFreeAbsence))} Std.</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Unbezahlt</p><p className="font-black">{unpaidMonth} Tage</p><p className="text-xs text-slate-400">0:00 Std. Lohnzeit</p></div>
                 <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Stundenlohn</p><p className="font-black">{euro(hourlyRate)}</p></div>
               </div>
 

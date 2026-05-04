@@ -108,6 +108,7 @@ type TimeEntry = {
   work_site_id?: string | null;
   task_id?: string | null;
   absence_request_id?: string | null;
+  absence_type?: string | null;
   action: "start" | "break_start" | "break_end" | "end" | "manual" | "absence" | "auto_clock_out" | "check_in" | "check_out" | "pause_start" | "pause_end";
   created_at: string;
   check_in_at?: string | null;
@@ -210,6 +211,43 @@ function approvedAbsenceDays(requests: AbsenceRequest[], typeNeedle: string) {
     .filter((item) => ["approved", "genehmigt"].includes(String(item.status || "").toLowerCase()))
     .filter((item) => absenceType(item.absence_type).includes(typeNeedle))
     .reduce((sum, item) => sum + dateRangeDays(item.start_date, item.end_date), 0);
+}
+
+function absenceEntryTypeKey(entry: TimeEntry) {
+  return String(entry.absence_type || entry.reason || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
+}
+
+function absenceEntryMinutes(entries: TimeEntry[], predicate: (entry: TimeEntry) => boolean) {
+  return entries
+    .filter(isAbsenceEntry)
+    .filter(isApprovedTimeEntry)
+    .filter(predicate)
+    .reduce((sum, entry) => sum + entryMinutes(entry), 0);
+}
+
+function vacationEntryMinutes(entries: TimeEntry[]) {
+  return absenceEntryMinutes(entries, (entry) => absenceEntryTypeKey(entry).includes("urlaub"));
+}
+
+function sickEntryMinutes(entries: TimeEntry[]) {
+  return absenceEntryMinutes(entries, (entry) => absenceEntryTypeKey(entry).includes("krank"));
+}
+
+function unpaidEntryMinutes(entries: TimeEntry[]) {
+  return absenceEntryMinutes(entries, (entry) => absenceEntryTypeKey(entry).includes("unbezahlt"));
+}
+
+function paidFreeEntryMinutes(entries: TimeEntry[]) {
+  return absenceEntryMinutes(entries, (entry) => {
+    const type = absenceEntryTypeKey(entry);
+    return !type.includes("unbezahlt") && (type.includes("bezahlt") || type.includes("frei"));
+  });
 }
 
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
@@ -1203,7 +1241,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "profile" && (
-          <ProfileScreen profile={profile} workedMinutes={workedMinutes} payrollMinutes={payrollMinutesToday} pauseMinutes={pauseMinutes} notifications={notifications} absenceRequests={absenceRequests} tasks={tasks} todayEntries={todayEntries} logout={logout} openTab={openTab} />
+          <ProfileScreen profile={profile} workedMinutes={workedMinutes} payrollMinutes={payrollMinutesToday} pauseMinutes={pauseMinutes} notifications={notifications} absenceRequests={absenceRequests} tasks={tasks} todayEntries={todayEntries} monthEntries={monthEntries} logout={logout} openTab={openTab} />
         )}
 
         {activeTab === "absence" && (
@@ -2102,14 +2140,35 @@ function MaterialReportScreen(props: {
   );
 }
 
-function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: number; payrollMinutes: number; pauseMinutes: number; notifications: AdminNotification[]; absenceRequests: AbsenceRequest[]; tasks: Task[]; todayEntries: TimeEntry[]; logout: () => void; openTab: (tab: Tab) => void }) {
+function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: number; payrollMinutes: number; pauseMinutes: number; notifications: AdminNotification[]; absenceRequests: AbsenceRequest[]; tasks: Task[]; todayEntries: TimeEntry[]; monthEntries: TimeEntry[]; logout: () => void; openTab: (tab: Tab) => void }) {
   const vacationTotal = Number(props.profile?.vacation_days ?? props.profile?.annual_vacation_days ?? 0);
   const vacationTaken = approvedAbsenceDays(props.absenceRequests, "urlaub");
   const vacationOpen = Math.max(0, vacationTotal - vacationTaken);
   const sickDays = approvedAbsenceDays(props.absenceRequests, "krank");
+  const paidFreeDays = props.absenceRequests
+    .filter((item) => ["approved", "genehmigt"].includes(String(item.status || "").toLowerCase()))
+    .filter((item) => {
+      const type = absenceType(item.absence_type);
+      return !type.includes("unbezahlt") && type.includes("frei");
+    })
+    .reduce((sum, item) => sum + dateRangeDays(item.start_date, item.end_date), 0);
+  const unpaidDays = props.absenceRequests
+    .filter((item) => ["approved", "genehmigt"].includes(String(item.status || "").toLowerCase()))
+    .filter((item) => absenceType(item.absence_type).includes("unbezahlt"))
+    .reduce((sum, item) => sum + dateRangeDays(item.start_date, item.end_date), 0);
+
   const monthKey = todayISO().slice(0, 7);
   const monthPlan = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey).reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
   const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
+  const vacationMinutes = vacationEntryMinutes(props.monthEntries);
+  const sickMinutes = sickEntryMinutes(props.monthEntries);
+  const paidFreeMinutes = paidFreeEntryMinutes(props.monthEntries);
+  const unpaidMinutes = unpaidEntryMinutes(props.monthEntries);
+  const paidAbsenceMinutes = vacationMinutes + sickMinutes + paidFreeMinutes;
+  const approvedWorkMinutes = props.monthEntries
+    .filter((entry) => !isAbsenceEntry(entry))
+    .filter(isApprovedTimeEntry)
+    .reduce((sum, entry) => sum + entryMinutes(entry), 0);
 
   return (
     <SimplePage title="Profil" openTab={props.openTab}>
@@ -2118,18 +2177,42 @@ function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: 
           <Avatar name={props.profile?.name || "M"} src={props.profile?.avatar_url || ""} large />
           <div><p className="text-xl font-black">{props.profile?.name}</p><p className="text-sm font-bold text-slate-400">{props.profile?.email}</p></div>
         </div>
+
         <div className="mt-5 grid grid-cols-2 gap-3">
           <InfoBox label="Heute geleistet" value={formatMinutes(props.workedMinutes)} />
           <InfoBox label="Lohnzeit heute" value={formatMinutes(props.payrollMinutes || props.workedMinutes)} />
           <InfoBox label="Pause" value={formatMinutes(props.pauseMinutes)} />
           <InfoBox label="Monat geplant" value={formatMinutes(monthPlan)} />
           <InfoBox label="Monatslimit" value={monthLimit ? formatMinutes(monthLimit) : "-"} />
-          <InfoBox label="Urlaub offen" value={`${vacationOpen} Tage`} />
-          <InfoBox label="Urlaub genommen" value={`${vacationTaken} / ${vacationTotal} Tage`} />
-          <InfoBox label="Kranktage" value={`${sickDays} Tage`} />
+          <InfoBox label="Freigegebene Arbeit" value={formatMinutes(approvedWorkMinutes)} />
         </div>
+
+        <div className="mt-5 rounded-[22px] bg-blue-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-black text-blue-950">Urlaubskonto</p>
+              <p className="mt-1 text-xs font-bold text-blue-700">Urlaubsstunden werden aus den geplanten Einsatzzeiten berechnet.</p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-blue-700">{vacationOpen} Tage offen</span>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <InfoBox label="Urlaub genommen" value={`${vacationTaken} / ${vacationTotal} Tage`} />
+            <InfoBox label="Urlaub bezahlt" value={formatMinutes(vacationMinutes)} />
+            <InfoBox label="Krank" value={`${sickDays} Tage · ${formatMinutes(sickMinutes)}`} />
+            <InfoBox label="Bezahlt frei" value={`${paidFreeDays} Tage · ${formatMinutes(paidFreeMinutes)}`} />
+            <InfoBox label="Unbezahlt frei" value={`${unpaidDays} Tage · ${formatMinutes(unpaidMinutes)}`} />
+            <InfoBox label="Bezahlte Abwesenheit" value={formatMinutes(paidAbsenceMinutes)} />
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <button type="button" onClick={() => props.openTab("absence")} className="rounded-2xl bg-emerald-50 py-4 text-sm font-black text-emerald-700">Abwesenheit melden</button>
+          <button type="button" onClick={() => props.openTab("chat")} className="rounded-2xl bg-blue-50 py-4 text-sm font-black text-blue-700">Nachricht schreiben</button>
+        </div>
+
         <button type="button" onClick={props.logout} className="mt-5 w-full rounded-2xl bg-red-50 py-4 text-red-600 font-black">Abmelden</button>
       </div>
+
       <h2 className="mt-6 mb-3 text-sm font-black">Meine Meldungen</h2>
       <div className="space-y-3">
         {props.notifications.length === 0 && <EmptyState text="Keine Meldungen vorhanden" />}
