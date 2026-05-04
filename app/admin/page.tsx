@@ -899,6 +899,7 @@ export default function AdminPage() {
   const [timeCorrectionForm, setTimeCorrectionForm] = useState(emptyTimeCorrection);
   const [chatEmployee, setChatEmployee] = useState("");
   const [chatText, setChatText] = useState("");
+  const [selectedObjectFile, setSelectedObjectFile] = useState<Row | null>(null);
 
   useEffect(() => {
     checkAdmin();
@@ -2269,7 +2270,7 @@ const basePayload = {
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
-          {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
+          {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
@@ -3004,8 +3005,146 @@ function Contacts(p: any) {
   return <ListPage icon="☎" title="Kontakte" sub="Ansprechpartner für Kunden und Objekte" rows={p.rows} headers={["Name", "Firma", "Rolle", "Telefon", "E-Mail", "Aktion"]} createLabel="+ Kontakt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.company || "-"}</td><td className="px-4 py-3">{r.role || r.contact_role || "-"}</td><td className="px-4 py-3">{r.phone || "-"}</td><td className="px-4 py-3">{r.email || "-"}</td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
 }
 
+function objectMatches(row: Row, site: Row) {
+  const siteId = String(site.id || "").trim();
+  const siteName = String(site.name || "").trim().toLowerCase();
+  const rowSiteId = String(row.work_site_id || row.site_id || "").trim();
+  const rowSite = String(row.site || row.work_site_name || row.object_name || "").trim().toLowerCase();
+  return Boolean((siteId && rowSiteId === siteId) || (siteName && rowSite === siteName));
+}
+
+function ObjectFile(p: any) {
+  const site = p.site;
+  const tasks = (p.tasks || []).filter((row: Row) => objectMatches(row, site));
+  const entries = (p.entries || []).filter((row: Row) => objectMatches(row, site));
+  const materialReports = (p.materialReports || []).filter((row: Row) => objectMatches(row, site));
+  const qualityReports = (p.qualityReports || []).filter((row: Row) => objectMatches(row, site));
+  const keys = (p.keys || []).filter((row: Row) => objectMatches(row, site));
+  const contacts = (p.contacts || []).filter((row: Row) => {
+    const company = String(row.company || "").trim().toLowerCase();
+    const customer = String(site.customer_name || "").trim().toLowerCase();
+    return company && customer && company === customer;
+  });
+  const plannedMinutes = tasks.reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+  const workedMinutes = totalWorkedMinutes(entries);
+  const approvedMinutes = totalPayableMinutes(timeSessionSummaries(entries).filter(isApprovedEntry));
+
+  return (
+    <div className="mb-6 rounded-[28px] border border-blue-100 bg-blue-50 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-wide text-blue-600">Objektakte</p>
+          <h2 className="mt-1 text-2xl font-black text-slate-950">{site.name}</h2>
+          <p className="mt-1 text-sm font-bold text-slate-500">{site.customer_name || "Kein Kunde"} · {site.address || "Keine Adresse"}</p>
+          <p className="mt-1 text-xs font-bold text-slate-400">GPS: {site.latitude && site.longitude ? `${site.latitude}, ${site.longitude}` : "fehlt"} · Radius {site.allowed_radius_m || 150} m</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => p.openEdit(site)}>Objekt bearbeiten</Button>
+          <Button onClick={() => p.setSelectedObject(null)}>Schließen</Button>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <Metric title="Einsätze" value={tasks.length} hint="für dieses Objekt" />
+        <Metric title="Planzeit" value={`${prettyHours(plannedMinutes)} Std.`} hint="geplant" />
+        <Metric title="Lohnzeit" value={`${prettyHours(approvedMinutes)} Std.`} hint="freigegeben" />
+        <Metric title="Materialmeldungen" value={materialReports.length} hint="gesamt" />
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Letzte Einsätze</h3>
+          <div className="mt-3 space-y-2">
+            {tasks.length === 0 && <Empty text="Noch keine Einsätze für dieses Objekt." />}
+            {tasks.slice(0, 6).map((task: Row) => (
+              <div key={task.id} className="rounded-2xl border border-slate-100 bg-white p-3">
+                <p className="font-black">{dateText(task.task_date)} · {task.start_time || "--:--"} - {task.end_time || "--:--"}</p>
+                <p className="text-sm font-bold text-slate-500">{task.employee_name || "Nicht zugewiesen"} · {task.title || "Einsatz"} · {taskDuration(task)} Min.</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Zeiten</h3>
+          <div className="mt-3 space-y-2">
+            {timeSessionSummaries(entries).length === 0 && <Empty text="Noch keine Zeiten für dieses Objekt." />}
+            {timeSessionSummaries(entries).slice(0, 6).map((entry: Row) => (
+              <div key={entry.id || entry.created_at} className="rounded-2xl border border-slate-100 bg-white p-3">
+                <p className="font-black">{dateText(timeEntryDate(entry))} · {entry.employee_name || "-"}</p>
+                <p className="text-sm font-bold text-slate-500">Arbeitszeit {prettyHours(singleRowMinutes(entry, false))} Std. · Lohnzeit {prettyHours(singleRowMinutes(entry, true))} Std.</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Qualitätsnachweise</h3>
+          <div className="mt-3 space-y-2">
+            {qualityReports.length === 0 && <Empty text="Noch keine Qualitätsnachweise." />}
+            {qualityReports.slice(0, 6).map((report: Row) => (
+              <div key={report.id} className="rounded-2xl border border-slate-100 bg-white p-3">
+                <p className="font-black">{dateText(report.task_date || report.created_at)} · {report.employee_name || "-"}</p>
+                <p className="text-sm font-bold text-slate-500">Checkliste {Number(report.passed_items || 0)}/{Number(report.total_items || 0)} · {report.status || "open"}</p>
+                {report.photo_url && <a className="mt-2 inline-block text-sm font-black text-blue-600" href={report.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a>}
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-black text-slate-950">Material / Schlüssel / Kontakte</h3>
+          <div className="mt-3 grid gap-2">
+            <div className="rounded-2xl bg-white p-3"><p className="text-xs font-black text-slate-400">Materialmeldungen</p><p className="font-black">{materialReports.length}</p></div>
+            <div className="rounded-2xl bg-white p-3"><p className="text-xs font-black text-slate-400">Schlüssel</p><p className="font-black">{keys.length}</p></div>
+            <div className="rounded-2xl bg-white p-3"><p className="text-xs font-black text-slate-400">Kontakte</p><p className="font-black">{contacts.length}</p></div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function Sites(p: any) {
-  return <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "Kontingent", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.name}</td><td className="px-4 py-3">{r.customer_name || "-"}</td><td className="px-4 py-3">{r.address || "-"}</td><td className="px-4 py-3 font-bold">{Number(r.monthly_hour_quota || 0) ? `${r.monthly_hour_quota} Std./Monat` : "-"}</td><td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td><td className="px-4 py-3">{r.allowed_radius_m || 150} m</td><td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} /></td></tr>)}</ListPage>;
+  return (
+    <div>
+      {p.selectedObject && (
+        <ObjectFile
+          site={p.selectedObject}
+          tasks={p.tasks}
+          entries={p.entries}
+          materialReports={p.materialReports}
+          qualityReports={p.qualityReports}
+          keys={p.keys}
+          contacts={p.contacts}
+          openEdit={p.openEdit}
+          setSelectedObject={p.setSelectedObject}
+        />
+      )}
+
+      <ListPage icon="🏢" title="Objekte" sub="Standorte mit GPS-Daten für Einsatzplanung und Zeiterfassung" rows={p.rows} headers={["Objekt", "Kunde", "Adresse", "Kontingent", "GPS", "Radius", "Status", "Aktion"]} createLabel="+ Objekt erstellen" onCreate={p.openCreate} onExport={p.exportRows}>
+        {p.rows.map((r: Row) => (
+          <tr key={r.id}>
+            <td className="px-4 py-3 font-black">
+              <button type="button" onClick={() => p.setSelectedObject(r)} className="text-left font-black text-blue-700 hover:underline">{r.name}</button>
+            </td>
+            <td className="px-4 py-3">{r.customer_name || "-"}</td>
+            <td className="px-4 py-3">{r.address || "-"}</td>
+            <td className="px-4 py-3 font-bold">{Number(r.monthly_hour_quota || 0) ? `${r.monthly_hour_quota} Std./Monat` : "-"}</td>
+            <td className="px-4 py-3">{r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : "GPS fehlt"}</td>
+            <td className="px-4 py-3">{r.allowed_radius_m || 150} m</td>
+            <td className="px-4 py-3"><Status color={r.active === false ? "gray" : "green"}>{r.active === false ? "Passiv" : "Aktiv"}</Status></td>
+            <td className="px-4 py-3">
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => p.setSelectedObject(r)}>Akte</Button>
+                <Actions edit={() => p.openEdit(r)} del={() => p.deleteRow(r)} />
+              </div>
+            </td>
+          </tr>
+        ))}
+      </ListPage>
+    </div>
+  );
 }
 
 function Tasks(p: any) {
