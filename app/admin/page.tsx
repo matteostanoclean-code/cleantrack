@@ -376,6 +376,61 @@ function absenceDayCount(absences: Row[], employeeName: string, predicate: (row:
     .reduce((sum, absence) => sum + dateRangeInclusive(absence.start_date, absence.end_date || absence.start_date).length, 0);
 }
 
+function absenceDayCountForMonth(absences: Row[], employeeName: string, predicate: (row: Row) => boolean, monthKey: string) {
+  const name = String(employeeName || "").trim().toLowerCase();
+  if (!name) return 0;
+
+  return absences
+    .filter((absence) => String(absence.employee_name || "").trim().toLowerCase() === name)
+    .filter(absenceIsBlocking)
+    .filter(predicate)
+    .reduce((sum, absence) => {
+      const days = dateRangeInclusive(absence.start_date, absence.end_date || absence.start_date).filter((date) => date.slice(0, 7) === monthKey);
+      return sum + days.length;
+    }, 0);
+}
+
+function paidAbsenceDaysForMonth(absences: Row[], employeeName: string, monthKey: string) {
+  return absenceDayCountForMonth(absences, employeeName, isPaidAbsence, monthKey);
+}
+
+function unpaidAbsenceDaysForMonth(absences: Row[], employeeName: string, monthKey: string) {
+  return absenceDayCountForMonth(absences, employeeName, isUnpaidAbsence, monthKey);
+}
+
+function monthlyAbsenceMinutes(absences: Row[], employeeName: string, monthKey: string, predicate: (row: Row) => boolean) {
+  return absenceDayCountForMonth(absences, employeeName, predicate, monthKey) * 8 * 60;
+}
+
+function monthKeyFromDate(value: unknown) {
+  return dateOnly(value || today).slice(0, 7);
+}
+
+function employeeRowsForMonth(rows: Row[], employeeName: string, monthKey: string) {
+  const name = String(employeeName || "").trim();
+  return (rows || []).filter((row: Row) => String(row.employee_name || "").trim() === name && monthFromValue(payrollDate(row)) === monthKey);
+}
+
+function employeeTasksForMonth(tasks: Row[], employeeName: string, monthKey: string) {
+  const name = String(employeeName || "").trim();
+  return (tasks || [])
+    .filter((task: Row) => task.item_type !== "task" && task.task_type !== "task")
+    .filter((task: Row) => String(task.employee_name || "").trim() === name)
+    .filter((task: Row) => monthKeyFromDate(task.task_date || task.due_date) === monthKey);
+}
+
+function approvedMinutesForEmployeeMonth(entries: Row[], employeeName: string, monthKey: string) {
+  return totalPayableMinutes(timeSessionSummaries(employeeRowsForMonth(entries, employeeName, monthKey)).filter(isApprovedEntry));
+}
+
+function workedMinutesForEmployeeMonth(entries: Row[], employeeName: string, monthKey: string) {
+  return totalWorkedMinutes(employeeRowsForMonth(entries, employeeName, monthKey));
+}
+
+function plannedMinutesForEmployeeMonth(tasks: Row[], employeeName: string, monthKey: string) {
+  return employeeTasksForMonth(tasks, employeeName, monthKey).reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+}
+
 function plannedMinutesForEmployeeDate(tasks: Row[], employeeName: string, date: string) {
   const name = String(employeeName || "").trim().toLowerCase();
   if (!name) return 0;
@@ -2767,19 +2822,150 @@ function ReassignSelect({ task, employees, onChange }: { task: Row; employees: R
 }
 
 function Employees(p: any) {
+  const defaultMonth = today.slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+
+  const activeCount = p.rows.filter((x: Row) => x.active !== false).length;
+  const linkedCount = p.rows.filter((x: Row) => x.auth_user_id).length;
+  const approvedTotal = (p.rows || []).reduce((sum: number, employee: Row) => sum + approvedMinutesForEmployeeMonth(p.entries || [], employee.name, selectedMonth), 0);
+
+  function exportEmployeeMonth() {
+    const rows = (p.rows || []).map((employee: Row) => {
+      const name = String(employee.name || "");
+      const planned = plannedMinutesForEmployeeMonth(p.tasks || [], name, selectedMonth);
+      const worked = workedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+      const approved = approvedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+      const vacationDays = absenceDayCountForMonth(p.absences || [], name, isVacationAbsence, selectedMonth);
+      const sickDays = absenceDayCountForMonth(p.absences || [], name, isSickAbsence, selectedMonth);
+      const paidFreeDays = absenceDayCountForMonth(p.absences || [], name, isPaidFreeAbsence, selectedMonth);
+      const unpaidDays = absenceDayCountForMonth(p.absences || [], name, isUnpaidAbsence, selectedMonth);
+      const vacationTotal = Number(employee.vacation_days ?? employee.annual_vacation_days ?? 0);
+      const vacationOpen = Math.max(0, vacationTotal - absenceDayCount(p.absences || [], name, isVacationAbsence));
+      const hourlyRate = Number(employee.hourly_rate || 0);
+      const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], name, selectedMonth, isPaidAbsence);
+      const payrollMinutes = approved + paidAbsenceMinutes;
+      return {
+        Monat: selectedMonth,
+        Mitarbeiter: name,
+        Soll_Minuten: planned,
+        Ist_Minuten: worked,
+        Freigegebene_Minuten: approved,
+        Bezahlte_Abwesenheit_Minuten: paidAbsenceMinutes,
+        Lohn_Minuten: payrollMinutes,
+        Lohn_Stunden: Number((payrollMinutes / 60).toFixed(2)),
+        Stundenlohn: hourlyRate,
+        Lohnsumme: Number(((payrollMinutes / 60) * hourlyRate).toFixed(2)),
+        Urlaub_genommen_Tage: vacationDays,
+        Urlaub_offen_Tage: vacationOpen,
+        Krank_Tage: sickDays,
+        Bezahlt_frei_Tage: paidFreeDays,
+        Unbezahlt_frei_Tage: unpaidDays,
+      };
+    });
+    downloadCsv(`mitarbeiter-monatsuebersicht-${selectedMonth}.csv`, rows);
+  }
+
   return (
     <div>
-      <PageHeader icon="👥" title="Mitarbeiter" sub={`${p.rows.length} Datensätze`}><Button onClick={p.exportRows}>Exportieren</Button><Button primary onClick={p.openCreate}>+ Mitarbeiter anlegen</Button></PageHeader>
-      <div className="mb-5 grid gap-4 md:grid-cols-3"><Metric title="Aktive Mitarbeiter" value={p.rows.filter((x: Row) => x.active !== false).length} hint="im System" /><Metric title="Mit Login verbunden" value={p.rows.filter((x: Row) => x.auth_user_id).length} hint="Supabase Auth" /><Metric title="Abwesenheiten" value={p.absences.length} hint="gesamt" /></div>
-      <Table headers={["Name", "Nummer", "Kontakt", "Arbeitszeit", "Urlaub", "Krank", "Kosten", "Status", "Aktion"]}>{p.rows.length === 0 ? <tr><td colSpan={9}><Empty /></td></tr> : p.rows.map((e: Row) => {
-        const entryMinutes = p.entries.filter((x: Row) => x.employee_name === e.name).reduce((s: number, x: Row) => s + payableMinutes(x), 0);
-        const cost = (entryMinutes / 60) * Number(e.hourly_rate || 0);
-        const vacationTotal = Number(e.vacation_days ?? e.annual_vacation_days ?? 0);
-        const vacationTaken = absenceDayCount(p.absences || [], e.name, isVacationAbsence);
-        const vacationOpen = Math.max(0, vacationTotal - vacationTaken);
-        const sickTaken = absenceDayCount(p.absences || [], e.name, isSickAbsence);
-        return <tr key={e.id}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(e.name)}</div><div><p className="font-black">{e.name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td><td className="px-4 py-3">{e.employee_number || "-"}</td><td className="px-4 py-3">{e.phone || "-"}</td><td className="px-4 py-3 font-bold">{prettyHours(entryMinutes)} Std.</td><td className="px-4 py-3"><p className="font-black">{vacationTaken} / {vacationTotal} Tage</p><p className="text-xs font-bold text-slate-500">{vacationOpen} offen</p></td><td className="px-4 py-3 font-bold">{sickTaken} Tage</td><td className="px-4 py-3 font-bold">{euro(cost)}</td><td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active === false ? <Button primary onClick={() => p.activate(e)}>Aktivieren</Button> : <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td></tr>;
-      })}</Table>
+      <PageHeader icon="👥" title="Mitarbeiter" sub={`${p.rows.length} Datensätze`}>
+        <input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700" />
+        <Button onClick={exportEmployeeMonth}>Monatsübersicht CSV</Button>
+        <Button onClick={p.exportRows}>Exportieren</Button>
+        <Button primary onClick={p.openCreate}>+ Mitarbeiter anlegen</Button>
+      </PageHeader>
+
+      <div className="mb-5 grid gap-4 md:grid-cols-4">
+        <Metric title="Aktive Mitarbeiter" value={activeCount} hint="im System" />
+        <Metric title="Mit Login verbunden" value={linkedCount} hint="Supabase Auth" />
+        <Metric title="Freigegebene Lohnzeit" value={`${prettyHours(approvedTotal)} Std.`} hint={selectedMonth} />
+        <Metric title="Abwesenheiten" value={p.absences.length} hint="gesamt" />
+      </div>
+
+      <div className="mb-5 grid gap-4 xl:grid-cols-2">
+        {(p.rows || []).map((employee: Row) => {
+          const name = String(employee.name || "");
+          const planned = plannedMinutesForEmployeeMonth(p.tasks || [], name, selectedMonth);
+          const worked = workedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+          const approved = approvedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+          const vacationTotal = Number(employee.vacation_days ?? employee.annual_vacation_days ?? 0);
+          const vacationTakenAll = absenceDayCount(p.absences || [], name, isVacationAbsence);
+          const vacationOpen = Math.max(0, vacationTotal - vacationTakenAll);
+          const vacationTakenMonth = absenceDayCountForMonth(p.absences || [], name, isVacationAbsence, selectedMonth);
+          const sickTakenMonth = absenceDayCountForMonth(p.absences || [], name, isSickAbsence, selectedMonth);
+          const paidFreeMonth = absenceDayCountForMonth(p.absences || [], name, isPaidFreeAbsence, selectedMonth);
+          const unpaidMonth = absenceDayCountForMonth(p.absences || [], name, isUnpaidAbsence, selectedMonth);
+          const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], name, selectedMonth, isPaidAbsence);
+          const payrollMinutes = approved + paidAbsenceMinutes;
+          const hourlyRate = Number(employee.hourly_rate || 0);
+          const amount = (payrollMinutes / 60) * hourlyRate;
+          const plannedPercent = planned > 0 ? Math.min(100, Math.round((approved / planned) * 100)) : 0;
+
+          return (
+            <Card key={employee.id || name} className="p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(name)}</div>
+                  <div>
+                    <p className="font-black text-slate-950">{name}</p>
+                    <p className="text-xs font-bold text-slate-400">{employee.email || "Keine E-Mail"}</p>
+                  </div>
+                </div>
+                <Status color={employee.active === false ? "gray" : "green"}>{employee.active === false ? "Passiv" : "Aktiv"}</Status>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black uppercase text-slate-400">Soll</p><p className="mt-1 font-black">{prettyHours(planned)} Std.</p></div>
+                <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black uppercase text-slate-400">Ist</p><p className="mt-1 font-black">{prettyHours(worked)} Std.</p></div>
+                <div className="rounded-2xl bg-emerald-50 p-3"><p className="text-xs font-black uppercase text-emerald-500">Lohnzeit</p><p className="mt-1 font-black text-emerald-700">{prettyHours(payrollMinutes)} Std.</p></div>
+                <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black uppercase text-slate-400">Lohnsumme</p><p className="mt-1 font-black">{euro(amount)}</p></div>
+              </div>
+
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-blue-500" style={{ width: `${plannedPercent}%` }} />
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-5">
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Urlaub</p><p className="font-black">{vacationTakenMonth} Tage</p><p className="text-xs text-slate-400">{vacationOpen} offen</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Krank</p><p className="font-black">{sickTakenMonth} Tage</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Bezahlt frei</p><p className="font-black">{paidFreeMonth} Tage</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Unbezahlt</p><p className="font-black">{unpaidMonth} Tage</p></div>
+                <div className="rounded-xl border border-slate-100 p-3"><p className="text-xs font-black text-slate-400">Stundenlohn</p><p className="font-black">{euro(hourlyRate)}</p></div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button onClick={() => p.openEdit(employee)}>Bearbeiten</Button>
+                {employee.active === false ? <Button primary onClick={() => p.activate(employee)}>Aktivieren</Button> : <Button danger onClick={() => p.deactivate(employee)}>Deaktivieren</Button>}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      <Table headers={["Name", "Nummer", "Kontakt", "Lohnzeit", "Urlaub", "Krank", "Lohnsumme", "Status", "Aktion"]}>
+        {p.rows.length === 0 ? <tr><td colSpan={9}><Empty /></td></tr> : p.rows.map((e: Row) => {
+          const name = String(e.name || "");
+          const approved = approvedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+          const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], name, selectedMonth, isPaidAbsence);
+          const payrollMinutes = approved + paidAbsenceMinutes;
+          const cost = (payrollMinutes / 60) * Number(e.hourly_rate || 0);
+          const vacationTotal = Number(e.vacation_days ?? e.annual_vacation_days ?? 0);
+          const vacationTaken = absenceDayCount(p.absences || [], name, isVacationAbsence);
+          const vacationOpen = Math.max(0, vacationTotal - vacationTaken);
+          const sickTaken = absenceDayCountForMonth(p.absences || [], name, isSickAbsence, selectedMonth);
+
+          return <tr key={e.id}>
+            <td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-black text-white">{initials(name)}</div><div><p className="font-black">{name}</p><p className="text-xs text-slate-500">{e.email || "Keine E-Mail"}</p></div></div></td>
+            <td className="px-4 py-3">{e.employee_number || "-"}</td>
+            <td className="px-4 py-3">{e.phone || "-"}</td>
+            <td className="px-4 py-3 font-bold">{prettyHours(payrollMinutes)} Std.</td>
+            <td className="px-4 py-3"><p className="font-black">{vacationTaken} / {vacationTotal} Tage</p><p className="text-xs font-bold text-slate-500">{vacationOpen} offen</p></td>
+            <td className="px-4 py-3 font-bold">{sickTaken} Tage</td>
+            <td className="px-4 py-3 font-bold">{euro(cost)}</td>
+            <td className="px-4 py-3"><Status color={e.active === false ? "gray" : "green"}>{e.active === false ? "Passiv" : "Aktiv"}</Status></td>
+            <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button onClick={() => p.openEdit(e)}>Bearbeiten</Button>{e.active === false ? <Button primary onClick={() => p.activate(e)}>Aktivieren</Button> : <Button danger onClick={() => p.deactivate(e)}>Deaktivieren</Button>}</div></td>
+          </tr>;
+        })}
+      </Table>
     </div>
   );
 }
@@ -3225,20 +3411,25 @@ function DailyClosing(p: any) {
   const employees = (p.employees || []).filter((employee: Row) => employee.role !== "admin" && employee.active !== false);
   const dayTasks = (p.tasks || []).filter((task: Row) => dateOnly(task.task_date || task.due_date) === p.selectedDay);
   const dayEntries = (p.entries || []).filter((entry: Row) => timeEntryDate(entry) === p.selectedDay);
+
   const rows = employees.map((employee: Row) => {
     const employeeName = String(employee.name || "");
     const planned = dayTasks
       .filter((task: Row) => String(task.employee_name || "") === employeeName)
       .reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
     const employeeEntries = dayEntries.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
+    const sessions = timeSessionSummaries(employeeEntries);
+    const approvedSessions = sessions.filter(isApprovedEntry);
     const actual = totalWorkedMinutes(employeeEntries);
+    const approvedWage = totalPayableMinutes(approvedSessions);
     const wage = totalPayableMinutes(employeeEntries);
-    const approvedEntries = timeSessionSummaries(employeeEntries).filter(isApprovedEntry);
-    const hasEntries = timeSessionSummaries(employeeEntries).length > 0;
-    const allApproved = hasEntries && approvedEntries.length === timeSessionSummaries(employeeEntries).length;
+    const pause = employeeEntries.reduce((sum: number, entry: Row) => sum + Number(entry.pause_minutes || 0), 0);
+    const overtime = Math.max(0, wage - planned);
     const absence = employeeAbsenceForDate(p.absences || [], employeeName, p.selectedDay);
     const approvedAbsence = absence && absenceIsBlocking(absence);
     const diff = wage - planned;
+    const hasEntries = sessions.length > 0;
+    const allApproved = hasEntries && approvedSessions.length === sessions.length;
     let status = allApproved ? "Freigegeben" : "OK";
     let color: "green" | "yellow" | "red" | "gray" = "green";
 
@@ -3259,11 +3450,17 @@ function DailyClosing(p: any) {
       color = "yellow";
     }
 
-    return { employee, planned, actual, wage, diff, status, color, entries: employeeEntries, allApproved };
+    return { employee, planned, actual, wage, approvedWage, pause, overtime, diff, status, color, entries: employeeEntries, sessions, allApproved };
   });
 
+  const plannedTotal = rows.reduce((sum: number, row: Row) => sum + Number(row.planned || 0), 0);
+  const actualTotal = rows.reduce((sum: number, row: Row) => sum + Number(row.actual || 0), 0);
+  const wageTotal = rows.reduce((sum: number, row: Row) => sum + Number(row.approvedWage || 0), 0);
+  const openCount = rows.filter((row: Row) => row.entries.length > 0 && !row.allApproved).length;
+
   async function approveEntries(entries: Row[]) {
-    for (const entry of entries) {
+    const summaries = timeSessionSummaries(entries);
+    for (const entry of summaries.length ? summaries : entries) {
       await p.approve(entry, true);
     }
   }
@@ -3273,22 +3470,41 @@ function DailyClosing(p: any) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-black text-slate-950">Tagesabschluss</h3>
-          <p className="text-sm font-bold text-slate-500">Ich prüfe hier geplante Zeit, gestempelte Zeit und Abwesenheiten pro Tag.</p>
+          <p className="text-sm font-bold text-slate-500">Ich sehe hier Sollzeit, gestempelte Zeit und freigegebene Lohnzeit pro Tag.</p>
         </div>
         <input type="date" value={p.selectedDay} onChange={(event) => p.setSelectedDay(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700" />
       </div>
+
+      <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <Metric title="Geplant" value={`${prettyHours(plannedTotal)} Std.`} hint="Sollzeit" />
+        <Metric title="Gestempelt" value={`${prettyHours(actualTotal)} Std.`} hint="Ist-Arbeitszeit" />
+        <Metric title="Freigegeben" value={`${prettyHours(wageTotal)} Std.`} hint="Lohnzeit" />
+        <Metric title="Offen" value={openCount} hint="zu prüfen" />
+      </div>
+
       <div className="overflow-hidden rounded-2xl border border-slate-200">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-            <tr><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Planzeit</th><th className="px-4 py-3">Ist / Lohnzeit</th><th className="px-4 py-3">Differenz</th><th className="px-4 py-3">Hinweis</th><th className="px-4 py-3">Aktion</th></tr>
+            <tr>
+              <th className="px-4 py-3">Mitarbeiter</th>
+              <th className="px-4 py-3">Planzeit</th>
+              <th className="px-4 py-3">Arbeitszeit</th>
+              <th className="px-4 py-3">Lohnzeit</th>
+              <th className="px-4 py-3">Pause</th>
+              <th className="px-4 py-3">Überstunden</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Aktion</th>
+            </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
-            {rows.length === 0 ? <tr><td colSpan={6}><Empty text="Keine Mitarbeiter für diesen Tag." /></td></tr> : rows.map((row: Row) => (
+            {rows.length === 0 ? <tr><td colSpan={8}><Empty text="Keine Mitarbeiter für diesen Tag." /></td></tr> : rows.map((row: Row) => (
               <tr key={row.employee.id || row.employee.name}>
                 <td className="px-4 py-3 font-black">{row.employee.name}</td>
                 <td className="px-4 py-3 font-bold">{prettyHours(row.planned)} Std.</td>
-                <td className="px-4 py-3 font-bold"><p>{prettyHours(row.actual)} Std.</p><p className="text-xs font-bold text-slate-400">Lohn: {prettyHours(row.wage)} Std.</p></td>
-                <td className={`px-4 py-3 font-black ${row.diff < 0 ? "text-red-600" : row.diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>{row.diff === 0 ? "0:00" : `${row.diff > 0 ? "+" : "-"}${prettyHours(Math.abs(row.diff))}`} Std.</td>
+                <td className="px-4 py-3 font-bold">{prettyHours(row.actual)} Std.</td>
+                <td className="px-4 py-3 font-black text-emerald-700">{prettyHours(row.approvedWage)} Std.</td>
+                <td className="px-4 py-3">{prettyHours(row.pause)} Std.</td>
+                <td className={`px-4 py-3 font-black ${row.overtime > 0 ? "text-amber-600" : "text-slate-400"}`}>{prettyHours(row.overtime)} Std.</td>
                 <td className="px-4 py-3"><Status color={row.color}>{row.status}</Status></td>
                 <td className="px-4 py-3">{row.allApproved ? <span className="text-sm font-black text-slate-400">Keine Aktion</span> : <Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button>}</td>
               </tr>
@@ -3315,19 +3531,38 @@ function Times(p: any) {
 
   const payrollRows = (p.employees || [])
     .map((employee: Row) => {
-      const employeeRows = approvedSessionRows.filter((entry: Row) => String(entry.employee_name || "") === String(employee.name || ""));
-      const totalMinutes = totalPayableMinutes(employeeRows);
+      const employeeName = String(employee.name || "");
+      const employeeRows = approvedSessionRows.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
+      const approvedMinutes = totalPayableMinutes(employeeRows);
+      const planned = plannedMinutesForEmployeeMonth(p.tasks || [], employeeName, selectedMonth);
+      const worked = workedMinutesForEmployeeMonth(p.rows || [], employeeName, selectedMonth);
+      const vacationDays = absenceDayCountForMonth(p.absences || [], employeeName, isVacationAbsence, selectedMonth);
+      const sickDays = absenceDayCountForMonth(p.absences || [], employeeName, isSickAbsence, selectedMonth);
+      const paidFreeDays = absenceDayCountForMonth(p.absences || [], employeeName, isPaidFreeAbsence, selectedMonth);
+      const unpaidDays = absenceDayCountForMonth(p.absences || [], employeeName, isUnpaidAbsence, selectedMonth);
+      const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], employeeName, selectedMonth, isPaidAbsence);
+      const totalMinutes = approvedMinutes + paidAbsenceMinutes;
+      const overtimeMinutes = Math.max(0, approvedMinutes - planned);
       const hourlyRate = Number(employee.hourly_rate || 0);
       return {
         employee_name: employee.name || "-",
         entries: employeeRows.length,
+        planned_minutes: planned,
+        worked_minutes: worked,
+        approved_minutes: approvedMinutes,
+        paid_absence_minutes: paidAbsenceMinutes,
         minutes: totalMinutes,
         hours: Number((totalMinutes / 60).toFixed(2)),
+        overtime_minutes: overtimeMinutes,
+        vacation_days: vacationDays,
+        sick_days: sickDays,
+        paid_free_days: paidFreeDays,
+        unpaid_days: unpaidDays,
         hourly_rate: hourlyRate,
         amount: Number(((totalMinutes / 60) * hourlyRate).toFixed(2)),
       };
     })
-    .filter((row: Row) => row.minutes > 0);
+    .filter((row: Row) => row.minutes > 0 || row.planned_minutes > 0 || row.unpaid_days > 0);
 
   const totalApprovedMinutes = payrollRows.reduce((sum: number, row: Row) => sum + Number(row.minutes || 0), 0);
   const totalAmount = payrollRows.reduce((sum: number, row: Row) => sum + Number(row.amount || 0), 0);
@@ -3336,11 +3571,19 @@ function Times(p: any) {
     const rows = payrollRows.map((row: Row) => ({
       Monat: selectedMonth,
       Mitarbeiter: row.employee_name,
-      Eintraege: row.entries,
-      Minuten: row.minutes,
-      Stunden: row.hours,
+      Soll_Minuten: row.planned_minutes,
+      Ist_Minuten: row.worked_minutes,
+      Freigegebene_Arbeitsminuten: row.approved_minutes,
+      Bezahlte_Abwesenheit_Minuten: row.paid_absence_minutes,
+      Lohn_Minuten: row.minutes,
+      Lohn_Stunden: row.hours,
+      Überstunden_Minuten: row.overtime_minutes,
+      Urlaub_Tage: row.vacation_days,
+      Krank_Tage: row.sick_days,
+      Bezahlt_frei_Tage: row.paid_free_days,
+      Unbezahlt_frei_Tage: row.unpaid_days,
       Stundenlohn: row.hourly_rate,
-      Betrag: row.amount,
+      Lohnsumme: row.amount,
     }));
     downloadCsv(`lohnexport-${selectedMonth}.csv`, rows.length ? rows : [{ Monat: selectedMonth, Hinweis: "Keine freigegebenen Zeiten vorhanden" }]);
   }
@@ -3466,7 +3709,7 @@ function Times(p: any) {
           <div className="grid gap-3 md:grid-cols-4">
             <Metric title="Freigegebene Zeiten" value={approvedRows.length} hint="Einträge im Monat" />
             <Metric title="Offene Zeiten" value={openRows.length} hint="noch zu prüfen" />
-            <Metric title="Freigegebene Stunden" value={`${(totalApprovedMinutes / 60).toFixed(2)} h`} hint="für Lohnexport" />
+            <Metric title="Lohnstunden" value={`${(totalApprovedMinutes / 60).toFixed(2)} h`} hint="inkl. bezahlter Abwesenheit" />
             <Metric title="Lohnsumme" value={euro(totalAmount)} hint="nach Stundenlohn" />
           </div>
         </div>
@@ -3474,11 +3717,21 @@ function Times(p: any) {
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-              <tr><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Einträge</th><th className="px-4 py-3">Stunden</th><th className="px-4 py-3">Stundenlohn</th><th className="px-4 py-3">Betrag</th></tr>
+              <tr><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Soll</th><th className="px-4 py-3">Ist</th><th className="px-4 py-3">Freigegeben</th><th className="px-4 py-3">Abwesenheit bezahlt</th><th className="px-4 py-3">Lohnstunden</th><th className="px-4 py-3">Überstunden</th><th className="px-4 py-3">Stundenlohn</th><th className="px-4 py-3">Betrag</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {payrollRows.length === 0 ? <tr><td colSpan={5}><Empty text="Für diesen Monat gibt es noch keine freigegebenen Zeiten." /></td></tr> : payrollRows.map((row: Row) => (
-                <tr key={row.employee_name}><td className="px-4 py-3 font-black">{row.employee_name}</td><td className="px-4 py-3">{row.entries}</td><td className="px-4 py-3">{row.hours}</td><td className="px-4 py-3">{euro(row.hourly_rate)}</td><td className="px-4 py-3 font-black">{euro(row.amount)}</td></tr>
+              {payrollRows.length === 0 ? <tr><td colSpan={9}><Empty text="Für diesen Monat gibt es noch keine freigegebenen Zeiten." /></td></tr> : payrollRows.map((row: Row) => (
+                <tr key={row.employee_name}>
+                  <td className="px-4 py-3 font-black">{row.employee_name}</td>
+                  <td className="px-4 py-3">{prettyHours(row.planned_minutes)} Std.</td>
+                  <td className="px-4 py-3">{prettyHours(row.worked_minutes)} Std.</td>
+                  <td className="px-4 py-3 font-bold">{prettyHours(row.approved_minutes)} Std.</td>
+                  <td className="px-4 py-3">{prettyHours(row.paid_absence_minutes)} Std.</td>
+                  <td className="px-4 py-3 font-black text-emerald-700">{prettyHours(row.minutes)} Std.</td>
+                  <td className="px-4 py-3">{prettyHours(row.overtime_minutes)} Std.</td>
+                  <td className="px-4 py-3">{euro(row.hourly_rate)}</td>
+                  <td className="px-4 py-3 font-black">{euro(row.amount)}</td>
+                </tr>
               ))}
             </tbody>
           </table>
