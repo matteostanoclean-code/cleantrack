@@ -10,6 +10,7 @@ const allowedTables = new Set([
   "absence_requests",
   "material_products",
   "material_reports",
+  "quality_reports",
   "admin_notifications",
   "equipment_items",
   "key_items",
@@ -123,6 +124,7 @@ const objectLeaderReadableTables = new Set([
   "absence_requests",
   "material_products",
   "material_reports",
+  "quality_reports",
   "admin_notifications",
   "customer_contacts",
   "chat_messages",
@@ -135,6 +137,7 @@ const objectLeaderWritableTables = new Set([
   "absence_requests",
   "material_products",
   "material_reports",
+  "quality_reports",
   "admin_notifications",
   "chat_messages",
 ]);
@@ -221,6 +224,13 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     if (isEmpty(cleaned.status)) cleaned.status = "open";
   }
 
+  if (table === "quality_reports") {
+    if (isEmpty(cleaned.status)) cleaned.status = "open";
+    if (isEmpty(cleaned.checked_items)) cleaned.checked_items = [];
+    cleaned.total_items = numericValue(cleaned.total_items, Array.isArray(cleaned.checked_items) ? cleaned.checked_items.length : 0);
+    cleaned.passed_items = numericValue(cleaned.passed_items, Array.isArray(cleaned.checked_items) ? cleaned.checked_items.length : 0);
+  }
+
   if (table === "customer_contacts" && !("active" in cleaned)) {
     cleaned.active = true;
   }
@@ -269,6 +279,9 @@ function fallbackTaskRow(row: Record<string, unknown>) {
     work_site_id: isEmpty(row.work_site_id) ? null : row.work_site_id,
     priority: isEmpty(row.priority) ? "Normal" : row.priority,
     notes: isEmpty(row.notes) ? null : row.notes,
+    quality_required: row.quality_required === true,
+    quality_photo_required: row.quality_photo_required === true,
+    quality_checklist: Array.isArray(row.quality_checklist) ? row.quality_checklist : [],
     done: row.done === true,
     recurrence_group_id: isEmpty(row.recurrence_group_id) ? null : row.recurrence_group_id,
   };

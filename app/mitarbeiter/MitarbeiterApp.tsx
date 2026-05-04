@@ -59,6 +59,9 @@ type Task = {
   due_date?: string | null;
   status?: string | null;
   notes?: string | null;
+  quality_required?: boolean | null;
+  quality_photo_required?: boolean | null;
+  quality_checklist?: string[] | null;
   customer_name?: string | null;
   item_type?: string | null;
   task_type?: string | null;
@@ -162,6 +165,19 @@ function toMinutes(time: string | null | undefined) {
   if (!time) return 0;
   const [h, m] = time.slice(0, 5).split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
+}
+
+function taskChecklist(task?: Task | null) {
+  return Array.isArray(task?.quality_checklist) ? task.quality_checklist.map(String).filter(Boolean) : [];
+}
+
+function readImageAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Foto konnte nicht gelesen werden."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function isNowInsideWindow(start: string | null | undefined, end: string | null | undefined) {
@@ -1660,6 +1676,88 @@ function ScheduleScreen({
     return workSites.find((site) => site.id === task.work_site_id || site.name === task.site) || null;
   }
 
+  const [qualityChecked, setQualityChecked] = useState<string[]>([]);
+  const [qualityNotes, setQualityNotes] = useState("");
+  const [qualityPhotoBase64, setQualityPhotoBase64] = useState("");
+  const [qualityPhotoName, setQualityPhotoName] = useState("");
+  const [qualitySaving, setQualitySaving] = useState(false);
+  const [qualityMessage, setQualityMessage] = useState("");
+
+  useEffect(() => {
+    setQualityChecked([]);
+    setQualityNotes("");
+    setQualityPhotoBase64("");
+    setQualityPhotoName("");
+    setQualityMessage("");
+  }, [selectedAssignment?.id]);
+
+  function toggleQualityItem(item: string) {
+    setQualityChecked((old) => old.includes(item) ? old.filter((value) => value !== item) : [...old, item]);
+  }
+
+  async function selectQualityPhoto(file?: File | null) {
+    if (!file) return;
+    try {
+      const dataUrl = await readImageAsDataUrl(file);
+      setQualityPhotoBase64(dataUrl);
+      setQualityPhotoName(file.name || "Foto");
+    } catch (error) {
+      setQualityMessage(error instanceof Error ? error.message : "Foto konnte nicht geladen werden.");
+    }
+  }
+
+  async function submitQualityReport(task: Task) {
+    const checklist = taskChecklist(task);
+    const photoRequired = Boolean(task.quality_photo_required);
+
+    setQualityMessage("");
+
+    if (checklist.length > 0 && qualityChecked.length === 0) {
+      setQualityMessage("Bitte mindestens einen Checklistenpunkt abhaken.");
+      return;
+    }
+
+    if (photoRequired && !qualityPhotoBase64) {
+      setQualityMessage("Für diesen Einsatz ist ein Foto erforderlich.");
+      return;
+    }
+
+    setQualitySaving(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+      const response = await fetch("/api/quality/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          task_id: task.id,
+          site: task.site,
+          work_site_id: task.work_site_id,
+          checked_items: qualityChecked,
+          total_items: checklist.length,
+          notes: qualityNotes,
+          photo_base64: qualityPhotoBase64,
+          photo_name: qualityPhotoName,
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Qualitätsnachweis konnte nicht gespeichert werden.");
+
+      setQualityMessage(json.message || "Qualitätsnachweis wurde gespeichert.");
+      setQualityChecked([]);
+      setQualityNotes("");
+      setQualityPhotoBase64("");
+      setQualityPhotoName("");
+    } catch (error) {
+      setQualityMessage(error instanceof Error ? error.message : "Qualitätsnachweis konnte nicht gespeichert werden.");
+    } finally {
+      setQualitySaving(false);
+    }
+  }
+
   if (selectedAssignment) {
     const site = getSite(selectedAssignment);
     const gpsReady = Boolean(site?.latitude && site?.longitude);
@@ -1690,6 +1788,42 @@ function ScheduleScreen({
             <p className="text-xs font-black uppercase tracking-wide text-slate-400">Hinweise / Leistung</p>
             <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-slate-700">{selectedAssignment.notes || "Keine zusätzlichen Hinweise hinterlegt."}</p>
           </div>
+
+          {(selectedAssignment.quality_required || selectedAssignment.quality_photo_required || taskChecklist(selectedAssignment).length > 0) && (
+            <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-black text-indigo-950">Qualitätsnachweis direkt im Einsatz</p>
+                  <p className="mt-1 text-sm font-bold text-indigo-700">Ich hake die Punkte ab und kann direkt ein Foto aufnehmen.</p>
+                </div>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-indigo-700">{qualityChecked.length}/{taskChecklist(selectedAssignment).length || 1}</span>
+              </div>
+
+              {taskChecklist(selectedAssignment).length > 0 && (
+                <div className="mt-4 space-y-3">
+                  {taskChecklist(selectedAssignment).map((item) => (
+                    <button key={item} type="button" onClick={() => toggleQualityItem(item)} className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left font-bold ${qualityChecked.includes(item) ? "border-indigo-200 bg-white text-indigo-800" : "border-white/80 bg-white/70 text-slate-600"}`}>
+                      <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-black ${qualityChecked.includes(item) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-300"}`}>{qualityChecked.includes(item) ? "✓" : ""}</span>
+                      <span>{item}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <textarea className="mt-4 min-h-[90px] w-full rounded-2xl bg-white px-4 py-4 text-sm font-semibold outline-none" value={qualityNotes} onChange={(event) => setQualityNotes(event.target.value)} placeholder="Notiz, Besonderheit oder Reklamation" />
+
+              <label className="mt-3 flex w-full cursor-pointer items-center justify-center rounded-2xl border border-dashed border-indigo-200 bg-white px-4 py-4 text-sm font-black text-indigo-700">
+                Foto aufnehmen / hochladen
+                <input className="hidden" type="file" accept="image/*" capture="environment" onChange={(event) => selectQualityPhoto(event.target.files?.[0])} />
+              </label>
+              {qualityPhotoName && <p className="mt-2 rounded-2xl bg-white px-4 py-3 text-xs font-bold text-slate-500">Foto ausgewählt: {qualityPhotoName}</p>}
+
+              <button type="button" disabled={qualitySaving} onClick={() => submitQualityReport(selectedAssignment)} className="mt-4 w-full rounded-2xl bg-indigo-600 py-4 font-black text-white disabled:opacity-60">
+                {qualitySaving ? "Wird gespeichert..." : "Qualitätsnachweis speichern"}
+              </button>
+              {qualityMessage && <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-bold text-slate-600">{qualityMessage}</p>}
+            </div>
+          )}
 
           <div className="mt-5 grid gap-3">
             <button type="button" onClick={() => startAssignment(selectedAssignment)} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white">Zum Einstempeln</button>

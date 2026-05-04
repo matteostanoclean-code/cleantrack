@@ -55,7 +55,7 @@ const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_num
 const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
 const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "150", monthly_hour_quota: "0", latitude: "", longitude: "", notes: "", active: true };
-const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false, paid_minutes: "120" };
+const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false, paid_minutes: "120", quality_required: false, quality_photo_required: false, quality_checklist_text: "" };
 
 function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
   return {
@@ -72,6 +72,9 @@ function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
     priority: mode === "task" ? "Mittel" : "Normal",
     task_category: "Reklamation",
     status: "open",
+    quality_required: false,
+    quality_photo_required: false,
+    quality_checklist_text: "",
   };
 }
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
@@ -433,6 +436,18 @@ function formatHours(value: unknown) {
   const h = Math.floor(total / 60);
   const m = Math.round(total % 60);
   return `${h}:${String(m).padStart(2, "0")}h`;
+}
+
+function checklistLines(value: unknown) {
+  if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function checklistText(value: unknown) {
+  return Array.isArray(value) ? value.map(String).join("\n") : String(value || "");
 }
 
 function taskPlanLabel(task: Row) {
@@ -1275,6 +1290,9 @@ export default function AdminPage() {
       task_category: String(row.task_category || row.category || "Reklamation"),
       status: String(row.status || (row.done ? "done" : "open")),
       notes: String(row.notes || ""),
+      quality_required: Boolean(row.quality_required),
+      quality_photo_required: Boolean(row.quality_photo_required),
+      quality_checklist_text: checklistText(row.quality_checklist),
       done: Boolean(row.done),
       item_type: editMode,
       task_type: editMode,
@@ -1373,6 +1391,9 @@ const basePayload = {
       task_category: "Einsatz",
       status: "open",
       notes: taskForm.notes || null,
+      quality_required: Boolean(taskForm.quality_required),
+      quality_photo_required: Boolean(taskForm.quality_photo_required),
+      quality_checklist: checklistLines(taskForm.quality_checklist_text),
       done: false,
       travel_minutes: Number(taskForm.travel_minutes || 0),
       break_minutes: Number(taskForm.break_minutes || 0),
@@ -3557,6 +3578,30 @@ function TaskModal(p: any) {
             </Field>
           </div>
         )}
+      </div>
+
+      <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="font-black text-indigo-950">Qualitätsnachweis im Einsatz</p>
+            <p className="mt-1 text-sm font-semibold text-indigo-700">Optional: Punkte hinterlegen, die der Mitarbeiter direkt im Einsatz abhakt.</p>
+          </div>
+          <label className="flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-black text-indigo-800">
+            <input type="checkbox" checked={Boolean(p.form.quality_required)} onChange={(e) => p.setForm({ ...p.form, quality_required: e.target.checked })} />
+            Nachweis nötig
+          </label>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_220px]">
+          <Field label="Checklistenpunkte">
+            <Textarea value={p.form.quality_checklist_text || ""} onChange={(e) => p.setForm({ ...p.form, quality_checklist_text: e.target.value, quality_required: true })} placeholder={"z. B.\\nEingangsbereich kontrolliert\\nTreppenhaus gereinigt\\nGeländer gereinigt"} />
+          </Field>
+          <Field label="Foto">
+            <label className="field flex items-center gap-3 font-bold">
+              <input type="checkbox" checked={Boolean(p.form.quality_photo_required)} onChange={(e) => p.setForm({ ...p.form, quality_photo_required: e.target.checked, quality_required: e.target.checked ? true : p.form.quality_required })} />
+              Foto verlangen
+            </label>
+          </Field>
+        </div>
       </div>
 
       <Field label="GPS-Status"><div className={`field font-black ${gpsReady ? "text-emerald-700" : "text-amber-700"}`}>{p.form.work_site_id ? (gpsReady ? "GPS-Daten vorhanden" : "GPS fehlt beim Objekt") : "Objekt auswählen"}</div></Field>
