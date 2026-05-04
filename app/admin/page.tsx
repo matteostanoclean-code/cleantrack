@@ -798,6 +798,7 @@ export default function AdminPage() {
   const [absences, setAbsences] = useState<Row[]>([]);
   const [materials, setMaterials] = useState<Row[]>([]);
   const [materialReports, setMaterialReports] = useState<Row[]>([]);
+  const [qualityReports, setQualityReports] = useState<Row[]>([]);
   const [adminNotifications, setAdminNotifications] = useState<Row[]>([]);
   const [devices, setDevices] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
@@ -899,7 +900,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
       selectTable("customers", "created_at", false, undefined, true),
       selectTable("work_sites", "name", true),
@@ -908,6 +909,7 @@ export default function AdminPage() {
       selectTable("absence_requests", "start_date", false),
       selectTable("material_products", "name", true),
       selectTable("material_reports", "created_at", false, 300, true),
+      selectTable("quality_reports", "created_at", false, 300, true),
       selectTable("admin_notifications", "created_at", false, 300, true),
       selectTable("equipment_items", "name", true),
       selectTable("key_items", "key_name", true),
@@ -921,6 +923,7 @@ export default function AdminPage() {
     setAbsences(absenceRows);
     setMaterials(materialRows);
     setMaterialReports(materialReportRows);
+    setQualityReports(qualityReportRows);
     setAdminNotifications(notificationRows);
     setDevices(deviceRows);
     setKeys(keyRows);
@@ -958,13 +961,14 @@ export default function AdminPage() {
       actionTasks: filterRows(actionTaskRows, q),
       materials: filterRows(materials, q),
       materialReports: filterRows(materialReports, q),
+      qualityReports: filterRows(qualityReports, q),
       adminNotifications: filterRows(adminNotifications, q),
       devices: filterRows(devices, q),
       keys: filterRows(keys, q),
       entries: filterRows(entries, q),
       absences: filterRows(absences, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences]);
+  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports]);
 
   async function sendPushToEmployee(employeeName: string, title: string, messageText: string, url = "/mitarbeiter") {
     const cleanName = String(employeeName || "").trim();
@@ -2141,13 +2145,13 @@ const basePayload = {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
+          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
-          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} absences={filtered.absences} entries={filtered.entries} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
+          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -2306,7 +2310,7 @@ function Dashboard(p: any) {
   return (
     <div>
       <PageHeader icon="●" title="Übersicht" sub="Heute startklar machen" />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <Metric title="Aktive Mitarbeiter" value={p.employees.length} hint="mit Login verbunden" />
         <Metric title="Offene Aufgaben" value={p.openTasks ?? p.tasks.filter((x: Row) => !x.done).length} hint="noch zu erledigen" />
         <Metric title="Arbeitszeit" value={`${prettyHours(p.workedMinutes)} Std.`} hint="erfasster Zeitraum" />
@@ -2346,6 +2350,54 @@ function Quick({ title, text, onClick }: { title: string; text: string; onClick:
 
 function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="flex items-center justify-between border-b border-slate-100 py-3 last:border-b-0"><span className="text-slate-500">{label}</span><span className="font-black text-slate-950">{value}</span></div>;
+}
+
+function QualityReportsPanel({ reports = [], tasks = [] }: { reports?: Row[]; tasks?: Row[] }) {
+  const recentReports = [...(reports || [])]
+    .sort((a: Row, b: Row) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+    .slice(0, 8);
+
+  function taskTitle(report: Row) {
+    const task = (tasks || []).find((item: Row) => item.id === report.task_id);
+    return task?.title || report.title || "Qualitätsnachweis";
+  }
+
+  return (
+    <Card className="mt-5 p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-black text-slate-950">Qualitätsnachweise</h3>
+          <p className="text-sm font-bold text-slate-500">Ich sehe hier Nachweise, die Mitarbeiter direkt im Einsatz eingereicht haben.</p>
+        </div>
+        <Status color="blue">{(reports || []).length} Nachweise</Status>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+            <tr><th className="px-4 py-3">Datum</th><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Einsatz / Objekt</th><th className="px-4 py-3">Checkliste</th><th className="px-4 py-3">Notiz</th><th className="px-4 py-3">Foto</th><th className="px-4 py-3">Status</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {recentReports.length === 0 ? <tr><td colSpan={7}><Empty text="Noch keine Qualitätsnachweise eingereicht." /></td></tr> : recentReports.map((report: Row) => {
+              const checked = Array.isArray(report.checked_items) ? report.checked_items : [];
+              const total = Number(report.total_items || checked.length || 0);
+              const passed = Number(report.passed_items || checked.length || 0);
+              return (
+                <tr key={report.id}>
+                  <td className="px-4 py-3">{dateText(report.task_date || report.created_at)}</td>
+                  <td className="px-4 py-3 font-black">{report.employee_name || "-"}</td>
+                  <td className="px-4 py-3"><p className="font-bold">{taskTitle(report)}</p><p className="text-xs font-semibold text-slate-400">{report.site || "-"}</p></td>
+                  <td className="px-4 py-3"><p className="font-black">{passed}/{total}</p><p className="max-w-[220px] truncate text-xs text-slate-400">{checked.join(", ") || "-"}</p></td>
+                  <td className="max-w-[220px] truncate px-4 py-3">{report.notes || "-"}</td>
+                  <td className="px-4 py-3">{report.photo_url ? <a href={report.photo_url} target="_blank" rel="noreferrer" className="font-black text-blue-600">Foto öffnen</a> : "-"}</td>
+                  <td className="px-4 py-3"><Status color={report.status === "complete" ? "green" : "yellow"}>{report.status === "complete" ? "vollständig" : "offen"}</Status></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
 }
 
 function Planning(p: any) {
@@ -2621,12 +2673,14 @@ function Planning(p: any) {
       )}
 
       <div className="mt-5">
-        <Table headers={["Datum", "Zeitfenster", "Kunde", "Objekt", "Mitarbeiter", "Planzeit", "Hinweis", "Aktion"]}>
-          {p.tasks.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine Einsätze geplant" /></td></tr> : p.tasks.map((task: Row) => {
+        <Table headers={["Datum", "Zeitfenster", "Kunde", "Objekt", "Mitarbeiter", "Planzeit", "Nachweis", "Hinweis", "Aktion"]}>
+          {p.tasks.length === 0 ? <tr><td colSpan={9}><Empty text="Noch keine Einsätze geplant" /></td></tr> : p.tasks.map((task: Row) => {
             const site = taskSite(task);
             const gpsOk = Boolean(site?.latitude && site?.longitude);
             const absence = employeeAbsenceForDate(p.absences || [], task.employee_name, dateOnly(task.task_date));
             const blocked = Boolean(absence && absenceIsBlocking(absence));
+            const report = (p.qualityReports || []).find((item: Row) => item.task_id === task.id);
+            const needsQuality = Boolean(task.quality_required || task.quality_photo_required || (Array.isArray(task.quality_checklist) && task.quality_checklist.length > 0));
             return (
               <tr key={task.id} className={blocked ? "bg-red-50" : ""}>
                 <td className="px-4 py-3">{dateText(task.task_date)}</td>
@@ -2635,6 +2689,7 @@ function Planning(p: any) {
                 <td className="px-4 py-3 font-black">{task.site || site?.name || "-"}</td>
                 <td className="px-4 py-3">{task.employee_name || "Nicht zugewiesen"}</td>
                 <td className="px-4 py-3 font-bold">{taskDuration(task) ? `${taskDuration(task)} Min.` : "fehlt"}</td>
+                <td className="px-4 py-3">{report ? <Status color="green">eingereicht</Status> : needsQuality ? <Status color="yellow">offen</Status> : <span className="text-xs font-bold text-slate-400">nicht nötig</span>}</td>
                 <td className="px-4 py-3">{blocked ? <Status color="red">Abwesenheit</Status> : <Status color={gpsOk ? "green" : "yellow"}>{gpsOk ? "GPS bereit" : "GPS fehlt"}</Status>}</td>
                 <td className="px-4 py-3"><Actions edit={() => p.editTask(task)} del={() => p.deleteTask(task)} /></td>
               </tr>
@@ -2642,6 +2697,8 @@ function Planning(p: any) {
           })}
         </Table>
       </div>
+
+      <QualityReportsPanel reports={p.qualityReports || []} tasks={p.tasks || []} />
     </div>
   );
 }
@@ -2712,14 +2769,16 @@ function Meldungen(p: any) {
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
   const otherNotifications = openNotifications.filter((item: Row) => item.notification_type !== "overtime_request");
   const openReports = (p.materialReports || []).filter((item: Row) => !item.status || item.status === "open");
+  const openQualityReports = (p.qualityReports || []).filter((item: Row) => !item.status || item.status === "open" || item.status === "complete");
   const openAbsences = (p.absences || []).filter((item: Row) => !item.status || item.status === "open");
   const autoClockOuts = (p.entries || []).filter((item: Row) => item.auto_clock_out === true || String(item.reason || "").toLowerCase().includes("gps"));
-  const total = overtimeRequests.length + otherNotifications.length + openReports.length + openAbsences.length + autoClockOuts.length;
+  const total = overtimeRequests.length + otherNotifications.length + openReports.length + openQualityReports.length + openAbsences.length + autoClockOuts.length;
 
   return (
     <div>
       <PageHeader icon="🔔" title="Meldezentrale" sub="Hier sammle ich alles, worauf ich reagieren muss.">
         <Button onClick={() => p.setTab("material")}>Material öffnen</Button>
+        <Button onClick={() => p.setTab("planung")}>Nachweise öffnen</Button>
         <Button onClick={() => p.setTab("zeiten")}>Zeiten öffnen</Button>
         <Button onClick={() => p.setTab("abwesenheiten")}>Abwesenheiten öffnen</Button>
       </PageHeader>
@@ -2727,6 +2786,7 @@ function Meldungen(p: any) {
       <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Metric title="Alles offen" value={total} hint="Meldungen gesamt" />
         <Metric title="Material" value={openReports.length} hint="leer / fehlt" />
+        <Metric title="Qualität" value={openQualityReports.length} hint="Nachweise" />
         <Metric title="Überstunden" value={overtimeRequests.length} hint="Anfragen" />
         <Metric title="Abwesenheit" value={openAbsences.length} hint="Anträge" />
         <Metric title="GPS / Auto-Stopp" value={autoClockOuts.length} hint="zu prüfen" />
@@ -2750,6 +2810,29 @@ function Meldungen(p: any) {
                     {r.notes && <p className="mt-2 text-sm text-orange-800">{r.notes}</p>}
                   </div>
                   <Button primary onClick={() => p.resolveReport(r)}>Erledigt</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-black text-slate-950">Qualitätsnachweise</h3><p className="text-sm text-slate-500">Nachweise direkt aus dem Einsatz.</p></div>
+            <Status color={openQualityReports.length ? "blue" : "green"}>{openQualityReports.length} neu</Status>
+          </div>
+          <div className="space-y-3">
+            {openQualityReports.length === 0 && <Empty text="Keine neuen Qualitätsnachweise." />}
+            {openQualityReports.slice(0, 5).map((r: Row) => (
+              <div key={r.id} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-black text-indigo-950">{r.site || "Objekt"}</p>
+                    <p className="text-sm font-bold text-indigo-700">{r.employee_name || "Mitarbeiter"} · {messageDate(r.created_at)}</p>
+                    <p className="text-xs font-bold text-indigo-600">Checkliste: {Number(r.passed_items || 0)}/{Number(r.total_items || 0)}</p>
+                    {r.notes && <p className="mt-2 text-sm text-indigo-800">{r.notes}</p>}
+                  </div>
+                  {r.photo_url ? <a className="rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-600" href={r.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a> : <Status color="gray">ohne Foto</Status>}
                 </div>
               </div>
             ))}
