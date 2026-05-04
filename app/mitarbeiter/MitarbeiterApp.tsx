@@ -605,11 +605,14 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
   async function loadTasks(employeeName: string) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
     const { data } = await supabase
       .from("tasks")
       .select("*")
       .eq("employee_name", employeeName)
-      .gte("task_date", todayISO())
+      .gte("task_date", monthStart)
       .order("task_date", { ascending: true });
     setTasks((data || []) as Task[]);
   }
@@ -648,19 +651,36 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
   async function loadMonthEntries(employeeName: string) {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt.");
 
-    const { data } = await supabase
-      .from("time_entries")
-      .select("*")
-      .eq("employee_name", employeeName)
-      .gte("created_at", start)
-      .lt("created_at", end)
-      .order("created_at", { ascending: false });
+      const month = todayISO().slice(0, 7);
+      const response = await fetch(`/api/time/month?month=${month}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    setMonthEntries((data || []) as TimeEntry[]);
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Monatszeiten konnten nicht geladen werden.");
+
+      setMonthEntries((json.entries || []) as TimeEntry[]);
+    } catch {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+
+      const { data } = await supabase
+        .from("time_entries")
+        .select("*")
+        .eq("employee_name", employeeName)
+        .gte("created_at", start)
+        .lt("created_at", end)
+        .order("created_at", { ascending: false });
+
+      setMonthEntries((data || []) as TimeEntry[]);
+    }
   }
 
   async function loadNotifications(employeeName: string) {
@@ -1477,7 +1497,13 @@ function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]
   const progress = planned > 0 ? Math.min(100, Math.round((approvedMinutes / planned) * 100)) : 0;
   const monthAbsences = props.absenceRequests.filter((item) => String(item.start_date || "").slice(0, 7) === monthKey || String(item.end_date || "").slice(0, 7) === monthKey);
   const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
-  const missingTasks = monthTasks.filter((task) => String(task.task_date || "") <= todayISO() && !recordedTaskIds.has(task.id));
+  const recordedTaskKeys = new Set(props.entries.map((entry) => `${entryDate(entry)}|${String(entry.site || entry.work_site_name || "")}`).filter(Boolean));
+  const missingTasks = monthTasks.filter((task) => {
+    if (String(task.task_date || "") > todayISO()) return false;
+    if (recordedTaskIds.has(task.id)) return false;
+    const key = `${String(task.task_date || "")}|${String(task.site || "")}`;
+    return !recordedTaskKeys.has(key);
+  });
   const checking = props.entries.filter((entry) => !isApprovedTimeEntry(entry) && entryMinutes(entry) > 0);
 
   const rows: Array<{ key: string; date: string; title: string; subtitle: string; range: string; minutes: number; status: string; color: string; dot: string; }> = [];

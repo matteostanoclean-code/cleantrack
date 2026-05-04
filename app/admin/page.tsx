@@ -827,6 +827,31 @@ export default function AdminPage() {
   }, [allowed]);
 
   useEffect(() => {
+    if (!allowed) return;
+
+    const refresh = () => {
+      loadAll();
+    };
+
+    const timer = window.setInterval(refresh, 15000);
+
+    const channel = supabase
+      .channel("admin-live-refresh")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "time_entries" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "absence_requests" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "admin_notifications" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "material_reports" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "quality_reports" }, refresh)
+      .subscribe();
+
+    return () => {
+      window.clearInterval(timer);
+      supabase.removeChannel(channel);
+    };
+  }, [allowed]);
+
+  useEffect(() => {
     // Die Planzeit ist bewusst unabhängig vom Von-Bis-Zeitfenster.
     // Von/Bis ist nur das Zeitfenster, in dem der Mitarbeiter einstempeln darf.
   }, [taskForm.start_time, taskForm.end_time, taskForm.id]);
@@ -3133,7 +3158,7 @@ function DailyClosing(p: any) {
                 <td className="px-4 py-3 font-bold"><p>{prettyHours(row.actual)} Std.</p><p className="text-xs font-bold text-slate-400">Lohn: {prettyHours(row.wage)} Std.</p></td>
                 <td className={`px-4 py-3 font-black ${row.diff < 0 ? "text-red-600" : row.diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>{row.diff === 0 ? "0:00" : `${row.diff > 0 ? "+" : "-"}${prettyHours(Math.abs(row.diff))}`} Std.</td>
                 <td className="px-4 py-3"><Status color={row.color}>{row.status}</Status></td>
-                <td className="px-4 py-3">{row.allApproved ? <span className="rounded-xl bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-700">Freigegeben</span> : <Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button>}</td>
+                <td className="px-4 py-3">{row.allApproved ? <span className="text-sm font-black text-slate-400">Keine Aktion</span> : <Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button>}</td>
               </tr>
             ))}
           </tbody>
@@ -3268,9 +3293,9 @@ function Times(p: any) {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button primary onClick={() => p.approve(row, true)}>Freigeben</Button>
+                {row.approved ? <span className="rounded-xl bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-700">Bereits freigegeben</span> : <Button primary onClick={() => p.approve(row, true)}>Freigeben</Button>}
                 <Button onClick={() => p.openCorrection(row)}>Korrigieren</Button>
-                <Button danger onClick={() => p.approve(row, false)}>Ablehnen</Button>
+                {!row.approved && <Button danger onClick={() => p.approve(row, false)}>Ablehnen</Button>}
               </div>
             </div>
           ))}
