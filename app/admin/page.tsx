@@ -13,6 +13,7 @@ type Tab =
   | "aufgaben"
   | "meldungen"
   | "material"
+  | "qualitaet"
   | "geraete"
   | "schluessel"
   | "zeiten"
@@ -783,6 +784,7 @@ export default function AdminPage() {
   const [absences, setAbsences] = useState<Row[]>([]);
   const [materials, setMaterials] = useState<Row[]>([]);
   const [materialReports, setMaterialReports] = useState<Row[]>([]);
+  const [qualityReports, setQualityReports] = useState<Row[]>([]);
   const [adminNotifications, setAdminNotifications] = useState<Row[]>([]);
   const [devices, setDevices] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
@@ -859,7 +861,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
       selectTable("customers", "created_at", false, undefined, true),
       selectTable("work_sites", "name", true),
@@ -868,6 +870,7 @@ export default function AdminPage() {
       selectTable("absence_requests", "start_date", false),
       selectTable("material_products", "name", true),
       selectTable("material_reports", "created_at", false, 300, true),
+      selectTable("quality_reports", "created_at", false, 300, true),
       selectTable("admin_notifications", "created_at", false, 300, true),
       selectTable("equipment_items", "name", true),
       selectTable("key_items", "key_name", true),
@@ -881,6 +884,7 @@ export default function AdminPage() {
     setAbsences(absenceRows);
     setMaterials(materialRows);
     setMaterialReports(materialReportRows);
+    setQualityReports(qualityReportRows);
     setAdminNotifications(notificationRows);
     setDevices(deviceRows);
     setKeys(keyRows);
@@ -894,7 +898,7 @@ export default function AdminPage() {
   const isObjectLeaderRole = currentRole === "objektleiter" || currentRole === "object_lead" || currentRole === "objectleader";
   const allowedTabs = useMemo(() => {
     if (isAdminRole) return navItems.map((item) => item.id);
-    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "zeiten", "abwesenheiten", "chat"] as Tab[];
+    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "qualitaet", "zeiten", "abwesenheiten", "chat"] as Tab[];
     return [] as Tab[];
   }, [isAdminRole, isObjectLeaderRole]);
   const visibleNavItems = navItems.filter((item) => allowedTabs.includes(item.id));
@@ -918,13 +922,14 @@ export default function AdminPage() {
       actionTasks: filterRows(actionTaskRows, q),
       materials: filterRows(materials, q),
       materialReports: filterRows(materialReports, q),
+      qualityReports: filterRows(qualityReports, q),
       adminNotifications: filterRows(adminNotifications, q),
       devices: filterRows(devices, q),
       keys: filterRows(keys, q),
       entries: filterRows(entries, q),
       absences: filterRows(absences, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences]);
+  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports]);
 
   async function sendPushToEmployee(employeeName: string, title: string, messageText: string, url = "/mitarbeiter") {
     const cleanName = String(employeeName || "").trim();
@@ -2103,6 +2108,7 @@ const basePayload = {
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} absences={filtered.absences} entries={filtered.entries} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
+          {tab === "qualitaet" && <QualityReports rows={filtered.qualityReports} exportRows={() => downloadCsv("qualitaetsnachweise.csv", qualityReports)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
           {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} tasks={assignmentRows} absences={absences} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openCorrection={openTimeCorrection} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
@@ -2136,6 +2142,7 @@ const navItems: { id: Tab; icon: string; label: string }[] = [
   { id: "aufgaben", icon: "✓", label: "Aufgaben" },
   { id: "meldungen", icon: "🔔", label: "Meldungen" },
   { id: "material", icon: "📦", label: "Material" },
+  { id: "qualitaet", icon: "📸", label: "Qualität" },
   { id: "geraete", icon: "🔧", label: "Geräte" },
   { id: "schluessel", icon: "🔑", label: "Schlüssel" },
   { id: "zeiten", icon: "⏱", label: "Zeiten" },
@@ -3306,6 +3313,40 @@ function Times(p: any) {
 
       <ListPage icon="⏱" title="Zeitenfreigabe" sub="Zusammengefasste Arbeitstage/Einsätze prüfen und freigeben" rows={reviewRows} headers={["Datum", "Mitarbeiter", "Objekt", "Zeit", "Arbeitszeit", "Lohnzeit", "Grund", "Status", "Aktion"]} createLabel="Export" onCreate={p.exportRows}>
         {reviewRows.length === 0 ? <tr><td colSpan={9}><Empty text="Keine prüfbaren Zeiten vorhanden." /></td></tr> : reviewRows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3">{dateText(r.work_date || r.created_at)}</td><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.site || r.work_site || r.work_site_name || "-"}</td><td className="px-4 py-3 font-bold">{r.time_range || "-"}</td><td className="px-4 py-3">{prettyHours(r.worked_minutes)} Std.</td><td className="px-4 py-3 font-bold">{prettyHours(r.payroll_minutes)} Std.</td><td className="px-4 py-3">{r.reason || "Stempelzeit"}</td><td className="px-4 py-3"><Status color={r.approved ? "green" : r.is_rejected ? "red" : r.auto_clock_out ? "yellow" : "gray"}>{r.approved ? "freigegeben" : r.is_rejected ? "abgelehnt" : r.auto_clock_out ? "automatisch" : "offen"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.approve(r, true)}>Freigeben</Button><Button onClick={() => p.openCorrection(r)}>Korrigieren</Button><Button danger onClick={() => p.approve(r, false)}>Ablehnen</Button></div></td></tr>)}
+      </ListPage>
+    </div>
+  );
+}
+
+function QualityReports(p: any) {
+  const completed = (p.rows || []).filter((row: Row) => row.status === "complete").length;
+  const open = (p.rows || []).filter((row: Row) => row.status !== "complete").length;
+
+  return (
+    <div>
+      <PageHeader icon="📸" title="Qualitätsnachweise" sub="Checklisten, Notizen und Fotos aus der Mitarbeiter-App.">
+        <Button onClick={p.exportRows}>Exportieren</Button>
+      </PageHeader>
+      <div className="mb-5 grid gap-4 md:grid-cols-3">
+        <Metric title="Nachweise" value={(p.rows || []).length} hint="gesamt" />
+        <Metric title="Vollständig" value={completed} hint="Checkliste fertig" />
+        <Metric title="Offen" value={open} hint="unvollständig" />
+      </div>
+      <ListPage icon="📸" title="Qualitätsnachweise" sub="Pro Einsatz und Objekt" rows={p.rows || []} headers={["Datum", "Mitarbeiter", "Objekt", "Checkliste", "Notiz", "Foto", "Status"]}>
+        {(p.rows || []).length === 0 ? <tr><td colSpan={7}><Empty text="Noch keine Qualitätsnachweise vorhanden." /></td></tr> : (p.rows || []).map((row: Row) => {
+          const total = Number(row.total_items || 0);
+          const passed = Number(row.passed_items || 0);
+          const items = Array.isArray(row.checked_items) ? row.checked_items : [];
+          return <tr key={row.id}>
+            <td className="px-4 py-3">{dateText(row.task_date || row.created_at)}</td>
+            <td className="px-4 py-3 font-black">{row.employee_name || "-"}</td>
+            <td className="px-4 py-3">{row.site || row.work_site_name || "-"}</td>
+            <td className="px-4 py-3"><p className="font-black">{passed}/{total || items.length}</p><p className="text-xs text-slate-400">{items.slice(0, 3).join(", ")}{items.length > 3 ? " ..." : ""}</p></td>
+            <td className="px-4 py-3 max-w-xs truncate">{row.notes || "-"}</td>
+            <td className="px-4 py-3">{row.photo_url ? <a className="font-black text-blue-600" href={row.photo_url} target="_blank">Öffnen</a> : "-"}</td>
+            <td className="px-4 py-3"><Status color={row.status === "complete" ? "green" : "yellow"}>{row.status === "complete" ? "vollständig" : "offen"}</Status></td>
+          </tr>;
+        })}
       </ListPage>
     </div>
   );

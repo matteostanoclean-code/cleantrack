@@ -10,6 +10,7 @@ const allowedTables = new Set([
   "absence_requests",
   "material_products",
   "material_reports",
+  "quality_reports",
   "admin_notifications",
   "equipment_items",
   "key_items",
@@ -123,6 +124,7 @@ const objectLeaderReadableTables = new Set([
   "absence_requests",
   "material_products",
   "material_reports",
+  "quality_reports",
   "admin_notifications",
   "customer_contacts",
   "chat_messages",
@@ -135,6 +137,7 @@ const objectLeaderWritableTables = new Set([
   "absence_requests",
   "material_products",
   "material_reports",
+  "quality_reports",
   "admin_notifications",
   "chat_messages",
 ]);
@@ -219,6 +222,13 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
 
   if (table === "material_reports") {
     if (isEmpty(cleaned.status)) cleaned.status = "open";
+  }
+
+  if (table === "quality_reports") {
+    if (isEmpty(cleaned.status)) cleaned.status = "open";
+    if (isEmpty(cleaned.checked_items)) cleaned.checked_items = [];
+    if (isEmpty(cleaned.total_items)) cleaned.total_items = Array.isArray(cleaned.checked_items) ? cleaned.checked_items.length : 0;
+    if (isEmpty(cleaned.passed_items)) cleaned.passed_items = Array.isArray(cleaned.checked_items) ? cleaned.checked_items.length : 0;
   }
 
   if (table === "customer_contacts" && !("active" in cleaned)) {
