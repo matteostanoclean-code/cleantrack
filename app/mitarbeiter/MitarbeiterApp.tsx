@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { supabase } from "../../lib/supabase";
 
+type AdminMobileRow = Record<string, any>;
+
 type Status = "none" | "working" | "break";
 type Tab = "home" | "tasks" | "clock" | "timesheet" | "schedule" | "search" | "chat" | "profile" | "absence" | "material" | "admin";
 
@@ -27,6 +29,7 @@ type WorkSite = {
   id: string;
   name: string;
   address?: string | null;
+  customer_name?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   allowed_radius_m?: number | null;
@@ -39,6 +42,9 @@ type MaterialProduct = {
   unit?: string | null;
   work_site_id?: string | null;
   object_name?: string | null;
+  minimum_stock?: number | null;
+  current_stock?: number | null;
+  image_url?: string | null;
 };
 
 type Task = {
@@ -134,6 +140,14 @@ function formatDate(value: Date) {
     day: "2-digit",
     month: "short",
   });
+}
+
+function dateLabel(value: unknown) {
+  const raw = String(value || "");
+  if (!raw) return "-";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw.slice(0, 10);
+  return date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function formatClock(value: string | null) {
@@ -295,8 +309,18 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialProductId, setMaterialProductId] = useState("");
   const [materialQuantity, setMaterialQuantity] = useState("1");
   const [materialNotes, setMaterialNotes] = useState("");
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [materialCart, setMaterialCart] = useState<Record<string, number>>({});
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
+  const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material">("today");
+  const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; materialReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], materialReports: [], materials: [], sites: [] });
+  const [adminMaterialSiteId, setAdminMaterialSiteId] = useState("");
+  const [adminMaterialName, setAdminMaterialName] = useState("");
+  const [adminMaterialUnit, setAdminMaterialUnit] = useState("Stk.");
+  const [adminMaterialCategory, setAdminMaterialCategory] = useState("Artikel ohne Gruppe");
+  const [adminMobileMessage, setAdminMobileMessage] = useState("");
+  const [adminMobileSaving, setAdminMobileSaving] = useState(false);
   const [absenceType, setAbsenceType] = useState("Urlaub");
   const [absenceStartDate, setAbsenceStartDate] = useState(todayISO());
   const [absenceEndDate, setAbsenceEndDate] = useState(todayISO());
@@ -485,8 +509,12 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       .on("postgres_changes", { event: "*", schema: "public", table: "time_entries" }, () => {
         loadTodayEntries(name);
         loadMonthEntries(name);
+        if (role === "admin" || role === "objektleiter") loadMobileAdminData(true);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "absence_requests" }, () => loadAbsenceRequests(name))
+      .on("postgres_changes", { event: "*", schema: "public", table: "absence_requests" }, () => {
+        loadAbsenceRequests(name);
+        if (role === "admin" || role === "objektleiter") loadMobileAdminData(true);
+      })
       .subscribe();
 
     return () => {
@@ -617,6 +645,104 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     setPassword("");
   }
 
+  async function adminApi(body: Record<string, any>) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error("Admin-Sitzung fehlt. Bitte neu einloggen.");
+
+    const response = await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.error || "Admin-Aktion fehlgeschlagen.");
+    return json;
+  }
+
+  async function adminSelect(table: string, orderBy = "created_at", limit = 150) {
+    const json = await adminApi({ action: "select", table, orderBy, ascending: false, limit });
+    return (json.data || []) as AdminMobileRow[];
+  }
+
+  async function loadMobileAdminData(silent = true) {
+    if (role !== "admin" && role !== "objektleiter") return;
+    if (!silent) setAdminMobileMessage("Lade Admin-Daten...");
+    try {
+      const [employees, adminTasks, adminEntries, materialReports, adminMaterials, adminSites] = await Promise.all([
+        adminSelect("employee_profiles", "name", 200),
+        adminSelect("tasks", "task_date", 300),
+        adminSelect("time_entries", "created_at", 300),
+        adminSelect("material_reports", "created_at", 200),
+        adminSelect("material_products", "name", 300),
+        adminSelect("work_sites", "name", 300),
+      ]);
+      setAdminMobileData({ employees, tasks: adminTasks, entries: adminEntries, materialReports, materials: adminMaterials, sites: adminSites });
+      setAdminMobileMessage("");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Admin-Daten konnten nicht geladen werden.");
+    }
+  }
+
+  async function approveMobileTime(row: AdminMobileRow, approved: boolean) {
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({
+        action: "update",
+        table: "time_entries",
+        id: row.id,
+        payload: {
+          approved,
+          status: approved ? "approved" : "rejected",
+          approved_at: new Date().toISOString(),
+        },
+      });
+      await loadMobileAdminData(true);
+      setAdminMobileMessage(approved ? "Zeit freigegeben." : "Zeit abgelehnt.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Zeit konnte nicht geändert werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  async function createObjectMaterial() {
+    setAdminMobileMessage("");
+    if (!adminMaterialSiteId) {
+      setAdminMobileMessage("Bitte Objekt auswählen.");
+      return;
+    }
+    if (!adminMaterialName.trim()) {
+      setAdminMobileMessage("Bitte Materialname eintragen.");
+      return;
+    }
+
+    const site = adminMobileData.sites.find((item) => item.id === adminMaterialSiteId) || workSites.find((item) => item.id === adminMaterialSiteId);
+    setAdminMobileSaving(true);
+    try {
+      await adminApi({
+        action: "insert",
+        table: "material_products",
+        payload: {
+          name: adminMaterialName.trim(),
+          unit: adminMaterialUnit.trim() || "Stk.",
+          category: adminMaterialCategory.trim() || "Artikel ohne Gruppe",
+          work_site_id: adminMaterialSiteId,
+          object_name: site?.name || null,
+        },
+      });
+      setAdminMaterialName("");
+      await loadMaterials();
+      await loadMobileAdminData(true);
+      setAdminMobileMessage("Material wurde objektbezogen angelegt.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Material konnte nicht angelegt werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
   async function loadAllData(employeeName: string, silent = false) {
     if (!silent) setLoadingData(true);
     await Promise.all([
@@ -629,6 +755,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       loadNotifications(employeeName),
       loadUnreadChatCount(employeeName),
       activeTab === "chat" ? loadChatMessages(employeeName) : Promise.resolve(),
+      role === "admin" || role === "objektleiter" ? loadMobileAdminData(true) : Promise.resolve(),
     ]);
     if (!silent) setLoadingData(false);
   }
@@ -1031,8 +1158,9 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       return;
     }
 
-    if (!materialProductId) {
-      setMaterialMessage("Bitte Material auswählen.");
+    const selectedItems = Object.entries(materialCart).filter(([, quantity]) => Number(quantity) > 0);
+    if (selectedItems.length === 0) {
+      setMaterialMessage("Bitte mindestens einen Artikel auswählen.");
       return;
     }
 
@@ -1042,26 +1170,29 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       const token = data.session?.access_token;
       if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
 
-      const response = await fetch("/api/material/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          work_site_id: materialSiteId,
-          material_product_id: materialProductId,
-          quantity_requested: materialQuantity,
-          notes: materialNotes,
-        }),
-      });
+      for (const [productId, quantity] of selectedItems) {
+        const response = await fetch("/api/material/report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            work_site_id: materialSiteId,
+            material_product_id: productId,
+            quantity_requested: String(quantity),
+            notes: materialNotes,
+          }),
+        });
 
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error || "Materialmeldung konnte nicht gesendet werden.");
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.error || "Materialmeldung konnte nicht gesendet werden.");
+      }
 
       setMaterialProductId("");
       setMaterialQuantity("1");
+      setMaterialCart({});
       setMaterialNotes("");
-      setMaterialMessage("Meldung gesendet. Ich bekomme sie im Adminbereich unter Material.");
+      setMaterialMessage("Materialbestellung gesendet.");
     } catch (error) {
-      setMaterialMessage(error instanceof Error ? error.message : "Materialmeldung konnte nicht gesendet werden.");
+      setMaterialMessage(error instanceof Error ? error.message : "Materialbestellung konnte nicht gesendet werden.");
     } finally {
       setMaterialSaving(false);
     }
@@ -1100,6 +1231,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     setMessage("");
     setActiveTab(tab);
     if (tab === "chat" && name) loadChatMessages(name);
+    if (tab === "admin") loadMobileAdminData(false);
   }
 
   if (!loggedIn) {
@@ -1272,6 +1404,10 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             setMaterialId={setMaterialProductId}
             quantity={materialQuantity}
             setQuantity={setMaterialQuantity}
+            search={materialSearch}
+            setSearch={setMaterialSearch}
+            cart={materialCart}
+            setCart={setMaterialCart}
             notes={materialNotes}
             setNotes={setMaterialNotes}
             saving={materialSaving}
@@ -1282,13 +1418,26 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "admin" && (
-          <SimplePage title="Admin" openTab={openTab}>
-            {role === "admin" ? (
-              <button type="button" onClick={() => (window.location.href = "/admin")} className="w-full rounded-2xl bg-blue-600 py-4 text-white font-black">Admin Dashboard öffnen</button>
-            ) : (
-              <p className="text-center text-sm text-slate-400">Nur Administratoren können diesen Bereich öffnen.</p>
-            )}
-          </SimplePage>
+          <AdminMobileScreen
+            role={role}
+            data={adminMobileData}
+            tab={adminMobileTab}
+            setTab={setAdminMobileTab}
+            message={adminMobileMessage}
+            saving={adminMobileSaving}
+            refresh={() => loadMobileAdminData(false)}
+            approveTime={approveMobileTime}
+            selectedSiteId={adminMaterialSiteId}
+            setSelectedSiteId={setAdminMaterialSiteId}
+            materialName={adminMaterialName}
+            setMaterialName={setAdminMaterialName}
+            materialUnit={adminMaterialUnit}
+            setMaterialUnit={setAdminMaterialUnit}
+            materialCategory={adminMaterialCategory}
+            setMaterialCategory={setAdminMaterialCategory}
+            createMaterial={createObjectMaterial}
+            openTab={openTab}
+          />
         )}
       </div>
 
@@ -2098,6 +2247,10 @@ function MaterialReportScreen(props: {
   setMaterialId: (value: string) => void;
   quantity: string;
   setQuantity: (value: string) => void;
+  search: string;
+  setSearch: (value: string) => void;
+  cart: Record<string, number>;
+  setCart: (value: Record<string, number>) => void;
   notes: string;
   setNotes: (value: string) => void;
   saving: boolean;
@@ -2105,36 +2258,97 @@ function MaterialReportScreen(props: {
   submit: () => void;
   openTab: (tab: Tab) => void;
 }) {
-  const filteredMaterials = props.materials.filter((item) => !item.work_site_id || item.work_site_id === props.siteId);
+  const selectedSite = props.workSites.find((site) => site.id === props.siteId) || null;
+  const filteredMaterials = props.materials
+    .filter((item) => !item.work_site_id || item.work_site_id === props.siteId)
+    .filter((item) => {
+      const q = props.search.trim().toLowerCase();
+      if (!q) return true;
+      return `${item.name || ""} ${item.category || ""}`.toLowerCase().includes(q);
+    });
+  const grouped = filteredMaterials.reduce((acc: Record<string, MaterialProduct[]>, item) => {
+    const key = item.category || "Artikel ohne Gruppe";
+    acc[key] = acc[key] || [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+  const selectedCount = Object.values(props.cart).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+
+  function changeQuantity(id: string, delta: number) {
+    const next = { ...props.cart };
+    next[id] = Math.max(0, Number(next[id] || 0) + delta);
+    if (next[id] <= 0) delete next[id];
+    props.setCart(next);
+  }
 
   return (
-    <SimplePage title="Material melden" openTab={props.openTab}>
-      <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
-        <p className="text-sm font-bold text-slate-400">Wenn etwas leer ist, melde ich es hier direkt mit Objekt und Material.</p>
+    <SimplePage title="Material bestellen" openTab={props.openTab}>
+      <div className="space-y-4">
+        <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+          <label className="flex items-center gap-4 rounded-[22px] border border-slate-100 px-4 py-4">
+            <span className="text-3xl text-slate-400">▦</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-slate-400">Objekt</p>
+              <select value={props.siteId} onChange={(e) => { props.setSiteId(e.target.value); props.setMaterialId(""); props.setCart({}); }} className="mt-1 w-full bg-transparent text-xl font-bold outline-none">
+                <option value="">Objekt auswählen</option>
+                {props.workSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+              </select>
+            </div>
+          </label>
 
-        <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-400">Objekt</label>
-        <select value={props.siteId} onChange={(e) => { props.setSiteId(e.target.value); props.setMaterialId(""); }} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none">
-          <option value="">Objekt auswählen</option>
-          {props.workSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-        </select>
+          <label className="mt-3 flex items-center gap-4 rounded-[22px] border border-slate-100 px-4 py-4">
+            <span className="text-3xl text-slate-400">✎</span>
+            <input value={props.notes} onChange={(e) => props.setNotes(e.target.value)} placeholder="Bemerkung" className="min-w-0 flex-1 text-xl font-semibold outline-none placeholder:text-slate-300" />
+          </label>
+        </div>
 
-        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Material</label>
-        <select value={props.materialId} onChange={(e) => props.setMaterialId(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none">
-          <option value="">Material auswählen</option>
-          {filteredMaterials.map((material) => <option key={material.id} value={material.id}>{material.name}{material.object_name ? ` · ${material.object_name}` : ""}</option>)}
-        </select>
+        <div>
+          <h2 className="px-1 text-xl font-black text-slate-500">Artikel</h2>
+          <div className="mt-3 flex items-center gap-3 rounded-[22px] bg-slate-50 px-5 py-4">
+            <span className="text-3xl text-slate-400">⌕</span>
+            <input value={props.search} onChange={(e) => props.setSearch(e.target.value)} placeholder="Suche" className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-slate-300" />
+          </div>
+        </div>
 
-        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Menge</label>
-        <input type="number" min="1" value={props.quantity} onChange={(e) => props.setQuantity(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+        {!props.siteId && <div className="rounded-[24px] bg-amber-50 p-4 text-sm font-black text-amber-800">Bitte zuerst ein Objekt auswählen. Danach sehe ich die objektbezogenen Materialien.</div>}
 
-        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Kommentar</label>
-        <textarea value={props.notes} onChange={(e) => props.setNotes(e.target.value)} placeholder="Zum Beispiel: WC Papier komplett leer" className="mt-2 min-h-28 w-full rounded-2xl bg-slate-50 px-4 py-4 font-semibold outline-none" />
+        {Object.keys(grouped).length === 0 && props.siteId && <EmptyState text="Für dieses Objekt sind noch keine Materialien angelegt." />}
 
-        <button type="button" disabled={props.saving} onClick={props.submit} className="mt-5 w-full rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">
-          {props.saving ? "Wird gesendet..." : "Material melden"}
+        {Object.entries(grouped).map(([category, items]) => (
+          <div key={category}>
+            <div className="mb-3 mt-5 flex items-center justify-between px-1">
+              <h3 className="text-lg font-black text-slate-500">{category}</h3>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-black text-slate-400">{items.length}</span>
+            </div>
+            <div className="space-y-4">
+              {items.map((item) => {
+                const qty = Number(props.cart[item.id] || 0);
+                return (
+                  <div key={item.id} className="flex items-center gap-4 rounded-[24px] border border-slate-100 bg-white p-4 shadow-sm">
+                    <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 text-2xl">
+                      {item.image_url ? <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" /> : "📦"}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-400">{Number(item.current_stock || 0)} / {Number(item.minimum_stock || 1)} {item.unit || "Stk."}</p>
+                      <p className="text-lg font-black text-slate-950">{item.name}</p>
+                    </div>
+                    <div className="flex items-center rounded-2xl border border-slate-100 bg-white">
+                      <button type="button" onClick={() => changeQuantity(item.id, -1)} className="px-4 py-3 text-2xl font-black text-slate-200">−</button>
+                      <span className="min-w-8 text-center text-2xl font-black text-slate-500">{qty}</span>
+                      <button type="button" onClick={() => changeQuantity(item.id, 1)} className="px-4 py-3 text-3xl font-black text-blue-600">+</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {props.message && <div className="rounded-2xl bg-blue-50 p-3 text-sm font-black text-blue-800">{props.message}</div>}
+
+        <button type="button" onClick={props.submit} disabled={props.saving || !props.siteId || selectedCount <= 0} className="sticky bottom-24 w-full rounded-[22px] bg-blue-600 py-5 text-xl font-black text-white shadow-sm disabled:bg-slate-100 disabled:text-white">
+          {props.saving ? "Wird gesendet..." : selectedCount > 0 ? `Material bestellen (${selectedCount})` : "Material bestellen"}
         </button>
-
-        {props.message && <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-700">{props.message}</p>}
       </div>
     </SimplePage>
   );
@@ -2236,22 +2450,195 @@ function SimplePage({ title, children, openTab, searchPlaceholder }: { title: st
   );
 }
 
+function AdminMobileScreen(props: {
+  role: string;
+  data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; materialReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] };
+  tab: "today" | "approval" | "material";
+  setTab: (value: "today" | "approval" | "material") => void;
+  message: string;
+  saving: boolean;
+  refresh: () => void;
+  approveTime: (row: AdminMobileRow, approved: boolean) => void;
+  selectedSiteId: string;
+  setSelectedSiteId: (value: string) => void;
+  materialName: string;
+  setMaterialName: (value: string) => void;
+  materialUnit: string;
+  setMaterialUnit: (value: string) => void;
+  materialCategory: string;
+  setMaterialCategory: (value: string) => void;
+  createMaterial: () => void;
+  openTab: (tab: Tab) => void;
+}) {
+  const canAdmin = props.role === "admin" || props.role === "objektleiter";
+  const today = todayISO();
+  const todayTasks = props.data.tasks.filter((task) => String(task.task_date || task.due_date || "").slice(0, 10) === today);
+  const openTimeEntries = props.data.entries
+    .filter((entry) => Number(entry.worked_minutes || entry.payroll_minutes || 0) > 0)
+    .filter((entry) => !(entry.approved === true || String(entry.status || "").toLowerCase() === "approved"))
+    .slice(0, 30);
+  const selectedSite = props.data.sites.find((site) => site.id === props.selectedSiteId) || null;
+  const objectMaterials = props.data.materials.filter((item) => !props.selectedSiteId || item.work_site_id === props.selectedSiteId);
+  const materialReports = props.data.materialReports.slice(0, 20);
+
+  if (!canAdmin) {
+    return (
+      <SimplePage title="Admin" openTab={props.openTab}>
+        <EmptyState text="Nur Admins oder Objektleiter können diesen Bereich öffnen." />
+      </SimplePage>
+    );
+  }
+
+  return (
+    <SimplePage title="Adminportal" openTab={props.openTab}>
+      <div className="space-y-5">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {[
+            ["today", "Heute"],
+            ["approval", "Zeitenfreigabe"],
+            ["material", "Material"],
+          ].map(([id, label]) => (
+            <button key={id} type="button" onClick={() => props.setTab(id as "today" | "approval" | "material")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${props.tab === id ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-100"}`}>{label}</button>
+          ))}
+          <button type="button" onClick={props.refresh} className="ml-auto shrink-0 rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-500">↻</button>
+        </div>
+
+        {props.message && <div className="rounded-2xl bg-blue-50 p-3 text-sm font-black text-blue-800">{props.message}</div>}
+
+        {props.tab === "today" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <InfoBox label="Einsätze heute" value={String(todayTasks.length)} />
+              <InfoBox label="Offene Zeiten" value={String(openTimeEntries.length)} />
+              <InfoBox label="Mitarbeiter" value={String(props.data.employees.length)} />
+              <InfoBox label="Materialmeldungen" value={String(materialReports.length)} />
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Heutige Einsätze</h2>
+              <div className="mt-4 space-y-3">
+                {todayTasks.length === 0 && <EmptyState text="Heute sind keine Einsätze geplant." />}
+                {todayTasks.slice(0, 10).map((task) => (
+                  <div key={task.id} className="rounded-[22px] border border-slate-100 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black text-slate-950">{task.site || "Objekt"}</p>
+                        <p className="mt-1 text-sm font-bold text-slate-500">{task.employee_name || "Nicht zugewiesen"} · {formatClock(task.start_time)} → {formatClock(task.end_time)}</p>
+                      </div>
+                      <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {props.tab === "approval" && (
+          <div className="space-y-4">
+            <div className="flex gap-2 overflow-x-auto">
+              {["Datum", "Objektleiter", "Fehler", "Objekte", "Mitarbeitergruppen"].map((item) => <span key={item} className="shrink-0 rounded-full border border-slate-100 bg-white px-4 py-2 text-sm font-black text-slate-500">{item}</span>)}
+            </div>
+            {openTimeEntries.length === 0 && <EmptyState text="Keine offenen Zeiten zur Freigabe." />}
+            {openTimeEntries.map((entry) => {
+              const planned = Number(entry.planned_minutes || 0);
+              const worked = Number(entry.worked_minutes || entry.payroll_minutes || 0);
+              const diff = worked - planned;
+              return (
+                <div key={entry.id} className="rounded-[28px] bg-white p-5 shadow-sm border border-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xl font-black">{dateLabel(entry.work_date || entry.created_at)}</p>
+                      <p className="mt-2 text-sm font-bold text-slate-500">{entry.employee_name || "-"} · {entry.site || entry.work_site_name || "Objekt"}</p>
+                      <p className="mt-4 text-sm font-bold text-slate-500">Soll: {formatMinutes(planned)}</p>
+                      <p className={`mt-1 font-black ${diff < 0 ? "text-red-500" : "text-emerald-600"}`}>{diff >= 0 ? "+" : "-"} {formatMinutes(Math.abs(diff))}</p>
+                    </div>
+                    <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, true)} className="flex h-20 w-20 items-center justify-center rounded-[22px] bg-green-500 text-4xl font-black text-white">✓</button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, false)} className="rounded-2xl bg-red-50 py-3 font-black text-red-600">Ablehnen</button>
+                    <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, true)} className="rounded-2xl bg-green-50 py-3 font-black text-green-700">Freigeben</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {props.tab === "material" && (
+          <div className="space-y-4">
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Material objektbezogen anlegen</h2>
+              <select value={props.selectedSiteId} onChange={(e) => props.setSelectedSiteId(e.target.value)} className="mt-4 w-full rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold outline-none">
+                <option value="">Objekt auswählen</option>
+                {props.data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+              </select>
+              <input value={props.materialName} onChange={(e) => props.setMaterialName(e.target.value)} placeholder="Materialname" className="mt-3 w-full rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold outline-none" />
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <input value={props.materialCategory} onChange={(e) => props.setMaterialCategory(e.target.value)} placeholder="Gruppe" className="rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+                <input value={props.materialUnit} onChange={(e) => props.setMaterialUnit(e.target.value)} placeholder="Einheit" className="rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+              </div>
+              <button type="button" disabled={props.saving} onClick={props.createMaterial} className="mt-4 w-full rounded-2xl bg-blue-600 py-4 font-black text-white">+ Material anlegen</button>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">{selectedSite ? selectedSite.name : "Alle Materialien"}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">{objectMaterials.length} Artikel</p>
+              <div className="mt-4 space-y-3">
+                {objectMaterials.length === 0 && <EmptyState text="Für dieses Objekt sind noch keine Materialien angelegt." />}
+                {objectMaterials.slice(0, 30).map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-slate-100 p-4">
+                    <p className="font-black">{item.name}</p>
+                    <p className="text-sm font-bold text-slate-400">{item.category || "Artikel ohne Gruppe"} · {item.unit || "Stk."}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Materialmeldungen</h2>
+              <div className="mt-4 space-y-3">
+                {materialReports.length === 0 && <EmptyState text="Keine Materialmeldungen vorhanden." />}
+                {materialReports.map((report) => (
+                  <div key={report.id} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                    <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
+                    <p className="text-sm font-bold text-orange-700">{report.employee_name || "-"} · {report.site || report.work_site_name || "Objekt"} · {report.quantity_requested || 1}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </SimplePage>
+  );
+}
+
 function BottomNav({ activeTab, openTab, unreadChatCount, role }: { activeTab: Tab; openTab: (tab: Tab) => void; unreadChatCount: number; role: string }) {
-  const items = [
-    { tab: "home" as Tab, icon: "⌂", label: "Heute" },
-    { tab: "schedule" as Tab, icon: "▦", label: "Einsatz" },
-    { tab: "clock" as Tab, icon: "⏱", label: "Stempeln" },
-    { tab: "timesheet" as Tab, icon: "▤", label: "Zeiten" },
-    { tab: "profile" as Tab, icon: "☻", label: "Profil" },
-  ];
+  const isAdminRole = role === "admin" || role === "objektleiter";
+  const items = isAdminRole
+    ? [
+        { tab: "home" as Tab, icon: "⌂", label: "Home" },
+        { tab: "admin" as Tab, icon: "▣", label: "Admin" },
+        { tab: "schedule" as Tab, icon: "▦", label: "Kalender" },
+        { tab: "search" as Tab, icon: "⌕", label: "Suche" },
+        { tab: "chat" as Tab, icon: "●", label: "Chat" },
+      ]
+    : [
+        { tab: "home" as Tab, icon: "⌂", label: "Home" },
+        { tab: "tasks" as Tab, icon: "▣", label: "Inbox" },
+        { tab: "schedule" as Tab, icon: "▦", label: "Kalender" },
+        { tab: "search" as Tab, icon: "⌕", label: "Suche" },
+        { tab: "chat" as Tab, icon: "●", label: "Chat" },
+      ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 mx-auto grid max-w-md grid-cols-5 border-t border-slate-100 bg-white px-2 pb-3 pt-2 text-[11px] font-bold text-slate-400">
       {items.map((item) => (
-        <button key={item.tab} type="button" onClick={() => openTab(item.tab === "schedule" && role === "admin" ? "admin" : item.tab)} className={`relative rounded-2xl py-1 ${activeTab === item.tab ? "text-blue-600" : ""}`}>
+        <button key={item.tab} type="button" onClick={() => openTab(item.tab)} className={`relative rounded-2xl py-1 ${activeTab === item.tab ? "text-blue-600" : ""}`}>
           <span className="block text-2xl leading-none">{item.icon}</span>
           <span>{item.label}</span>
-          {item.tab === "profile" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">{unreadChatCount}</span>}
+          {item.tab === "chat" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">{unreadChatCount}</span>}
         </button>
       ))}
     </nav>
