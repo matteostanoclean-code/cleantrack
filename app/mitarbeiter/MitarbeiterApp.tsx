@@ -5,7 +5,7 @@ import type { ReactNode, RefObject } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
-type Tab = "home" | "tasks" | "clock" | "schedule" | "search" | "chat" | "profile" | "absence" | "material" | "admin";
+type Tab = "home" | "tasks" | "clock" | "timesheet" | "schedule" | "search" | "chat" | "profile" | "absence" | "material" | "admin";
 
 type EmployeeProfile = {
   id: string;
@@ -104,7 +104,7 @@ type TimeEntry = {
   site?: string | null;
   work_site_id?: string | null;
   task_id?: string | null;
-  action: "start" | "break_start" | "break_end" | "end" | "manual" | "absence" | "auto_clock_out";
+  action: "start" | "break_start" | "break_end" | "end" | "manual" | "absence" | "auto_clock_out" | "check_in" | "check_out" | "pause_start" | "pause_end";
   created_at: string;
   check_in_at?: string | null;
   check_out_at?: string | null;
@@ -114,6 +114,11 @@ type TimeEntry = {
   payroll_minutes?: number | null;
   planned_minutes?: number | null;
   reason?: string | null;
+  status?: string | null;
+  approved?: boolean | null;
+  entry_type?: string | null;
+  pause_minutes?: number | null;
+  pause_started_at?: string | null;
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -245,6 +250,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [absenceMessage, setAbsenceMessage] = useState("");
   const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
+  const [monthEntries, setMonthEntries] = useState<TimeEntry[]>([]);
   const [serverWorkedMinutes, setServerWorkedMinutes] = useState(0);
   const [serverPayrollMinutes, setServerPayrollMinutes] = useState(0);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -324,8 +330,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       return;
     }
 
-    if (last.action === "start" || last.action === "break_end") setStatus("working");
-    else if (last.action === "break_start") setStatus("break");
+    if (String(last.status || "") === "running" || last.action === "start" || last.action === "break_end") setStatus("working");
+    else if (String(last.status || "") === "paused" || last.action === "break_start") setStatus("break");
     else setStatus("none");
   }, [todayEntries]);
 
@@ -440,6 +446,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       loadWorkSites(),
       loadMaterials(),
       loadTodayEntries(employeeName),
+      loadMonthEntries(employeeName),
       loadAbsenceRequests(employeeName),
       loadNotifications(employeeName),
       loadUnreadChatCount(employeeName),
@@ -499,6 +506,22 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       setServerWorkedMinutes(0);
       setServerPayrollMinutes(0);
     }
+  }
+
+  async function loadMonthEntries(employeeName: string) {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+
+    const { data } = await supabase
+      .from("time_entries")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .gte("created_at", start)
+      .lt("created_at", end)
+      .order("created_at", { ascending: false });
+
+    setMonthEntries((data || []) as TimeEntry[]);
   }
 
   async function loadNotifications(employeeName: string) {
@@ -971,6 +994,16 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
           />
         )}
 
+        {activeTab === "timesheet" && (
+          <TimesheetScreen
+            profile={profile}
+            tasks={tasks}
+            entries={monthEntries}
+            absenceRequests={absenceRequests}
+            openTab={openTab}
+          />
+        )}
+
         {activeTab === "schedule" && (
           <ScheduleScreen
             tasks={tasks}
@@ -1073,6 +1106,7 @@ function HomeScreen(props: {
   const quickLinks = [
     { icon: "📊", title: "Einsatzübersicht", text: "Übersicht aller Einsätze für heute", tab: "schedule" as Tab, bg: "bg-blue-50" },
     { icon: "⏱️", title: "Zeiterfassung", text: "Arbeitszeit starten und beenden", tab: "clock" as Tab, bg: "bg-green-50" },
+    { icon: "📄", title: "Stundenzettel", text: "Monatsstunden und Status prüfen", tab: "timesheet" as Tab, bg: "bg-slate-50" },
     { icon: "🌴", title: "Abwesenheit", text: "Urlaub oder Krankheit melden", tab: "absence" as Tab, bg: "bg-emerald-50" },
     { icon: "📦", title: "Materialmeldung", text: "Leeres Material am Objekt melden", tab: "material" as Tab, bg: "bg-orange-50" },
     { icon: "📋", title: "Aufgaben", text: "Aufgaben ansehen und abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
@@ -1091,7 +1125,7 @@ function HomeScreen(props: {
         <button type="button" onClick={props.refresh} className="h-10 w-10 rounded-full bg-white text-slate-500 shadow-sm border border-slate-100">{props.loadingData ? "…" : "⚙"}</button>
       </div>
 
-      <button type="button" onClick={() => props.openTab("clock")} className="mt-7 w-full rounded-[24px] bg-blue-50 p-4 text-left shadow-sm border border-blue-100">
+      <button type="button" onClick={() => props.openTab("timesheet")} className="mt-7 w-full rounded-[24px] bg-blue-50 p-4 text-left shadow-sm border border-blue-100">
         <div className="flex items-center justify-between gap-4">
           <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-white">
             <div className="absolute inset-2 rounded-full border-[7px] border-blue-100" />
@@ -1222,6 +1256,168 @@ function InfoCard({ label, value, badgeClass }: { label: string; value: string; 
       <span className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</span>
       <span className={`rounded-full px-3 py-1 text-sm font-black ${badgeClass || "bg-white text-slate-700"}`}>{value}</span>
     </div>
+  );
+}
+
+
+function monthStartISO() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+}
+
+function currentMonthName() {
+  return new Date().toLocaleDateString("de-DE", { month: "long" });
+}
+
+function entryDate(entry: TimeEntry) {
+  return String(entry.work_date || entry.check_in_at || entry.check_out_at || entry.created_at || "").slice(0, 10);
+}
+
+function entryMinutes(entry: TimeEntry) {
+  const direct = Number(entry.payroll_minutes || entry.worked_minutes || 0);
+  if (direct > 0) return direct;
+  if (entry.check_in_at && entry.check_out_at) {
+    const diff = Math.round((new Date(entry.check_out_at).getTime() - new Date(entry.check_in_at).getTime()) / 60000);
+    return Math.max(0, diff - Number(entry.pause_minutes || 0));
+  }
+  return 0;
+}
+
+function clockRange(entry: TimeEntry) {
+  const start = entry.check_in_at || entry.created_at;
+  const end = entry.check_out_at || entry.created_at;
+  return `${start ? new Date(start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"} → ${end ? new Date(end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"} Uhr`;
+}
+
+function approvedAbsenceMinutes(requests: AbsenceRequest[]) {
+  return requests
+    .filter((item) => String(item.status || "").toLowerCase().includes("approved") || String(item.status || "").toLowerCase().includes("genehmigt"))
+    .filter((item) => String(item.absence_type || "").toLowerCase().includes("urlaub") || String(item.absence_type || "").toLowerCase().includes("krank") || String(item.absence_type || "").toLowerCase().includes("frei"))
+    .reduce((sum, item) => {
+      const start = new Date(item.start_date);
+      const end = new Date(item.end_date || item.start_date);
+      const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+      return sum + days * 8 * 60;
+    }, 0);
+}
+
+function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]; entries: TimeEntry[]; absenceRequests: AbsenceRequest[]; openTab: (tab: Tab) => void }) {
+  const monthKey = todayISO().slice(0, 7);
+  const monthTasks = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey && task.item_type !== "task" && task.task_type !== "task");
+  const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
+  const planned = monthLimit || monthTasks.reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+  const approvedEntries = props.entries.filter((entry) => entry.approved === true || String(entry.status || "").toLowerCase() === "approved");
+  const approvedMinutes = approvedEntries.reduce((sum, entry) => sum + entryMinutes(entry), 0) + approvedAbsenceMinutes(props.absenceRequests);
+  const progress = planned > 0 ? Math.min(100, Math.round((approvedMinutes / planned) * 100)) : 0;
+  const monthAbsences = props.absenceRequests.filter((item) => String(item.start_date || "").slice(0, 7) === monthKey || String(item.end_date || "").slice(0, 7) === monthKey);
+  const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
+  const missingTasks = monthTasks.filter((task) => String(task.task_date || "") <= todayISO() && !recordedTaskIds.has(task.id));
+  const checking = props.entries.filter((entry) => !entry.approved && String(entry.status || "").toLowerCase() !== "approved" && entryMinutes(entry) > 0);
+
+  const rows: Array<{ key: string; date: string; title: string; subtitle: string; range: string; minutes: number; status: string; color: string; dot: string; }> = [];
+
+  for (const absence of monthAbsences) {
+    const status = String(absence.status || "").toLowerCase().includes("approved") || String(absence.status || "").toLowerCase().includes("genehmigt") ? "Abwesenheit" : "In Prüfung";
+    const start = new Date(absence.start_date);
+    const end = new Date(absence.end_date || absence.start_date);
+    const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+    rows.push({
+      key: `absence-${absence.id}`,
+      date: absence.start_date,
+      title: "Abwesend",
+      subtitle: absence.absence_type || "Abwesenheit",
+      range: `${start.toLocaleDateString("de-DE")} → ${end.toLocaleDateString("de-DE")}`,
+      minutes: status === "Abwesenheit" && !String(absence.absence_type || "").toLowerCase().includes("unbezahlt") ? days * 8 * 60 : 0,
+      status,
+      color: status === "Abwesenheit" ? "bg-blue-600 text-white" : "bg-orange-500 text-white",
+      dot: "bg-slate-400",
+    });
+  }
+
+  for (const entry of props.entries) {
+    const minutes = entryMinutes(entry);
+    if (minutes <= 0) continue;
+    const approved = entry.approved === true || String(entry.status || "").toLowerCase() === "approved";
+    rows.push({
+      key: `entry-${entry.id}`,
+      date: entryDate(entry),
+      title: entry.site || entry.work_site_name || "Einsatz",
+      subtitle: "Unterhaltsreinigung",
+      range: clockRange(entry),
+      minutes,
+      status: approved ? "Freigegeben" : "In Prüfung",
+      color: approved ? "bg-emerald-500 text-white" : "bg-orange-500 text-white",
+      dot: "bg-orange-400",
+    });
+  }
+
+  for (const task of missingTasks) {
+    rows.push({
+      key: `missing-${task.id}`,
+      date: task.task_date,
+      title: task.site || "Objekt",
+      subtitle: task.title || "Unterhaltsreinigung",
+      range: `${formatClock(task.start_time)} → ${formatClock(task.end_time)} Uhr`,
+      minutes: 0,
+      status: "Nicht erfasst",
+      color: "bg-red-500 text-white",
+      dot: "bg-orange-400",
+    });
+  }
+
+  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  return (
+    <SimplePage title="Stundenzettel" openTab={props.openTab}>
+      <div className="bg-white px-2 pb-4">
+        <div className="mb-8">
+          <div className="flex items-center gap-3">
+            <h2 className="text-5xl font-black capitalize text-slate-800">{currentMonthName()}</h2>
+            <span className="text-3xl text-slate-300">⌄</span>
+          </div>
+
+          <div className="mt-12">
+            <p className="text-sm font-black text-slate-300">Freigegebene Stunden</p>
+            <p className="mt-4 text-5xl font-black text-slate-800">{formatMinutes(approvedMinutes)} <span className="text-slate-300">/ {formatMinutes(planned)}</span></p>
+            <div className="mt-7 h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-emerald-400" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+
+          <div className="mt-12 flex flex-wrap items-center gap-6 text-sm font-black text-slate-400">
+            <span>Alle <b className="ml-1 rounded-full bg-slate-100 px-3 py-2 text-slate-500">{rows.length}</b></span>
+            {checking.length > 0 && <span><span className="mr-2 inline-block h-3 w-3 rounded-full bg-orange-400" />In Prüfung <b className="ml-2">{checking.length}</b></span>}
+            {missingTasks.length > 0 && <span><span className="mr-2 inline-block h-3 w-3 rounded-full bg-red-500" />Nicht erfasst <b className="ml-2">{missingTasks.length}</b></span>}
+            {monthAbsences.length > 0 && <span><span className="mr-2 inline-block h-3 w-3 rounded-full bg-blue-600" />Abwesenheit <b className="ml-2">{monthAbsences.length}</b></span>}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {rows.length === 0 && <EmptyState text="Für diesen Monat gibt es noch keine Zeiten." />}
+          {rows.map((row, index) => {
+            const isToday = row.date === todayISO();
+            const previous = rows[index - 1];
+            const showHeader = index === 0 || previous?.date !== row.date;
+            return (
+              <div key={row.key}>
+                {showHeader && <p className="mb-3 mt-6 font-black text-slate-400">{isToday ? "Heute" : new Date(row.date).toLocaleDateString("de-DE", { weekday: "long" })}</p>}
+                <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-orange-500"><span className={`mr-2 inline-block h-3 w-3 rounded-full ${row.dot}`} />{row.subtitle}</p>
+                      <p className="mt-3 truncate text-xl font-black text-slate-800">{row.title}</p>
+                      <p className="mt-2 text-sm font-bold text-slate-400">{row.range}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-lg px-3 py-2 text-xs font-black ${row.color}`}>{row.status}</span>
+                  </div>
+                  <div className="mt-3 text-right text-lg font-black text-slate-800">{formatMinutes(row.minutes)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </SimplePage>
   );
 }
 

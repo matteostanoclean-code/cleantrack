@@ -150,24 +150,30 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const taskId = String(url.searchParams.get("task_id") || "").trim();
-    if (!taskId) return NextResponse.json({ error: "Einsatz fehlt." }, { status: 400 });
-
-    const { task, error } = await loadTaskAndSite(supabaseAdmin, taskId);
-    if (error || !task) return NextResponse.json({ error }, { status: 404 });
 
     const { start, end } = todayRange();
-    const { data: entries } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("time_entries")
       .select("*")
       .eq("employee_name", profile.name)
-      .eq("task_id", task.id)
       .gte("created_at", start)
       .lte("created_at", end)
       .order("created_at", { ascending: true });
 
+    if (taskId) query = query.eq("task_id", taskId);
+
+    const { data: entries } = await query;
+
+    let task: Row | null = null;
+    if (taskId) {
+      const loaded = await loadTaskAndSite(supabaseAdmin, taskId);
+      task = loaded.task;
+    }
+
     const active = (entries || []).find((row: Row) => activeStatuses().includes(String(row.status || "")));
+    const fallbackTask = task || { max_minutes: 999999, planned_minutes: 999999 };
     const worked = (entries || []).reduce((sum: number, row: Row) => sum + calculateWorkedMinutes(row), 0);
-    const wage = (entries || []).reduce((sum: number, row: Row) => sum + payableMinutes(row, task), 0);
+    const wage = (entries || []).reduce((sum: number, row: Row) => sum + payableMinutes(row, fallbackTask), 0);
 
     return NextResponse.json({
       success: true,
