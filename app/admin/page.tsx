@@ -1583,6 +1583,45 @@ const basePayload = {
     await insertOrUpdate("material_reports", row.id, { status: "done", resolved_at: new Date().toISOString() });
   }
 
+  async function approveQualityReport(row: Row) {
+    const nowIso = new Date().toISOString();
+    await insertOrUpdate("quality_reports", row.id, {
+      status: "reviewed",
+      reviewed_at: nowIso,
+      review_notes: "Geprüft und freigegeben",
+    });
+
+    if (row.employee_name) {
+      await notifyEmployee(
+        String(row.employee_name),
+        "Qualitätsnachweis geprüft",
+        `Der Qualitätsnachweis für ${row.site || "deinen Einsatz"} wurde geprüft und freigegeben.`,
+        "quality_reviewed"
+      );
+    }
+  }
+
+  async function requestQualityRework(row: Row) {
+    const note = window.prompt("Was soll der Mitarbeiter nacharbeiten?", "Bitte Qualitätsnachweis/Fotos prüfen und erneut einreichen.");
+    if (note === null) return;
+
+    const nowIso = new Date().toISOString();
+    await insertOrUpdate("quality_reports", row.id, {
+      status: "rework",
+      reviewed_at: nowIso,
+      review_notes: note || "Nacharbeit erforderlich",
+    });
+
+    if (row.employee_name) {
+      await notifyEmployee(
+        String(row.employee_name),
+        "Nacharbeit erforderlich",
+        `${note || "Bitte Qualitätsnachweis/Fotos prüfen und erneut einreichen."} Objekt: ${row.site || "Einsatz"}`,
+        "quality_rework"
+      );
+    }
+  }
+
   function openDevice(row?: Row) {
     setDeviceForm(row ? {
       id: String(row.id || ""),
@@ -2145,13 +2184,13 @@ const basePayload = {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} />}
+          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
-          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
+          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -2352,7 +2391,7 @@ function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="flex items-center justify-between border-b border-slate-100 py-3 last:border-b-0"><span className="text-slate-500">{label}</span><span className="font-black text-slate-950">{value}</span></div>;
 }
 
-function QualityReportsPanel({ reports = [], tasks = [] }: { reports?: Row[]; tasks?: Row[] }) {
+function QualityReportsPanel({ reports = [], tasks = [], approveQualityReport, requestQualityRework }: { reports?: Row[]; tasks?: Row[]; approveQualityReport?: (row: Row) => void; requestQualityRework?: (row: Row) => void }) {
   const recentReports = [...(reports || [])]
     .sort((a: Row, b: Row) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
     .slice(0, 8);
@@ -2374,10 +2413,10 @@ function QualityReportsPanel({ reports = [], tasks = [] }: { reports?: Row[]; ta
       <div className="overflow-hidden rounded-2xl border border-slate-200">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-            <tr><th className="px-4 py-3">Datum</th><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Einsatz / Objekt</th><th className="px-4 py-3">Checkliste</th><th className="px-4 py-3">Notiz</th><th className="px-4 py-3">Foto</th><th className="px-4 py-3">Status</th></tr>
+            <tr><th className="px-4 py-3">Datum</th><th className="px-4 py-3">Mitarbeiter</th><th className="px-4 py-3">Einsatz / Objekt</th><th className="px-4 py-3">Checkliste</th><th className="px-4 py-3">Notiz</th><th className="px-4 py-3">Foto</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Aktion</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
-            {recentReports.length === 0 ? <tr><td colSpan={7}><Empty text="Noch keine Qualitätsnachweise eingereicht." /></td></tr> : recentReports.map((report: Row) => {
+            {recentReports.length === 0 ? <tr><td colSpan={8}><Empty text="Noch keine Qualitätsnachweise eingereicht." /></td></tr> : recentReports.map((report: Row) => {
               const checked = Array.isArray(report.checked_items) ? report.checked_items : [];
               const total = Number(report.total_items || checked.length || 0);
               const passed = Number(report.passed_items || checked.length || 0);
@@ -2389,7 +2428,13 @@ function QualityReportsPanel({ reports = [], tasks = [] }: { reports?: Row[]; ta
                   <td className="px-4 py-3"><p className="font-black">{passed}/{total}</p><p className="max-w-[220px] truncate text-xs text-slate-400">{checked.join(", ") || "-"}</p></td>
                   <td className="max-w-[220px] truncate px-4 py-3">{report.notes || "-"}</td>
                   <td className="px-4 py-3">{report.photo_url ? <a href={report.photo_url} target="_blank" rel="noreferrer" className="font-black text-blue-600">Foto öffnen</a> : "-"}</td>
-                  <td className="px-4 py-3"><Status color={report.status === "complete" ? "green" : "yellow"}>{report.status === "complete" ? "vollständig" : "offen"}</Status></td>
+                  <td className="px-4 py-3"><Status color={report.status === "reviewed" ? "green" : report.status === "rework" ? "red" : report.status === "complete" ? "blue" : "yellow"}>{report.status === "reviewed" ? "geprüft" : report.status === "rework" ? "Nacharbeit" : report.status === "complete" ? "eingereicht" : "offen"}</Status></td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {report.status !== "reviewed" && approveQualityReport && <Button primary onClick={() => approveQualityReport(report)}>Geprüft</Button>}
+                      {requestQualityRework && <Button danger onClick={() => requestQualityRework(report)}>Nacharbeit</Button>}
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -2698,7 +2743,7 @@ function Planning(p: any) {
         </Table>
       </div>
 
-      <QualityReportsPanel reports={p.qualityReports || []} tasks={p.tasks || []} />
+      <QualityReportsPanel reports={p.qualityReports || []} tasks={p.tasks || []} approveQualityReport={p.approveQualityReport} requestQualityRework={p.requestQualityRework} />
     </div>
   );
 }
@@ -2769,7 +2814,7 @@ function Meldungen(p: any) {
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
   const otherNotifications = openNotifications.filter((item: Row) => item.notification_type !== "overtime_request");
   const openReports = (p.materialReports || []).filter((item: Row) => !item.status || item.status === "open");
-  const openQualityReports = (p.qualityReports || []).filter((item: Row) => !item.status || item.status === "open" || item.status === "complete");
+  const openQualityReports = (p.qualityReports || []).filter((item: Row) => !item.status || item.status === "open" || item.status === "complete" || item.status === "rework");
   const openAbsences = (p.absences || []).filter((item: Row) => !item.status || item.status === "open");
   const autoClockOuts = (p.entries || []).filter((item: Row) => item.auto_clock_out === true || String(item.reason || "").toLowerCase().includes("gps"));
   const total = overtimeRequests.length + otherNotifications.length + openReports.length + openQualityReports.length + openAbsences.length + autoClockOuts.length;
@@ -2832,7 +2877,11 @@ function Meldungen(p: any) {
                     <p className="text-xs font-bold text-indigo-600">Checkliste: {Number(r.passed_items || 0)}/{Number(r.total_items || 0)}</p>
                     {r.notes && <p className="mt-2 text-sm text-indigo-800">{r.notes}</p>}
                   </div>
-                  {r.photo_url ? <a className="rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-600" href={r.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a> : <Status color="gray">ohne Foto</Status>}
+                  <div className="flex flex-wrap gap-2">
+                    {r.photo_url ? <a className="rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-600" href={r.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a> : <Status color="gray">ohne Foto</Status>}
+                    {p.approveQualityReport && <Button primary onClick={() => p.approveQualityReport(r)}>Geprüft</Button>}
+                    {p.requestQualityRework && <Button danger onClick={() => p.requestQualityRework(r)}>Nacharbeit</Button>}
+                  </div>
                 </div>
               </div>
             ))}
