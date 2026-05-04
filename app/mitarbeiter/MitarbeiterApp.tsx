@@ -443,7 +443,10 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         loadUnreadChatCount(name);
         if (activeTab === "chat") loadChatMessages(name);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "time_entries" }, () => loadTodayEntries(name))
+      .on("postgres_changes", { event: "*", schema: "public", table: "time_entries" }, () => {
+        loadTodayEntries(name);
+        loadMonthEntries(name);
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "absence_requests" }, () => loadAbsenceRequests(name))
       .subscribe();
 
@@ -815,6 +818,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       if (!response.ok) throw new Error(json.error || "Zeit konnte nicht gespeichert werden.");
 
       await loadTodayEntries(name);
+      await loadMonthEntries(name);
       setMessage(json.message || (action === "start" ? "Arbeitszeit gestartet." : action === "end" ? "Arbeitszeit beendet." : action === "break_start" ? "Pause gestartet." : "Pause beendet."));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Zeit konnte nicht gespeichert werden.");
@@ -1430,6 +1434,11 @@ function entryDate(entry: TimeEntry) {
   return String(entry.work_date || entry.check_in_at || entry.check_out_at || entry.created_at || "").slice(0, 10);
 }
 
+function isApprovedTimeEntry(entry: TimeEntry) {
+  const status = String(entry.status || "").trim().toLowerCase();
+  return entry.approved === true || status === "approved" || status === "freigegeben";
+}
+
 function entryMinutes(entry: TimeEntry) {
   const direct = Number(entry.payroll_minutes || entry.worked_minutes || 0);
   if (direct > 0) return direct;
@@ -1463,13 +1472,13 @@ function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]
   const monthTasks = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey && task.item_type !== "task" && task.task_type !== "task");
   const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
   const planned = monthLimit || monthTasks.reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
-  const approvedEntries = props.entries.filter((entry) => entry.approved === true || String(entry.status || "").toLowerCase() === "approved");
+  const approvedEntries = props.entries.filter(isApprovedTimeEntry);
   const approvedMinutes = approvedEntries.reduce((sum, entry) => sum + entryMinutes(entry), 0) + approvedAbsenceMinutes(props.absenceRequests);
   const progress = planned > 0 ? Math.min(100, Math.round((approvedMinutes / planned) * 100)) : 0;
   const monthAbsences = props.absenceRequests.filter((item) => String(item.start_date || "").slice(0, 7) === monthKey || String(item.end_date || "").slice(0, 7) === monthKey);
   const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
   const missingTasks = monthTasks.filter((task) => String(task.task_date || "") <= todayISO() && !recordedTaskIds.has(task.id));
-  const checking = props.entries.filter((entry) => !entry.approved && String(entry.status || "").toLowerCase() !== "approved" && entryMinutes(entry) > 0);
+  const checking = props.entries.filter((entry) => !isApprovedTimeEntry(entry) && entryMinutes(entry) > 0);
 
   const rows: Array<{ key: string; date: string; title: string; subtitle: string; range: string; minutes: number; status: string; color: string; dot: string; }> = [];
 
@@ -1494,7 +1503,7 @@ function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]
   for (const entry of props.entries) {
     const minutes = entryMinutes(entry);
     if (minutes <= 0) continue;
-    const approved = entry.approved === true || String(entry.status || "").toLowerCase() === "approved";
+    const approved = isApprovedTimeEntry(entry);
     rows.push({
       key: `entry-${entry.id}`,
       date: entryDate(entry),

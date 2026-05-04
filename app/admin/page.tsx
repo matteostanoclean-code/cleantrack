@@ -3076,10 +3076,13 @@ function DailyClosing(p: any) {
     const employeeEntries = dayEntries.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
     const actual = totalWorkedMinutes(employeeEntries);
     const wage = totalPayableMinutes(employeeEntries);
+    const approvedEntries = timeSessionSummaries(employeeEntries).filter(isApprovedEntry);
+    const hasEntries = timeSessionSummaries(employeeEntries).length > 0;
+    const allApproved = hasEntries && approvedEntries.length === timeSessionSummaries(employeeEntries).length;
     const absence = employeeAbsenceForDate(p.absences || [], employeeName, p.selectedDay);
     const approvedAbsence = absence && absenceIsBlocking(absence);
     const diff = wage - planned;
-    let status = "OK";
+    let status = allApproved ? "Freigegeben" : "OK";
     let color: "green" | "yellow" | "red" | "gray" = "green";
 
     if (approvedAbsence && isUnpaidAbsence(absence)) {
@@ -3088,18 +3091,18 @@ function DailyClosing(p: any) {
     } else if (approvedAbsence) {
       status = absence.absence_type || "Abwesenheit";
       color = "yellow";
-    } else if (planned > 0 && actual <= 0) {
+    } else if (!allApproved && planned > 0 && actual <= 0) {
       status = "Nicht gestempelt";
       color = "red";
-    } else if (diff > 15) {
+    } else if (!allApproved && diff > 15) {
       status = "Über Planzeit";
       color = "red";
-    } else if (diff < -15) {
+    } else if (!allApproved && diff < -15) {
       status = "Unter Planzeit";
       color = "yellow";
     }
 
-    return { employee, planned, actual, wage, diff, status, color, entries: employeeEntries };
+    return { employee, planned, actual, wage, diff, status, color, entries: employeeEntries, allApproved };
   });
 
   async function approveEntries(entries: Row[]) {
@@ -3130,7 +3133,7 @@ function DailyClosing(p: any) {
                 <td className="px-4 py-3 font-bold"><p>{prettyHours(row.actual)} Std.</p><p className="text-xs font-bold text-slate-400">Lohn: {prettyHours(row.wage)} Std.</p></td>
                 <td className={`px-4 py-3 font-black ${row.diff < 0 ? "text-red-600" : row.diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>{row.diff === 0 ? "0:00" : `${row.diff > 0 ? "+" : "-"}${prettyHours(Math.abs(row.diff))}`} Std.</td>
                 <td className="px-4 py-3"><Status color={row.color}>{row.status}</Status></td>
-                <td className="px-4 py-3"><Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button></td>
+                <td className="px-4 py-3">{row.allApproved ? <span className="rounded-xl bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-700">Freigegeben</span> : <Button disabled={row.entries.length === 0} onClick={() => approveEntries(row.entries)}>Freigeben</Button>}</td>
               </tr>
             ))}
           </tbody>
