@@ -841,7 +841,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       await loadMonthEntries(name);
       setMessage(json.message || (action === "start" ? "Arbeitszeit gestartet." : action === "end" ? "Arbeitszeit beendet." : action === "break_start" ? "Pause gestartet." : "Pause beendet."));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Zeit konnte nicht gespeichert werden.");
+      const errorText = error instanceof Error ? error.message : "Zeit konnte nicht gespeichert werden.";
+      setMessage(errorText);
+      if (action === "end" && /Qualitätsnachweis|Checklistenpunkt|Foto|ausstempeln/i.test(errorText)) {
+        setClockNotice(errorText);
+      }
     } finally {
       setClockSaving(false);
     }
@@ -1637,6 +1641,11 @@ function ClockScreen(props: {
   const remaining = maxMinutes ? Math.max(0, maxMinutes - props.workedMinutes) : 0;
   const gpsReady = Boolean(props.selectedSite?.latitude && props.selectedSite?.longitude);
   const canRequestOvertime = Boolean(props.selectedTask && maxMinutes && props.workedMinutes >= maxMinutes);
+  const checklist = taskChecklist(props.selectedTask);
+  const needsQualityReport = Boolean(props.selectedTask?.quality_required || props.selectedTask?.quality_photo_required || checklist.length > 0);
+  const qualityHint = needsQualityReport
+    ? `Vor dem Ausstempeln muss ich den Qualitätsnachweis speichern${props.selectedTask?.quality_photo_required ? " und ein Foto hochladen" : ""}${checklist.length > 0 ? ` (${checklist.length} Punkt${checklist.length === 1 ? "" : "e"}).` : "."}`
+    : "";
 
   return (
     <SimplePage title="Stundenzettel" openTab={props.openTab}>
@@ -1661,6 +1670,7 @@ function ClockScreen(props: {
         </div>
 
         {props.selectedTask && <div className="mt-3 rounded-2xl bg-blue-50 p-3 text-sm font-bold text-blue-800">{props.selectedTask.site || "Objekt"} · {props.selectedTask.title}</div>}
+        {qualityHint && <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-black text-amber-800">{qualityHint}</div>}
         <div className={`mt-3 rounded-2xl p-3 text-sm font-black ${gpsReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{gpsReady ? `GPS aktiv · Radius ${props.selectedSite?.allowed_radius_m || 150} m` : "GPS fehlt beim Objekt. Bitte im Adminbereich am Objekt setzen."}</div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -1858,6 +1868,12 @@ function ScheduleScreen({
               </button>
               {qualityMessage && <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-bold text-slate-600">{qualityMessage}</p>}
             </div>
+          )}
+
+          {(selectedAssignment.quality_required || selectedAssignment.quality_photo_required || taskChecklist(selectedAssignment).length > 0) && (
+            <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">
+              Wichtig: Dieser Qualitätsnachweis muss gespeichert sein, bevor ich den Einsatz beenden kann.
+            </p>
           )}
 
           <div className="mt-5 grid gap-3">

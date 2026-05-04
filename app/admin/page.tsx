@@ -3578,6 +3578,38 @@ function TaskModal(p: any) {
     const next = selectedDays.includes(key) ? selectedDays.filter((item: string) => item !== key) : [...selectedDays, key];
     p.setForm({ ...p.form, recurrence_days: next });
   };
+  const qualityItems = checklistLines(p.form.quality_checklist_text);
+  const qualityDraft = String(p.form.quality_new_item || "");
+
+  function addQualityItem() {
+    const item = qualityDraft.trim();
+    if (!item) return;
+    p.setForm({
+      ...p.form,
+      quality_checklist_text: [...qualityItems, item].join("\n"),
+      quality_new_item: "",
+      quality_required: true,
+    });
+  }
+
+  function updateQualityItem(index: number, value: string) {
+    const next = [...qualityItems];
+    next[index] = value;
+    p.setForm({
+      ...p.form,
+      quality_checklist_text: next.map((item) => item.trim()).filter(Boolean).join("\n"),
+      quality_required: true,
+    });
+  }
+
+  function removeQualityItem(index: number) {
+    const next = qualityItems.filter((_: string, itemIndex: number) => itemIndex !== index);
+    p.setForm({
+      ...p.form,
+      quality_checklist_text: next.join("\n"),
+      quality_required: next.length > 0 ? p.form.quality_required : false,
+    });
+  }
 
   const isActionTask = p.mode === "task" || p.form.item_type === "task" || p.form.task_type === "task";
   if (isActionTask) {
@@ -3704,7 +3736,32 @@ function TaskModal(p: any) {
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-[1fr_220px]">
           <Field label="Checklistenpunkte">
-            <Textarea value={p.form.quality_checklist_text || ""} onChange={(e) => p.setForm({ ...p.form, quality_checklist_text: e.target.value, quality_required: true })} placeholder={"z. B.\\nEingangsbereich kontrolliert\\nTreppenhaus gereinigt\\nGeländer gereinigt"} />
+            <div className="rounded-2xl bg-white p-3">
+              <div className="space-y-2">
+                {qualityItems.length === 0 && <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm font-bold text-slate-400">Noch keine Punkte angelegt.</p>}
+                {qualityItems.map((item: string, index: number) => (
+                  <div key={`${item}-${index}`} className="flex gap-2">
+                    <input className="field min-w-0 flex-1" value={item} onChange={(event) => updateQualityItem(index, event.target.value)} />
+                    <button type="button" onClick={() => removeQualityItem(index)} className="rounded-xl bg-red-50 px-3 font-black text-red-600">×</button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <input
+                  className="field min-w-0 flex-1"
+                  value={qualityDraft}
+                  onChange={(event) => p.setForm({ ...p.form, quality_new_item: event.target.value })}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addQualityItem();
+                    }
+                  }}
+                  placeholder="Neuen Punkt eintragen"
+                />
+                <button type="button" onClick={addQualityItem} className="rounded-xl bg-indigo-600 px-4 font-black text-white">+ Hinzufügen</button>
+              </div>
+            </div>
           </Field>
           <Field label="Foto">
             <label className="field flex items-center gap-3 font-bold">

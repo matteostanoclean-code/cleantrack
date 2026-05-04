@@ -404,6 +404,42 @@ export async function POST(request: Request) {
     }
 
     if (action === "end") {
+      const checklist = Array.isArray(task.quality_checklist) ? task.quality_checklist : [];
+      const needsQualityReport = Boolean(task.quality_required || task.quality_photo_required || checklist.length > 0);
+      const isAutomaticEnd = body.reason === "left_geofence" || body.reason === "max_time_reached";
+
+      if (needsQualityReport && !isAutomaticEnd) {
+        const { data: qualityReport } = await supabaseAdmin
+          .from("quality_reports")
+          .select("id, photo_url, status, passed_items, total_items")
+          .eq("task_id", task.id)
+          .eq("employee_name", profile.name)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!qualityReport) {
+          return NextResponse.json(
+            { error: "Bitte zuerst den Qualitätsnachweis im Einsatz speichern. Danach kannst du ausstempeln." },
+            { status: 400 }
+          );
+        }
+
+        if (task.quality_photo_required && !qualityReport.photo_url) {
+          return NextResponse.json(
+            { error: "Für diesen Einsatz ist ein Foto erforderlich. Bitte Qualitätsnachweis mit Foto speichern." },
+            { status: 400 }
+          );
+        }
+
+        if (checklist.length > 0 && Number(qualityReport.passed_items || 0) < checklist.length) {
+          return NextResponse.json(
+            { error: "Bitte alle erforderlichen Checklistenpunkte abhaken, bevor du ausstempelst." },
+            { status: 400 }
+          );
+        }
+      }
+
       let pauseMinutes = Number(activeEntry.pause_minutes || 0);
       if (activeEntry.status === "paused" && activeEntry.pause_started_at) {
         pauseMinutes += minutesBetween(activeEntry.pause_started_at, nowIso);
