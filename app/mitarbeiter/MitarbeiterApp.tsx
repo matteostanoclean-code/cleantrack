@@ -1275,13 +1275,12 @@ function HomeScreen(props: {
   pushNotice: string;
   activatePush: () => void;
 }) {
+  const nextTask = props.todayTasks.find((task) => !task.done) || props.todayTasks[0] || null;
   const quickLinks = [
-    { icon: "📊", title: "Einsatzübersicht", text: "Übersicht aller Einsätze für heute", tab: "schedule" as Tab, bg: "bg-blue-50" },
-    { icon: "⏱️", title: "Zeiterfassung", text: "Arbeitszeit starten und beenden", tab: "clock" as Tab, bg: "bg-green-50" },
-    { icon: "📄", title: "Stundenzettel", text: "Monatsstunden und Status prüfen", tab: "timesheet" as Tab, bg: "bg-slate-50" },
     { icon: "🌴", title: "Abwesenheit", text: "Urlaub oder Krankheit melden", tab: "absence" as Tab, bg: "bg-emerald-50" },
-    { icon: "📦", title: "Materialmeldung", text: "Leeres Material am Objekt melden", tab: "material" as Tab, bg: "bg-orange-50" },
-    { icon: "📋", title: "Aufgaben", text: "Aufgaben ansehen und abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
+    { icon: "📦", title: "Material melden", text: "Leeres Material am Objekt melden", tab: "material" as Tab, bg: "bg-orange-50" },
+    { icon: "📋", title: "Aufgaben", text: "Zusätzliche Aufgaben abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
+    { icon: "💬", title: "Nachrichten", text: "Chat und Rückfragen", tab: "chat" as Tab, bg: "bg-blue-50" },
   ];
 
   return (
@@ -1312,6 +1311,23 @@ function HomeScreen(props: {
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-blue-600 font-black">→</div>
         </div>
       </button>
+
+      <div className="mt-5 rounded-[28px] border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">Nächster Einsatz</p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">{nextTask ? (nextTask.site || "Objekt") : "Kein Einsatz offen"}</h2>
+            <p className="mt-1 text-sm font-bold text-slate-400">{nextTask ? `${formatClock(nextTask.start_time)} - ${formatClock(nextTask.end_time)} · ${formatMinutes(Number(nextTask.planned_minutes || nextTask.max_minutes || 0))}` : "Heute ist nichts geplant."}</p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-black ${nextTask ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>{nextTask ? "offen" : "frei"}</span>
+        </div>
+        {nextTask && (
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button type="button" onClick={() => props.openTab("schedule")} className="rounded-2xl bg-blue-600 py-4 text-sm font-black text-white">Einsatz öffnen</button>
+            <button type="button" onClick={() => props.openTab("clock")} className="rounded-2xl bg-green-50 py-4 text-sm font-black text-green-700">Stempeln</button>
+          </div>
+        )}
+      </div>
 
       <div className="mt-7 flex items-center justify-between">
         <h2 className="text-sm font-black">Heutige Einsätze</h2>
@@ -1346,7 +1362,7 @@ function HomeScreen(props: {
         {props.pushNotice && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-bold text-slate-500">{props.pushNotice}</p>}
       </div>
 
-      <h2 className="mt-7 text-sm font-black">Schnellzugriffe</h2>
+      <h2 className="mt-7 text-sm font-black">Weitere Funktionen</h2>
       <div className="mt-3 overflow-hidden rounded-[24px] bg-white shadow-sm border border-slate-100">
         {quickLinks.map((item) => (
           <button key={item.title} type="button" onClick={() => props.openTab(item.tab)} className="flex w-full items-center gap-4 border-b border-slate-100 px-4 py-4 text-left last:border-b-0">
@@ -1564,7 +1580,7 @@ function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]
   rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
   return (
-    <SimplePage title="Stundenzettel" openTab={props.openTab}>
+    <SimplePage title="Stempeln" openTab={props.openTab}>
       <div className="bg-white px-2 pb-4">
         <div className="mb-8">
           <div className="flex items-center gap-3">
@@ -1648,7 +1664,7 @@ function ClockScreen(props: {
     : "";
 
   return (
-    <SimplePage title="Stundenzettel" openTab={props.openTab}>
+    <SimplePage title="Stempeln" openTab={props.openTab}>
       <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
         <div className="flex items-end justify-between">
           <div><p className="text-sm font-bold text-slate-400">Heute geleistet</p><p className="text-4xl font-black">{formatMinutes(props.workedMinutes)}</p><p className="mt-1 text-xs font-bold text-slate-400">Lohnzeit: {formatMinutes(props.payrollMinutes || props.workedMinutes)}</p></div>
@@ -2132,11 +2148,11 @@ function SimplePage({ title, children, openTab, searchPlaceholder }: { title: st
 
 function BottomNav({ activeTab, openTab, unreadChatCount, role }: { activeTab: Tab; openTab: (tab: Tab) => void; unreadChatCount: number; role: string }) {
   const items = [
-    { tab: "home" as Tab, icon: "⌂", label: "Home" },
-    { tab: "tasks" as Tab, icon: "▣", label: "Inbox" },
-    { tab: "schedule" as Tab, icon: "▦", label: "Kalender" },
-    { tab: "search" as Tab, icon: "⌕", label: "Suche" },
-    { tab: "chat" as Tab, icon: "●", label: "Chat" },
+    { tab: "home" as Tab, icon: "⌂", label: "Heute" },
+    { tab: "schedule" as Tab, icon: "▦", label: "Einsatz" },
+    { tab: "clock" as Tab, icon: "⏱", label: "Stempeln" },
+    { tab: "timesheet" as Tab, icon: "▤", label: "Zeiten" },
+    { tab: "profile" as Tab, icon: "☻", label: "Profil" },
   ];
 
   return (
@@ -2145,7 +2161,7 @@ function BottomNav({ activeTab, openTab, unreadChatCount, role }: { activeTab: T
         <button key={item.tab} type="button" onClick={() => openTab(item.tab === "schedule" && role === "admin" ? "admin" : item.tab)} className={`relative rounded-2xl py-1 ${activeTab === item.tab ? "text-blue-600" : ""}`}>
           <span className="block text-2xl leading-none">{item.icon}</span>
           <span>{item.label}</span>
-          {item.tab === "chat" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">{unreadChatCount}</span>}
+          {item.tab === "profile" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">{unreadChatCount}</span>}
         </button>
       ))}
     </nav>
