@@ -107,6 +107,7 @@ type TimeEntry = {
   site?: string | null;
   work_site_id?: string | null;
   task_id?: string | null;
+  absence_request_id?: string | null;
   action: "start" | "break_start" | "break_end" | "end" | "manual" | "absence" | "auto_clock_out" | "check_in" | "check_out" | "pause_start" | "pause_end";
   created_at: string;
   check_in_at?: string | null;
@@ -1495,16 +1496,17 @@ function clockRange(entry: TimeEntry) {
   return `${start ? new Date(start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"} → ${end ? new Date(end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"} Uhr`;
 }
 
-function approvedAbsenceMinutes(requests: AbsenceRequest[]) {
-  return requests
-    .filter((item) => String(item.status || "").toLowerCase().includes("approved") || String(item.status || "").toLowerCase().includes("genehmigt"))
-    .filter((item) => String(item.absence_type || "").toLowerCase().includes("urlaub") || String(item.absence_type || "").toLowerCase().includes("krank") || String(item.absence_type || "").toLowerCase().includes("frei"))
-    .reduce((sum, item) => {
-      const start = new Date(item.start_date);
-      const end = new Date(item.end_date || item.start_date);
-      const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
-      return sum + days * 8 * 60;
-    }, 0);
+function isAbsenceEntry(entry: TimeEntry) {
+  const action = String(entry.action || "").toLowerCase();
+  const type = String(entry.entry_type || "").toLowerCase();
+  return action === "absence" || type === "absence";
+}
+
+function approvedAbsenceMinutes(entries: TimeEntry[]) {
+  return entries
+    .filter(isAbsenceEntry)
+    .filter(isApprovedTimeEntry)
+    .reduce((sum, entry) => sum + entryMinutes(entry), 0);
 }
 
 function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]; entries: TimeEntry[]; absenceRequests: AbsenceRequest[]; openTab: (tab: Tab) => void }) {
@@ -1513,7 +1515,7 @@ function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]
   const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
   const planned = monthLimit || monthTasks.reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
   const approvedEntries = props.entries.filter(isApprovedTimeEntry);
-  const approvedMinutes = approvedEntries.reduce((sum, entry) => sum + entryMinutes(entry), 0) + approvedAbsenceMinutes(props.absenceRequests);
+  const approvedMinutes = approvedEntries.reduce((sum, entry) => sum + entryMinutes(entry), 0);
   const progress = planned > 0 ? Math.min(100, Math.round((approvedMinutes / planned) * 100)) : 0;
   const monthAbsences = props.absenceRequests.filter((item) => String(item.start_date || "").slice(0, 7) === monthKey || String(item.end_date || "").slice(0, 7) === monthKey);
   const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
@@ -1539,7 +1541,12 @@ function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]
       title: "Abwesend",
       subtitle: absence.absence_type || "Abwesenheit",
       range: `${start.toLocaleDateString("de-DE")} → ${end.toLocaleDateString("de-DE")}`,
-      minutes: status === "Abwesenheit" && !String(absence.absence_type || "").toLowerCase().includes("unbezahlt") ? days * 8 * 60 : 0,
+      minutes: status === "Abwesenheit" && !String(absence.absence_type || "").toLowerCase().includes("unbezahlt")
+        ? props.entries
+            .filter(isAbsenceEntry)
+            .filter((entry) => String(entry.absence_request_id || "") === String(absence.id || ""))
+            .reduce((sum, entry) => sum + entryMinutes(entry), 0)
+        : 0,
       status,
       color: status === "Abwesenheit" ? "bg-blue-600 text-white" : "bg-orange-500 text-white",
       dot: "bg-slate-400",

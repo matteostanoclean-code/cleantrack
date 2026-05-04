@@ -358,6 +358,7 @@ function isUnpaidAbsence(row: Row) {
 
 function isPaidFreeAbsence(row: Row) {
   const type = absenceTypeKey(row.absence_type);
+  if (isUnpaidAbsence(row)) return false;
   return type.includes("bezahlt") || type.includes("frei bezahlt") || type.includes("bezahlt frei");
 }
 
@@ -398,8 +399,30 @@ function unpaidAbsenceDaysForMonth(absences: Row[], employeeName: string, monthK
   return absenceDayCountForMonth(absences, employeeName, isUnpaidAbsence, monthKey);
 }
 
-function monthlyAbsenceMinutes(absences: Row[], employeeName: string, monthKey: string, predicate: (row: Row) => boolean) {
-  return absenceDayCountForMonth(absences, employeeName, predicate, monthKey) * 8 * 60;
+function isAbsenceTimeEntry(row: Row) {
+  const action = String(row.action || "").toLowerCase();
+  const type = String(row.entry_type || "").toLowerCase();
+  return action === "absence" || type === "absence" || Boolean(row.absence_request_id);
+}
+
+function absenceMinutesForEmployeeMonth(entries: Row[], employeeName: string, monthKey: string, predicate: (row: Row) => boolean) {
+  const name = String(employeeName || "").trim();
+  return (entries || [])
+    .filter((entry: Row) => String(entry.employee_name || "").trim() === name)
+    .filter((entry: Row) => monthFromValue(payrollDate(entry)) === monthKey)
+    .filter(isAbsenceTimeEntry)
+    .filter(isApprovedEntry)
+    .filter(predicate)
+    .reduce((sum: number, entry: Row) => sum + singleRowMinutes(entry, true), 0);
+}
+
+function approvedWorkMinutesForEmployeeMonth(entries: Row[], employeeName: string, monthKey: string) {
+  const rows = employeeRowsForMonth(entries, employeeName, monthKey).filter((entry: Row) => !isAbsenceTimeEntry(entry));
+  return totalPayableMinutes(timeSessionSummaries(rows).filter(isApprovedEntry));
+}
+
+function monthlyAbsenceMinutes(entries: Row[], employeeName: string, monthKey: string, predicate: (row: Row) => boolean) {
+  return absenceMinutesForEmployeeMonth(entries, employeeName, monthKey, predicate);
 }
 
 function monthKeyFromDate(value: unknown) {
@@ -420,7 +443,10 @@ function employeeTasksForMonth(tasks: Row[], employeeName: string, monthKey: str
 }
 
 function approvedMinutesForEmployeeMonth(entries: Row[], employeeName: string, monthKey: string) {
-  return totalPayableMinutes(timeSessionSummaries(employeeRowsForMonth(entries, employeeName, monthKey)).filter(isApprovedEntry));
+  const employeeRows = employeeRowsForMonth(entries, employeeName, monthKey);
+  const workMinutes = totalPayableMinutes(timeSessionSummaries(employeeRows.filter((entry: Row) => !isAbsenceTimeEntry(entry))).filter(isApprovedEntry));
+  const absenceMinutes = employeeRows.filter(isAbsenceTimeEntry).filter(isApprovedEntry).reduce((sum: number, entry: Row) => sum + singleRowMinutes(entry, true), 0);
+  return workMinutes + absenceMinutes;
 }
 
 function workedMinutesForEmployeeMonth(entries: Row[], employeeName: string, monthKey: string) {
@@ -2834,7 +2860,7 @@ function Employees(p: any) {
       const name = String(employee.name || "");
       const planned = plannedMinutesForEmployeeMonth(p.tasks || [], name, selectedMonth);
       const worked = workedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
-      const approved = approvedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+      const approved = approvedWorkMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
       const vacationDays = absenceDayCountForMonth(p.absences || [], name, isVacationAbsence, selectedMonth);
       const sickDays = absenceDayCountForMonth(p.absences || [], name, isSickAbsence, selectedMonth);
       const paidFreeDays = absenceDayCountForMonth(p.absences || [], name, isPaidFreeAbsence, selectedMonth);
@@ -2842,7 +2868,7 @@ function Employees(p: any) {
       const vacationTotal = Number(employee.vacation_days ?? employee.annual_vacation_days ?? 0);
       const vacationOpen = Math.max(0, vacationTotal - absenceDayCount(p.absences || [], name, isVacationAbsence));
       const hourlyRate = Number(employee.hourly_rate || 0);
-      const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], name, selectedMonth, isPaidAbsence);
+      const paidAbsenceMinutes = monthlyAbsenceMinutes(p.entries || [], name, selectedMonth, isPaidAbsence);
       const payrollMinutes = approved + paidAbsenceMinutes;
       return {
         Monat: selectedMonth,
@@ -2886,7 +2912,7 @@ function Employees(p: any) {
           const name = String(employee.name || "");
           const planned = plannedMinutesForEmployeeMonth(p.tasks || [], name, selectedMonth);
           const worked = workedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
-          const approved = approvedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+          const approved = approvedWorkMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
           const vacationTotal = Number(employee.vacation_days ?? employee.annual_vacation_days ?? 0);
           const vacationTakenAll = absenceDayCount(p.absences || [], name, isVacationAbsence);
           const vacationOpen = Math.max(0, vacationTotal - vacationTakenAll);
@@ -2894,7 +2920,7 @@ function Employees(p: any) {
           const sickTakenMonth = absenceDayCountForMonth(p.absences || [], name, isSickAbsence, selectedMonth);
           const paidFreeMonth = absenceDayCountForMonth(p.absences || [], name, isPaidFreeAbsence, selectedMonth);
           const unpaidMonth = absenceDayCountForMonth(p.absences || [], name, isUnpaidAbsence, selectedMonth);
-          const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], name, selectedMonth, isPaidAbsence);
+          const paidAbsenceMinutes = monthlyAbsenceMinutes(p.entries || [], name, selectedMonth, isPaidAbsence);
           const payrollMinutes = approved + paidAbsenceMinutes;
           const hourlyRate = Number(employee.hourly_rate || 0);
           const amount = (payrollMinutes / 60) * hourlyRate;
@@ -2944,8 +2970,8 @@ function Employees(p: any) {
       <Table headers={["Name", "Nummer", "Kontakt", "Lohnzeit", "Urlaub", "Krank", "Lohnsumme", "Status", "Aktion"]}>
         {p.rows.length === 0 ? <tr><td colSpan={9}><Empty /></td></tr> : p.rows.map((e: Row) => {
           const name = String(e.name || "");
-          const approved = approvedMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
-          const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], name, selectedMonth, isPaidAbsence);
+          const approved = approvedWorkMinutesForEmployeeMonth(p.entries || [], name, selectedMonth);
+          const paidAbsenceMinutes = monthlyAbsenceMinutes(p.entries || [], name, selectedMonth, isPaidAbsence);
           const payrollMinutes = approved + paidAbsenceMinutes;
           const cost = (payrollMinutes / 60) * Number(e.hourly_rate || 0);
           const vacationTotal = Number(e.vacation_days ?? e.annual_vacation_days ?? 0);
@@ -3533,14 +3559,14 @@ function Times(p: any) {
     .map((employee: Row) => {
       const employeeName = String(employee.name || "");
       const employeeRows = approvedSessionRows.filter((entry: Row) => String(entry.employee_name || "") === employeeName);
-      const approvedMinutes = totalPayableMinutes(employeeRows);
+      const approvedMinutes = approvedWorkMinutesForEmployeeMonth(p.rows || [], employeeName, selectedMonth);
       const planned = plannedMinutesForEmployeeMonth(p.tasks || [], employeeName, selectedMonth);
       const worked = workedMinutesForEmployeeMonth(p.rows || [], employeeName, selectedMonth);
       const vacationDays = absenceDayCountForMonth(p.absences || [], employeeName, isVacationAbsence, selectedMonth);
       const sickDays = absenceDayCountForMonth(p.absences || [], employeeName, isSickAbsence, selectedMonth);
       const paidFreeDays = absenceDayCountForMonth(p.absences || [], employeeName, isPaidFreeAbsence, selectedMonth);
       const unpaidDays = absenceDayCountForMonth(p.absences || [], employeeName, isUnpaidAbsence, selectedMonth);
-      const paidAbsenceMinutes = monthlyAbsenceMinutes(p.absences || [], employeeName, selectedMonth, isPaidAbsence);
+      const paidAbsenceMinutes = monthlyAbsenceMinutes(p.rows || [], employeeName, selectedMonth, isPaidAbsence);
       const totalMinutes = approvedMinutes + paidAbsenceMinutes;
       const overtimeMinutes = Math.max(0, approvedMinutes - planned);
       const hourlyRate = Number(employee.hourly_rate || 0);
