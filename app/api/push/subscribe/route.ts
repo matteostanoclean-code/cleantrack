@@ -119,6 +119,7 @@ export async function POST(request: Request) {
         endpoint: subscription.endpoint,
         p256dh,
         auth,
+        subscription,
       },
       {
         onConflict: "endpoint",

@@ -269,6 +269,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [clockNotice, setClockNotice] = useState("");
   const [pushNotice, setPushNotice] = useState("");
   const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const autoClockOutRef = useRef(false);
   const lastOvertimeRequestRef = useRef("");
 
@@ -301,14 +302,63 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     return outputArray;
   }
 
+  async function savePushSubscription(subscription: PushSubscription) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+    const response = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ subscription }),
+    });
+
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.error || "Push konnte nicht aktiviert werden.");
+
+    setPushEnabled(true);
+    return true;
+  }
+
+  async function getPushRegistration() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setPushSupported(false);
+      return null;
+    }
+
+    setPushSupported(true);
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    return registration;
+  }
+
+  async function checkPushSubscription(silent = true) {
+    if (typeof window === "undefined") return;
+
+    try {
+      const registration = await getPushRegistration();
+      if (!registration) return;
+
+      if (Notification.permission === "granted") {
+        const existing = await registration.pushManager.getSubscription();
+        if (existing) {
+          await savePushSubscription(existing);
+          if (!silent) setPushNotice("Push-Benachrichtigungen sind aktiv.");
+          return;
+        }
+      }
+
+      setPushEnabled(false);
+      if (!silent && Notification.permission === "denied") {
+        setPushNotice("Push wurde im Browser blockiert. Bitte in den Browser-/App-Einstellungen erlauben.");
+      }
+    } catch {
+      setPushEnabled(false);
+      if (!silent) setPushNotice("Push-Status konnte nicht geprüft werden.");
+    }
+  }
+
   async function activatePushNotifications() {
     setPushNotice("");
-
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-      setPushNotice("Push wird auf diesem Gerät nicht unterstützt.");
-      setPushSupported(false);
-      return;
-    }
 
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!publicKey) {
@@ -317,46 +367,48 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     }
 
     try {
+      const registration = await getPushRegistration();
+      if (!registration) {
+        setPushNotice("Push wird auf diesem Gerät nicht unterstützt.");
+        return;
+      }
+
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
+        setPushEnabled(false);
         setPushNotice("Push wurde nicht erlaubt.");
         return;
       }
 
-      const registration = await navigator.serviceWorker.register("/sw.js");
       const existing = await registration.pushManager.getSubscription();
       const subscription = existing || await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
 
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
-
-      const response = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ subscription }),
-      });
-
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error || "Push konnte nicht aktiviert werden.");
-
-      setPushSupported(true);
+      await savePushSubscription(subscription);
       setPushNotice("Push-Benachrichtigungen sind aktiv.");
     } catch (error) {
+      setPushEnabled(false);
       setPushNotice(error instanceof Error ? error.message : "Push konnte nicht aktiviert werden.");
     }
   }
+
 
   useEffect(() => {
     checkExistingSession();
   }, []);
 
   useEffect(() => {
-    setPushSupported(typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
+    if (typeof window === "undefined") return;
+    setPushSupported("serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
+    checkPushSubscription(true);
   }, []);
+
+  useEffect(() => {
+    if (!loggedIn || !name) return;
+    checkPushSubscription(true);
+  }, [loggedIn, name]);
 
   useEffect(() => {
     if (!loggedIn || !name) return;
@@ -1027,6 +1079,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             refresh={() => name && loadAllData(name)}
             openTab={openTab}
             pushSupported={pushSupported}
+            pushEnabled={pushEnabled}
             pushNotice={pushNotice}
             activatePush={activatePushNotifications}
           />
@@ -1174,6 +1227,7 @@ function HomeScreen(props: {
   refresh: () => void;
   openTab: (tab: Tab) => void;
   pushSupported: boolean;
+  pushEnabled: boolean;
   pushNotice: string;
   activatePush: () => void;
 }) {
@@ -1239,10 +1293,10 @@ function HomeScreen(props: {
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="font-black">Benachrichtigungen</p>
-            <p className="mt-1 text-xs font-bold text-slate-400">Ich erhalte Infos zu Einsätzen, Änderungen und Freigaben.</p>
+            <p className="mt-1 text-xs font-bold text-slate-400">{props.pushEnabled ? "Push ist aktiv und bleibt gespeichert." : "Ich erhalte Infos zu Einsätzen, Änderungen und Freigaben."}</p>
           </div>
-          <button type="button" onClick={props.activatePush} className="rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50" disabled={!props.pushSupported}>
-            Aktivieren
+          <button type="button" onClick={props.activatePush} className={`rounded-2xl px-4 py-3 text-xs font-black disabled:opacity-50 ${props.pushEnabled ? "bg-emerald-100 text-emerald-700" : "bg-blue-600 text-white"}`} disabled={!props.pushSupported}>
+            {props.pushEnabled ? "Aktiv" : "Aktivieren"}
           </button>
         </div>
         {props.pushNotice && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-bold text-slate-500">{props.pushNotice}</p>}
