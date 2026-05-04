@@ -267,6 +267,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [loadingData, setLoadingData] = useState(false);
   const [clockSaving, setClockSaving] = useState(false);
   const [clockNotice, setClockNotice] = useState("");
+  const [pushNotice, setPushNotice] = useState("");
+  const [pushSupported, setPushSupported] = useState(false);
   const autoClockOutRef = useRef(false);
   const lastOvertimeRequestRef = useRef("");
 
@@ -286,8 +288,74 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const selectedTask = todayAssignments.find((task) => task.id === selectedTaskId) || todayAssignments.find((task) => !task.done) || todayAssignments[0] || null;
   const selectedSite = selectedTask ? workSites.find((site) => site.id === selectedTask.work_site_id || site.name === selectedTask.site) || null : null;
 
+  function urlBase64ToUint8Array(base64String: string) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; i += 1) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+
+    return outputArray;
+  }
+
+  async function activatePushNotifications() {
+    setPushNotice("");
+
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setPushNotice("Push wird auf diesem Gerät nicht unterstützt.");
+      setPushSupported(false);
+      return;
+    }
+
+    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!publicKey) {
+      setPushNotice("Push-Schlüssel fehlt.");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushNotice("Push wurde nicht erlaubt.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
+
+      const response = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ subscription }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Push konnte nicht aktiviert werden.");
+
+      setPushSupported(true);
+      setPushNotice("Push-Benachrichtigungen sind aktiv.");
+    } catch (error) {
+      setPushNotice(error instanceof Error ? error.message : "Push konnte nicht aktiviert werden.");
+    }
+  }
+
   useEffect(() => {
     checkExistingSession();
+  }, []);
+
+  useEffect(() => {
+    setPushSupported(typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
   }, []);
 
   useEffect(() => {
@@ -958,6 +1026,9 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             loadingData={loadingData}
             refresh={() => name && loadAllData(name)}
             openTab={openTab}
+            pushSupported={pushSupported}
+            pushNotice={pushNotice}
+            activatePush={activatePushNotifications}
           />
         )}
 
@@ -1102,6 +1173,9 @@ function HomeScreen(props: {
   loadingData: boolean;
   refresh: () => void;
   openTab: (tab: Tab) => void;
+  pushSupported: boolean;
+  pushNotice: string;
+  activatePush: () => void;
 }) {
   const quickLinks = [
     { icon: "📊", title: "Einsatzübersicht", text: "Übersicht aller Einsätze für heute", tab: "schedule" as Tab, bg: "bg-blue-50" },
@@ -1159,6 +1233,19 @@ function HomeScreen(props: {
             <p className="mt-1 text-sm text-slate-400">Antippen und Einsätze ansehen.</p>
           </button>
         )}
+      </div>
+
+      <div className="mt-5 rounded-[24px] border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-black">Benachrichtigungen</p>
+            <p className="mt-1 text-xs font-bold text-slate-400">Ich erhalte Infos zu Einsätzen, Änderungen und Freigaben.</p>
+          </div>
+          <button type="button" onClick={props.activatePush} className="rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50" disabled={!props.pushSupported}>
+            Aktivieren
+          </button>
+        </div>
+        {props.pushNotice && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-bold text-slate-500">{props.pushNotice}</p>}
       </div>
 
       <h2 className="mt-7 text-sm font-black">Schnellzugriffe</h2>

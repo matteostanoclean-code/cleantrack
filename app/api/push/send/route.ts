@@ -76,10 +76,13 @@ async function requireAdmin(request: Request) {
     .eq("auth_user_id", userData.user.id)
     .single();
 
-  if (profileError || profile?.role !== "admin") {
+  const role = String(profile?.role || "").trim().toLowerCase();
+  const allowed = role === "admin" || role === "objektleiter" || role === "object_lead" || role === "objectleader";
+
+  if (profileError || !allowed) {
     return {
       error: NextResponse.json(
-        { error: "Kein Zugriff. Nur Admins dürfen Push senden." },
+        { error: "Kein Zugriff. Nur Admins oder Objektleiter dürfen Push senden." },
         { status: 403 }
       ),
       supabaseAdmin: null,
@@ -136,10 +139,12 @@ export async function POST(request: Request) {
     }
 
     if (!subscriptions || subscriptions.length === 0) {
-      return NextResponse.json(
-        { error: "Keine Push-Registrierung für diesen Mitarbeiter gefunden." },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        success: true,
+        sent: 0,
+        failed: 0,
+        message: "Keine Push-Registrierung vorhanden. Interne Meldung wurde trotzdem gespeichert.",
+      });
     }
 
     const payload = JSON.stringify({

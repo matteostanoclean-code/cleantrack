@@ -230,21 +230,33 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, message: "Für diesen Einsatz wartet bereits eine Überstundenanfrage auf Freigabe." });
       }
 
-      const { error: requestError } = await supabaseAdmin.from("admin_notifications").insert([
+      const notificationPayload = {
+        employee_name: profile.name,
+        title: "Überstunden angefragt",
+        message: `${profile.name} fragt ${overtimeMinutes} Minuten Überstunden für ${task.site || site?.name || "einen Einsatz"} an.`,
+        notification_type: "overtime_request",
+        status: "open",
+        overtime_minutes: overtimeMinutes,
+        task_id: task.id,
+        work_site_id: task.work_site_id || null,
+        site: task.site || site?.name || null,
+      };
+
+      const { error: requestError } = await supabaseAdmin.from("admin_notifications").insert([notificationPayload]);
+
+      if (requestError) return NextResponse.json({ error: requestError.message }, { status: 500 });
+
+      await supabaseAdmin.from("chat_messages").insert([
         {
           employee_name: profile.name,
-          title: "Überstunden angefragt",
-          message: `${profile.name} fragt ${overtimeMinutes} Minuten Überstunden für ${task.site || site?.name || "einen Einsatz"} an.`,
-          notification_type: "overtime_request",
-          status: "open",
-          overtime_minutes: overtimeMinutes,
-          task_id: task.id,
-          work_site_id: task.work_site_id || null,
-          site: task.site || site?.name || null,
+          sender_role: "employee",
+          sender_name: profile.name,
+          message: `Überstunden angefragt: ${overtimeMinutes} Minuten für ${task.site || site?.name || "einen Einsatz"}.`,
+          read_by_admin: false,
+          read_by_employee: true,
         },
       ]);
 
-      if (requestError) return NextResponse.json({ error: requestError.message }, { status: 500 });
       return NextResponse.json({ success: true, message: "Überstundenanfrage wurde gesendet." });
     }
 

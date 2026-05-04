@@ -926,6 +926,75 @@ export default function AdminPage() {
     };
   }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences]);
 
+  async function sendPushToEmployee(employeeName: string, title: string, messageText: string, url = "/mitarbeiter") {
+    const cleanName = String(employeeName || "").trim();
+    if (!cleanName) return;
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+
+      await fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          employeeName: cleanName,
+          title,
+          message: messageText,
+          url,
+        }),
+      });
+    } catch {
+      // Push ist nur Zusatz. Die interne Meldung bleibt trotzdem gespeichert.
+    }
+  }
+
+  async function notifyEmployee(employeeName: string, title: string, messageText: string, type = "system", url = "/mitarbeiter") {
+    const cleanName = String(employeeName || "").trim();
+    if (!cleanName) return;
+
+    await adminCall({
+      action: "insert",
+      table: "admin_notifications",
+      payload: [{
+        employee_name: cleanName,
+        title,
+        message: messageText,
+        notification_type: type,
+        status: "open",
+      }],
+    });
+
+    await adminCall({
+      action: "insert",
+      table: "chat_messages",
+      payload: [{
+        employee_name: cleanName,
+        sender_role: "admin",
+        sender_name: "CleanTrack",
+        message: `${title}: ${messageText}`,
+        read_by_admin: true,
+        read_by_employee: false,
+      }],
+    });
+
+    await sendPushToEmployee(cleanName, title, messageText, url);
+  }
+
+  async function notifyEmployeesFromTasks(rows: Row[], title: string, getMessage: (row: Row) => string, type = "assignment") {
+    const unique = new Map<string, Row>();
+    for (const row of rows) {
+      const employeeName = String(row.employee_name || "").trim();
+      if (!employeeName || row.notify_employee === false) continue;
+      unique.set(`${employeeName}-${row.id || row.task_date || Math.random()}`, row);
+    }
+
+    for (const row of unique.values()) {
+      await notifyEmployee(String(row.employee_name || ""), title, getMessage(row), type, "/mitarbeiter");
+    }
+  }
+
   async function insertOrUpdate(table: string, id: string, payload: Row) {
     setSaving(true);
     setMessage("");
@@ -1249,6 +1318,14 @@ export default function AdminPage() {
         schedule_type: "once",
       };
       await insertOrUpdate("tasks", taskForm.id, payload);
+      if (payload.employee_name && payload.notify_employee !== false) {
+        await notifyEmployee(
+          String(payload.employee_name),
+          taskForm.id ? "Aufgabe geändert" : "Neue Aufgabe",
+          `${payload.title || "Aufgabe"} bei ${payload.site || "einem Objekt"} wurde ${taskForm.id ? "geändert" : "erstellt"}.`,
+          taskForm.id ? "task_updated" : "task_created"
+        );
+      }
       return;
     }
 
@@ -1310,7 +1387,16 @@ const basePayload = {
     };
 
     if (taskForm.id || taskForm.repeat_mode !== "repeat") {
-      await insertOrUpdate("tasks", taskForm.id, { ...basePayload, task_date: taskForm.task_date, due_date: taskForm.task_date });
+      const savedPayload = { ...basePayload, task_date: taskForm.task_date, due_date: taskForm.task_date };
+      await insertOrUpdate("tasks", taskForm.id, savedPayload);
+      if (savedPayload.employee_name && savedPayload.notify_employee !== false) {
+        await notifyEmployee(
+          String(savedPayload.employee_name),
+          taskForm.id ? "Einsatz geändert" : "Neuer Einsatz",
+          `${dateText(savedPayload.task_date)} · ${savedPayload.start_time || "--:--"} - ${savedPayload.end_time || "--:--"} · ${savedPayload.site || "Objekt"} · ${savedPayload.title || "Einsatz"}`,
+          taskForm.id ? "assignment_updated" : "assignment_created"
+        );
+      }
       return;
     }
 
@@ -1319,16 +1405,23 @@ const basePayload = {
     setSaving(true);
     setMessage("");
     try {
+      const repeatedPayload = dates.map((date) => ({
+        ...basePayload,
+        task_date: date,
+        due_date: date,
+        recurrence_group_id: recurrenceGroupId,
+      }));
       await adminCall({
         action: "insert",
         table: "tasks",
-        payload: dates.map((date) => ({
-          ...basePayload,
-          task_date: date,
-          due_date: date,
-          recurrence_group_id: recurrenceGroupId,
-        })),
+        payload: repeatedPayload,
       });
+      await notifyEmployeesFromTasks(
+        repeatedPayload,
+        "Neue wiederkehrende Einsätze",
+        (row) => `${dates.length} Einsätze geplant. Nächster Einsatz: ${dateText(row.task_date)} · ${row.start_time || "--:--"} - ${row.end_time || "--:--"} · ${row.site || "Objekt"}`,
+        "assignment_created"
+      );
       setMessage(`${dates.length} Einsatz/Einsätze gespeichert.`);
       if (taskForm.create_another) {
         setTaskForm((old: any) => ({ ...createEmptyTaskForm("einsatz"), customer_id: old.customer_id, customer_name: old.customer_name, work_site_id: old.work_site_id, site: old.site, employee_name: old.employee_name }));
@@ -1377,6 +1470,23 @@ const basePayload = {
           employee_name: nextEmployee || null,
         },
       });
+      if (nextEmployee) {
+        await notifyEmployee(
+          nextEmployee,
+          "Schicht zugewiesen",
+          `${dateText(taskDate)} · ${row.start_time || "--:--"} - ${row.end_time || "--:--"} · ${row.site || "Objekt"} wurde dir zugewiesen.`,
+          "assignment_reassigned"
+        );
+      }
+      const oldEmployee = String(row.employee_name || "").trim();
+      if (oldEmployee && oldEmployee !== nextEmployee) {
+        await notifyEmployee(
+          oldEmployee,
+          "Schicht geändert",
+          `${dateText(taskDate)} · ${row.start_time || "--:--"} - ${row.end_time || "--:--"} · ${row.site || "Objekt"} ist nicht mehr dir zugewiesen.`,
+          "assignment_reassigned"
+        );
+      }
       setMessage(nextEmployee ? `Einsatz wurde auf ${nextEmployee} verschoben.` : "Einsatz wurde auf ungeplant gesetzt.");
       await loadAll();
     } catch (error) {
@@ -1635,6 +1745,9 @@ const basePayload = {
         });
       }
 
+      if (employeeName) {
+        await sendPushToEmployee(employeeName, title, messageText, "/mitarbeiter");
+      }
       setMessage(`Abwesenheit ${label}. Mitarbeiter wurde benachrichtigt.`);
       await loadAll();
     } catch (error) {
