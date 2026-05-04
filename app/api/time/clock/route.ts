@@ -411,12 +411,16 @@ export async function POST(request: Request) {
 
       const worked = calculateWorkedMinutes({ ...activeEntry, pause_minutes: pauseMinutes, pause_started_at: null, check_out_at: nowIso }, nowIso);
       const payroll = Math.min(max, worked);
+      const isGpsAutoClockOut = body.reason === "left_geofence";
+      const isWithinApprovedLimit = max > 0 && worked <= max && !isGpsAutoClockOut;
+      const nextStatus = isGpsAutoClockOut ? "auto_closed" : isWithinApprovedLimit ? "approved" : "open";
 
       const { error: updateError } = await supabaseAdmin
         .from("time_entries")
         .update({
           action: "end",
-          status: autoClockOut ? "auto_closed" : "open",
+          status: nextStatus,
+          approved: isWithinApprovedLimit,
           auto_clock_out: autoClockOut,
           reason: body.reason || activeEntry.reason || "manual",
           check_out_at: nowIso,
@@ -451,7 +455,8 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: autoClockOut ? "Arbeitszeit automatisch beendet." : "Arbeitszeit beendet.",
-        status: autoClockOut ? "auto_closed" : "open",
+        status: nextStatus,
+        approved: isWithinApprovedLimit,
         worked_minutes: worked,
         payroll_minutes: payroll,
       });

@@ -5,7 +5,7 @@ import type { ReactNode, RefObject } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Status = "none" | "working" | "break";
-type Tab = "home" | "tasks" | "clock" | "timesheet" | "schedule" | "search" | "chat" | "profile" | "absence" | "material" | "quality" | "admin";
+type Tab = "home" | "tasks" | "clock" | "timesheet" | "schedule" | "search" | "chat" | "profile" | "absence" | "material" | "admin";
 
 type EmployeeProfile = {
   id: string;
@@ -242,12 +242,6 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialNotes, setMaterialNotes] = useState("");
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
-  const [qualityTask, setQualityTask] = useState<Task | null>(null);
-  const [qualityChecked, setQualityChecked] = useState<string[]>([]);
-  const [qualityNotes, setQualityNotes] = useState("");
-  const [qualityPhotoUrl, setQualityPhotoUrl] = useState("");
-  const [qualitySaving, setQualitySaving] = useState(false);
-  const [qualityMessage, setQualityMessage] = useState("");
   const [absenceType, setAbsenceType] = useState("Urlaub");
   const [absenceStartDate, setAbsenceStartDate] = useState(todayISO());
   const [absenceEndDate, setAbsenceEndDate] = useState(todayISO());
@@ -946,71 +940,6 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     }
   }
 
-  const qualityChecklist = [
-    "Eingangsbereich kontrolliert",
-    "Treppenhaus gereinigt",
-    "Geländer / Handläufe gereinigt",
-    "Müll / grobe Verschmutzung entfernt",
-    "Abschlusskontrolle durchgeführt",
-  ];
-
-  function openQualityReport(task?: Task | null) {
-    const selected = task || selectedTask || todayAssignments[0] || null;
-    setQualityTask(selected);
-    setQualityChecked([]);
-    setQualityNotes("");
-    setQualityPhotoUrl("");
-    setQualityMessage("");
-    openTab("quality");
-  }
-
-  async function submitQualityReport() {
-    setQualityMessage("");
-
-    if (!qualityTask) {
-      setQualityMessage("Bitte zuerst einen Einsatz auswählen.");
-      return;
-    }
-
-    if (qualityChecked.length === 0) {
-      setQualityMessage("Bitte mindestens einen Punkt abhaken.");
-      return;
-    }
-
-    setQualitySaving(true);
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Sitzung fehlt. Bitte neu einloggen.");
-
-      const response = await fetch("/api/quality/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          task_id: qualityTask.id,
-          site: qualityTask.site,
-          work_site_id: qualityTask.work_site_id,
-          checked_items: qualityChecked,
-          total_items: qualityChecklist.length,
-          notes: qualityNotes,
-          photo_url: qualityPhotoUrl,
-        }),
-      });
-
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error || "Qualitätsnachweis konnte nicht gespeichert werden.");
-
-      setQualityMessage(json.message || "Qualitätsnachweis wurde gespeichert.");
-      setQualityNotes("");
-      setQualityPhotoUrl("");
-      setQualityChecked([]);
-    } catch (error) {
-      setQualityMessage(error instanceof Error ? error.message : "Qualitätsnachweis konnte nicht gespeichert werden.");
-    } finally {
-      setQualitySaving(false);
-    }
-  }
-
   async function submitMaterialReport() {
     setMaterialMessage("");
 
@@ -1216,11 +1145,6 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
               setSelectedAssignment(null);
               openTab("material");
             }}
-            reportQuality={(task) => {
-              setQualityTask(task);
-              setSelectedAssignment(null);
-              openQualityReport(task);
-            }}
             openTab={openTab}
           />
         )}
@@ -1274,25 +1198,6 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
           />
         )}
 
-        {activeTab === "quality" && (
-          <QualityReportScreen
-            tasks={todayAssignments}
-            selectedTask={qualityTask}
-            setSelectedTask={setQualityTask}
-            checklist={qualityChecklist}
-            checked={qualityChecked}
-            setChecked={setQualityChecked}
-            notes={qualityNotes}
-            setNotes={setQualityNotes}
-            photoUrl={qualityPhotoUrl}
-            setPhotoUrl={setQualityPhotoUrl}
-            saving={qualitySaving}
-            message={qualityMessage}
-            submit={submitQualityReport}
-            openTab={openTab}
-          />
-        )}
-
         {activeTab === "admin" && (
           <SimplePage title="Admin" openTab={openTab}>
             {role === "admin" ? (
@@ -1332,7 +1237,6 @@ function HomeScreen(props: {
     { icon: "📄", title: "Stundenzettel", text: "Monatsstunden und Status prüfen", tab: "timesheet" as Tab, bg: "bg-slate-50" },
     { icon: "🌴", title: "Abwesenheit", text: "Urlaub oder Krankheit melden", tab: "absence" as Tab, bg: "bg-emerald-50" },
     { icon: "📦", title: "Materialmeldung", text: "Leeres Material am Objekt melden", tab: "material" as Tab, bg: "bg-orange-50" },
-    { icon: "📸", title: "Qualitätsnachweis", text: "Checkliste abhaken und Nachweis senden", tab: "quality" as Tab, bg: "bg-indigo-50" },
     { icon: "📋", title: "Aufgaben", text: "Aufgaben ansehen und abhaken", tab: "tasks" as Tab, bg: "bg-purple-50" },
   ];
 
@@ -1736,7 +1640,6 @@ function ScheduleScreen({
   closeAssignment,
   startAssignment,
   reportMaterial,
-  reportQuality,
   openTab,
 }: {
   tasks: Task[];
@@ -1746,7 +1649,6 @@ function ScheduleScreen({
   closeAssignment: () => void;
   startAssignment: (task: Task) => void;
   reportMaterial: (task: Task) => void;
-  reportQuality: (task: Task) => void;
   openTab: (tab: Tab) => void;
 }) {
   const today = todayISO();
@@ -1792,7 +1694,6 @@ function ScheduleScreen({
           <div className="mt-5 grid gap-3">
             <button type="button" onClick={() => startAssignment(selectedAssignment)} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white">Zum Einstempeln</button>
             <button type="button" onClick={() => reportMaterial(selectedAssignment)} className="w-full rounded-2xl bg-orange-50 py-4 font-black text-orange-700">Material zu diesem Objekt melden</button>
-            <button type="button" onClick={() => reportQuality(selectedAssignment)} className="w-full rounded-2xl bg-indigo-50 py-4 font-black text-indigo-700">Qualitätsnachweis ausfüllen</button>
             <button type="button" onClick={closeAssignment} className="w-full rounded-2xl border border-slate-200 bg-white py-4 font-black text-slate-600">Zurück zu Einsätzen</button>
           </div>
         </div>
@@ -1937,70 +1838,6 @@ function AbsenceRequestScreen(props: {
             </div>
           );
         })}
-      </div>
-    </SimplePage>
-  );
-}
-
-function QualityReportScreen(props: {
-  tasks: Task[];
-  selectedTask: Task | null;
-  setSelectedTask: (task: Task | null) => void;
-  checklist: string[];
-  checked: string[];
-  setChecked: (items: string[]) => void;
-  notes: string;
-  setNotes: (value: string) => void;
-  photoUrl: string;
-  setPhotoUrl: (value: string) => void;
-  saving: boolean;
-  message: string;
-  submit: () => void;
-  openTab: (tab: Tab) => void;
-}) {
-  function toggleItem(item: string) {
-    if (props.checked.includes(item)) {
-      props.setChecked(props.checked.filter((value) => value !== item));
-      return;
-    }
-    props.setChecked([...props.checked, item]);
-  }
-
-  const progress = props.checklist.length ? Math.round((props.checked.length / props.checklist.length) * 100) : 0;
-
-  return (
-    <SimplePage title="Qualitätsnachweis" openTab={props.openTab}>
-      <div className="rounded-[26px] bg-white p-5 shadow-sm border border-slate-100">
-        <p className="text-sm font-black text-slate-400">Einsatz auswählen</p>
-        <select className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" value={props.selectedTask?.id || ""} onChange={(event) => props.setSelectedTask(props.tasks.find((task) => task.id === event.target.value) || null)}>
-          <option value="">Einsatz auswählen</option>
-          {props.tasks.map((task) => <option key={task.id} value={task.id}>{formatClock(task.start_time)} - {formatClock(task.end_time)} · {task.site || "Objekt"}</option>)}
-        </select>
-
-        {props.selectedTask && <div className="mt-4 rounded-2xl bg-indigo-50 p-4 text-sm font-bold text-indigo-800">{props.selectedTask.site || "Objekt"} · {props.selectedTask.title}</div>}
-
-        <div className="mt-5">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="font-black">Checkliste</p>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{progress}%</span>
-          </div>
-          <div className="space-y-3">
-            {props.checklist.map((item) => (
-              <button key={item} type="button" onClick={() => toggleItem(item)} className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left font-bold ${props.checked.includes(item) ? "border-indigo-200 bg-indigo-50 text-indigo-800" : "border-slate-100 bg-slate-50 text-slate-600"}`}>
-                <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-black ${props.checked.includes(item) ? "bg-indigo-600 text-white" : "bg-white text-slate-300"}`}>{props.checked.includes(item) ? "✓" : ""}</span>
-                <span>{item}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <textarea className="mt-5 min-h-[100px] w-full rounded-2xl bg-slate-50 px-4 py-4 outline-none" value={props.notes} onChange={(event) => props.setNotes(event.target.value)} placeholder="Notiz, Besonderheiten oder Reklamation" />
-        <input className="mt-3 w-full rounded-2xl bg-slate-50 px-4 py-4 outline-none" value={props.photoUrl} onChange={(event) => props.setPhotoUrl(event.target.value)} placeholder="Foto-Link optional" />
-
-        <button type="button" disabled={props.saving} onClick={props.submit} className="mt-5 w-full rounded-2xl bg-indigo-600 py-4 font-black text-white disabled:opacity-60">
-          {props.saving ? "Wird gespeichert..." : "Nachweis speichern"}
-        </button>
-        {props.message && <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-600">{props.message}</p>}
       </div>
     </SimplePage>
   );
