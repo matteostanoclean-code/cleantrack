@@ -346,12 +346,19 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialCart, setMaterialCart] = useState<Record<string, number>>({});
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
-  const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material">("today");
+  const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material" | "assignment">("today");
   const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; materialReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], materialReports: [], materials: [], sites: [] });
   const [adminMaterialSiteId, setAdminMaterialSiteId] = useState("");
   const [adminMaterialName, setAdminMaterialName] = useState("");
   const [adminMaterialUnit, setAdminMaterialUnit] = useState("Stk.");
   const [adminMaterialCategory, setAdminMaterialCategory] = useState("Artikel ohne Gruppe");
+  const [adminAssignmentSiteId, setAdminAssignmentSiteId] = useState("");
+  const [adminAssignmentEmployeeName, setAdminAssignmentEmployeeName] = useState("");
+  const [adminAssignmentDate, setAdminAssignmentDate] = useState(todayISO());
+  const [adminAssignmentStart, setAdminAssignmentStart] = useState("08:00");
+  const [adminAssignmentEnd, setAdminAssignmentEnd] = useState("09:00");
+  const [adminAssignmentPlanned, setAdminAssignmentPlanned] = useState("60");
+  const [adminAssignmentNotes, setAdminAssignmentNotes] = useState("");
   const [adminMobileMessage, setAdminMobileMessage] = useState("");
   const [adminMobileSaving, setAdminMobileSaving] = useState(false);
   const [absenceType, setAbsenceType] = useState("Urlaub");
@@ -757,6 +764,64 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       setAdminMobileMessage("Materialmeldung wurde erledigt.");
     } catch (error) {
       setAdminMobileMessage(error instanceof Error ? error.message : "Materialmeldung konnte nicht erledigt werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  async function createMobileAssignment() {
+    setAdminMobileMessage("");
+
+    if (!adminAssignmentSiteId) {
+      setAdminMobileMessage("Bitte Objekt auswählen.");
+      return;
+    }
+
+    if (!adminAssignmentEmployeeName) {
+      setAdminMobileMessage("Bitte Mitarbeiter auswählen.");
+      return;
+    }
+
+    if (!adminAssignmentDate || !adminAssignmentStart || !adminAssignmentEnd) {
+      setAdminMobileMessage("Bitte Datum und Zeitfenster eintragen.");
+      return;
+    }
+
+    const site = adminMobileData.sites.find((item) => item.id === adminAssignmentSiteId) || workSites.find((item) => item.id === adminAssignmentSiteId);
+    const planned = Math.max(1, Number(adminAssignmentPlanned || 0));
+
+    setAdminMobileSaving(true);
+    try {
+      await adminApi({
+        action: "insert",
+        table: "tasks",
+        payload: {
+          title: site?.name ? `Einsatz ${site.name}` : "Einsatz",
+          item_type: "assignment",
+          task_type: "assignment",
+          task_date: adminAssignmentDate,
+          due_date: adminAssignmentDate,
+          start_time: adminAssignmentStart,
+          end_time: adminAssignmentEnd,
+          planned_minutes: planned,
+          max_minutes: planned,
+          employee_name: adminAssignmentEmployeeName,
+          work_site_id: adminAssignmentSiteId,
+          site: site?.name || null,
+          customer_name: site?.customer_name || null,
+          status: "open",
+          done: false,
+          notes: adminAssignmentNotes || null,
+          priority: "Normal",
+        },
+      });
+
+      setAdminAssignmentNotes("");
+      await loadMobileAdminData(true);
+      if (name) await loadTasks(name);
+      setAdminMobileMessage("Einsatz wurde erstellt.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Einsatz konnte nicht erstellt werden.");
     } finally {
       setAdminMobileSaving(false);
     }
@@ -1492,6 +1557,21 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             materialCategory={adminMaterialCategory}
             setMaterialCategory={setAdminMaterialCategory}
             createMaterial={createObjectMaterial}
+            assignmentSiteId={adminAssignmentSiteId}
+            setAssignmentSiteId={setAdminAssignmentSiteId}
+            assignmentEmployeeName={adminAssignmentEmployeeName}
+            setAssignmentEmployeeName={setAdminAssignmentEmployeeName}
+            assignmentDate={adminAssignmentDate}
+            setAssignmentDate={setAdminAssignmentDate}
+            assignmentStart={adminAssignmentStart}
+            setAssignmentStart={setAdminAssignmentStart}
+            assignmentEnd={adminAssignmentEnd}
+            setAssignmentEnd={setAdminAssignmentEnd}
+            assignmentPlanned={adminAssignmentPlanned}
+            setAssignmentPlanned={setAdminAssignmentPlanned}
+            assignmentNotes={adminAssignmentNotes}
+            setAssignmentNotes={setAdminAssignmentNotes}
+            createAssignment={createMobileAssignment}
             openTab={openTab}
           />
         )}
@@ -2468,8 +2548,8 @@ function SimplePage({ title, children, openTab, searchPlaceholder }: { title: st
 function AdminMobileScreen(props: {
   role: string;
   data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; materialReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] };
-  tab: "today" | "approval" | "material";
-  setTab: (value: "today" | "approval" | "material") => void;
+  tab: "today" | "approval" | "material" | "assignment";
+  setTab: (value: "today" | "approval" | "material" | "assignment") => void;
   message: string;
   saving: boolean;
   refresh: () => void;
@@ -2484,6 +2564,21 @@ function AdminMobileScreen(props: {
   materialCategory: string;
   setMaterialCategory: (value: string) => void;
   createMaterial: () => void;
+  assignmentSiteId: string;
+  setAssignmentSiteId: (value: string) => void;
+  assignmentEmployeeName: string;
+  setAssignmentEmployeeName: (value: string) => void;
+  assignmentDate: string;
+  setAssignmentDate: (value: string) => void;
+  assignmentStart: string;
+  setAssignmentStart: (value: string) => void;
+  assignmentEnd: string;
+  setAssignmentEnd: (value: string) => void;
+  assignmentPlanned: string;
+  setAssignmentPlanned: (value: string) => void;
+  assignmentNotes: string;
+  setAssignmentNotes: (value: string) => void;
+  createAssignment: () => void;
   openTab: (tab: Tab) => void;
 }) {
   const canAdmin = props.role === "admin" || props.role === "objektleiter";
@@ -2511,10 +2606,11 @@ function AdminMobileScreen(props: {
         <div className="flex gap-2 overflow-x-auto pb-1">
           {[
             ["today", "Heute"],
+            ["assignment", "Einsatz"],
             ["approval", "Zeitenfreigabe"],
             ["material", "Material"],
           ].map(([id, label]) => (
-            <button key={id} type="button" onClick={() => props.setTab(id as "today" | "approval" | "material")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${props.tab === id ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-100"}`}>{label}</button>
+            <button key={id} type="button" onClick={() => props.setTab(id as "today" | "approval" | "material" | "assignment")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${props.tab === id ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-100"}`}>{label}</button>
           ))}
           <button type="button" onClick={props.refresh} className="ml-auto shrink-0 rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-500">↻</button>
         </div>
@@ -2543,6 +2639,74 @@ function AdminMobileScreen(props: {
                       </div>
                       <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</span>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {props.tab === "assignment" && (
+          <div className="space-y-4">
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Einsatz erstellen</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">Schnellplanung direkt am Handy.</p>
+
+              <label className="mt-4 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Objekt</span>
+                <select value={props.assignmentSiteId} onChange={(e) => props.setAssignmentSiteId(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                  <option value="">Objekt auswählen</option>
+                  {props.data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+                </select>
+              </label>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Mitarbeiter</span>
+                <select value={props.assignmentEmployeeName} onChange={(e) => props.setAssignmentEmployeeName(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                  <option value="">Mitarbeiter auswählen</option>
+                  {props.data.employees.filter((employee) => employee.active !== false && String(employee.role || "").toLowerCase() !== "admin").map((employee) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
+                </select>
+              </label>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Datum</span>
+                  <input type="date" value={props.assignmentDate} onChange={(e) => props.setAssignmentDate(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Planzeit Min.</span>
+                  <input type="number" min="1" value={props.assignmentPlanned} onChange={(e) => props.setAssignmentPlanned(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Von</span>
+                  <input type="time" value={props.assignmentStart} onChange={(e) => props.setAssignmentStart(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Bis</span>
+                  <input type="time" value={props.assignmentEnd} onChange={(e) => props.setAssignmentEnd(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+              </div>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Hinweis</span>
+                <textarea value={props.assignmentNotes} onChange={(e) => props.setAssignmentNotes(e.target.value)} placeholder="Optional" className="mt-2 min-h-20 w-full bg-transparent text-lg font-semibold outline-none placeholder:text-slate-300" />
+              </label>
+
+              <button type="button" disabled={props.saving} onClick={props.createAssignment} className="mt-4 w-full rounded-2xl bg-blue-600 py-5 text-lg font-black text-white disabled:bg-slate-200">
+                {props.saving ? "Wird gespeichert..." : "+ Einsatz erstellen"}
+              </button>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Letzte Einsätze</h2>
+              <div className="mt-4 space-y-3">
+                {props.data.tasks.slice(0, 8).map((task) => (
+                  <div key={task.id} className="rounded-2xl border border-slate-100 p-4">
+                    <p className="font-black">{task.site || "Objekt"}</p>
+                    <p className="text-sm font-bold text-slate-400">{dateLabel(task.task_date || task.due_date)} · {task.employee_name || "Nicht zugewiesen"} · {formatClock(task.start_time)} - {formatClock(task.end_time)}</p>
                   </div>
                 ))}
               </div>
