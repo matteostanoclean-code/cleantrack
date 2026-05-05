@@ -2852,12 +2852,75 @@ function AdminMobileScreen(props: {
   const openMaterials = props.data.materialReports
     .filter((row) => String(row.status || "open").toLowerCase() !== "done")
     .slice(0, 20);
-  const totalTodos = openTimeEntries.length + openAbsences.length + openMaterials.length + openQualityReports.length + unreadChats.length;
+
+  function taskDateValue(task: AdminMobileRow) {
+    return String(task.task_date || task.due_date || "").slice(0, 10);
+  }
+
+  function entryDateValue(entry: AdminMobileRow) {
+    return String(entry.work_date || entry.check_in_at || entry.created_at || "").slice(0, 10);
+  }
+
+  function isTaskDueForTimeCheck(task: AdminMobileRow) {
+    const taskDate = taskDateValue(task);
+    if (!taskDate) return false;
+    if (taskDate < today) return true;
+    if (taskDate > today) return false;
+    const endTime = String(task.end_time || "").slice(0, 5);
+    if (!endTime) return true;
+    const nowText = new Date().toTimeString().slice(0, 5);
+    return endTime <= nowText;
+  }
+
+  function entryMatchesTask(entry: AdminMobileRow, task: AdminMobileRow) {
+    const taskDate = taskDateValue(task);
+    if (!taskDate || entryDateValue(entry) !== taskDate) return false;
+
+    const employee = String(task.employee_name || "").trim();
+    if (employee && String(entry.employee_name || "").trim() !== employee) return false;
+
+    const taskId = String(task.id || "");
+    if (taskId && String(entry.task_id || "") === taskId) return true;
+
+    const siteId = String(task.work_site_id || task.site_id || "");
+    if (siteId && String(entry.work_site_id || entry.site_id || "") === siteId) return true;
+
+    const siteName = String(task.site || task.work_site_name || "").trim().toLowerCase();
+    const entrySiteName = String(entry.site || entry.work_site_name || "").trim().toLowerCase();
+    return Boolean(siteName && entrySiteName && siteName === entrySiteName);
+  }
+
+  function isAssignmentTask(task: AdminMobileRow) {
+    const itemType = String(task.item_type || "").toLowerCase();
+    const taskType = String(task.task_type || "").toLowerCase();
+    return itemType !== "task" && taskType !== "task";
+  }
+
+  const missingTimeTasks = props.data.tasks
+    .filter(isAssignmentTask)
+    .filter((task) => Boolean(String(task.employee_name || "").trim()))
+    .filter(isTaskDueForTimeCheck)
+    .filter((task) => !props.data.entries.some((entry) => entryMatchesTask(entry, task)))
+    .slice(0, 20);
+
+  function prefillManualTimeFromTask(task: AdminMobileRow) {
+    props.setManualEmployeeName(String(task.employee_name || ""));
+    props.setManualSiteId(String(task.work_site_id || task.site_id || ""));
+    props.setManualDate(taskDateValue(task) || today);
+    props.setManualStart(String(task.start_time || "08:00").slice(0, 5));
+    props.setManualEnd(String(task.end_time || "09:00").slice(0, 5));
+    props.setManualReason("Zeit nachgetragen");
+    props.setManualNotes(`Nachgetragen aus fehlendem Einsatz: ${task.site || "Objekt"}`);
+    props.setTab("approval");
+  }
+
+  const totalTodos = openTimeEntries.length + openAbsences.length + openMaterials.length + openQualityReports.length + unreadChats.length + missingTimeTasks.length;
   const urgentTodos = [
     ...unreadChats.map((row) => ({ id: `chat-${row.id}`, kind: "Chat", title: row.employee_name || row.sender_name || "Nachricht", text: row.message || "Neue Nachricht", action: "Antworten", onClick: () => props.openTab("chat") })),
     ...openAbsences.map((row) => ({ id: `absence-${row.id}`, kind: "Antrag", title: row.absence_type || "Abwesenheit", text: `${row.employee_name || "-"} · ${dateLabel(row.start_date)} → ${dateLabel(row.end_date || row.start_date)}`, action: "Genehmigen", onClick: () => props.decideAbsence(row, true) })),
     ...openMaterials.map((row) => ({ id: `material-${row.id}`, kind: "Material", title: row.material_name || row.product_name || "Material", text: `${row.employee_name || "-"} · ${row.object_name || row.site || row.work_site_name || "Objekt"}`, action: "Erledigt", onClick: () => props.resolveMaterialReport(row) })),
     ...openQualityReports.map((row) => ({ id: `quality-${row.id}`, kind: "Qualität", title: row.site || row.title || "Qualitätsnachweis", text: `${row.employee_name || "-"} · ${Number(row.passed_items || 0)}/${Number(row.total_items || 0)}`, action: "Prüfen", onClick: () => props.reviewQualityReport(row, true) })),
+    ...missingTimeTasks.map((row) => ({ id: `missing-${row.id}`, kind: "Fehlzeit", title: row.employee_name || "Zeit fehlt", text: `${row.site || "Objekt"} · ${dateLabel(taskDateValue(row))} · ${formatClock(row.start_time)} - ${formatClock(row.end_time)}`, action: "Nachtragen", onClick: () => prefillManualTimeFromTask(row) })),
     ...openTimeEntries.map((row) => ({ id: `time-${row.id}`, kind: "Zeit", title: row.employee_name || "Zeit", text: `${row.site || row.work_site_name || "Objekt"} · ${formatMinutes(Number(row.worked_minutes || row.payroll_minutes || 0))}`, action: "Freigeben", onClick: () => props.approveTime(row, true) })),
   ].slice(0, 8);
 
@@ -2891,7 +2954,7 @@ function AdminMobileScreen(props: {
             <div className="grid grid-cols-2 gap-3">
               <InfoBox label="Heute zu tun" value={String(totalTodos)} />
               <InfoBox label="Chat offen" value={String(unreadChats.length)} />
-              <InfoBox label="Freigaben" value={String(openTimeEntries.length + openAbsences.length)} />
+              <InfoBox label="Zeiten offen" value={String(openTimeEntries.length + missingTimeTasks.length)} />
               <InfoBox label="Material / Qualität" value={String(openMaterials.length + openQualityReports.length)} />
             </div>
 
@@ -3012,10 +3075,33 @@ function AdminMobileScreen(props: {
         {props.tab === "approval" && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3">
-              <InfoBox label="Offene Zeiten" value={String(openTimeEntries.length)} />
+              <InfoBox label="Offene Zeiten" value={String(openTimeEntries.length + missingTimeTasks.length)} />
               <InfoBox label="Abwesenheit" value={String(openAbsences.length)} />
               <InfoBox label="Material offen" value={String(openMaterials.length)} />
               <InfoBox label="Qualität" value={String(openQualityReports.length)} />
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Fehlende Zeiten</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">Geplante Einsätze ohne Zeiteintrag.</p>
+              <div className="mt-4 space-y-3">
+                {missingTimeTasks.length === 0 && <EmptyState text="Keine fehlenden Zeiten erkannt." />}
+                {missingTimeTasks.map((task) => (
+                  <div key={task.id} className="rounded-[24px] border border-red-100 bg-red-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-black text-red-950">{task.employee_name || "Mitarbeiter"}</p>
+                        <p className="mt-1 text-sm font-bold text-red-700">{task.site || "Objekt"} · {dateLabel(taskDateValue(task))}</p>
+                        <p className="mt-1 text-sm font-bold text-red-700">{formatClock(task.start_time)} - {formatClock(task.end_time)} · {formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</p>
+                      </div>
+                      <span className="rounded-xl bg-white px-3 py-1 text-xs font-black text-red-700">fehlt</span>
+                    </div>
+                    <button type="button" onClick={() => prefillManualTimeFromTask(task)} className="mt-4 w-full rounded-2xl bg-white py-3 font-black text-red-700">
+                      Zeit nachtragen
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
