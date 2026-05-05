@@ -383,6 +383,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatText, setChatText] = useState("");
   const [chatError, setChatError] = useState("");
+  const [adminChatEmployee, setAdminChatEmployee] = useState("");
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -1213,6 +1214,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
   async function loadChatMessages(employeeName: string) {
+    if (!employeeName) {
+      setChatMessages([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("chat_messages")
       .select("*")
@@ -1220,12 +1226,22 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       .order("created_at", { ascending: true });
 
     setChatMessages((data || []) as ChatMessage[]);
-    await supabase
-      .from("chat_messages")
-      .update({ read_by_employee: true })
-      .eq("employee_name", employeeName)
-      .eq("sender_role", "admin");
-    setUnreadChatCount(0);
+
+    if (role === "admin" || role === "objektleiter") {
+      await supabase
+        .from("chat_messages")
+        .update({ read_by_admin: true })
+        .eq("employee_name", employeeName)
+        .eq("sender_role", "employee");
+      await loadMobileAdminData(true);
+    } else {
+      await supabase
+        .from("chat_messages")
+        .update({ read_by_employee: true })
+        .eq("employee_name", employeeName)
+        .eq("sender_role", "admin");
+      setUnreadChatCount(0);
+    }
   }
 
   function entryAction(entry: TimeEntry) {
@@ -1417,14 +1433,22 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     const text = chatText.trim();
     if (!text || !name) return;
 
+    const isAdminUser = role === "admin" || role === "objektleiter";
+    const targetEmployee = isAdminUser ? adminChatEmployee : name;
+
+    if (!targetEmployee) {
+      setChatError("Bitte zuerst einen Mitarbeiter auswählen.");
+      return;
+    }
+
     const { error } = await supabase.from("chat_messages").insert([
       {
-        employee_name: name,
-        sender_role: "employee",
+        employee_name: targetEmployee,
+        sender_role: isAdminUser ? "admin" : "employee",
         sender_name: name,
         message: text,
-        read_by_admin: false,
-        read_by_employee: true,
+        read_by_admin: true,
+        read_by_employee: isAdminUser ? false : true,
       },
     ]);
 
@@ -1433,9 +1457,19 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       return;
     }
 
-    await notifyAdmins("Neue Chatnachricht", `${name} hat eine neue Nachricht geschrieben.`, "chat_message");
+    if (!isAdminUser) {
+      await notifyAdmins("Neue Chatnachricht", `${name} hat eine neue Nachricht geschrieben.`, "chat_message");
+    }
+
     setChatText("");
-    await loadChatMessages(name);
+    await loadChatMessages(targetEmployee);
+  }
+
+  async function openAdminChatWith(employeeName: string) {
+    if (!employeeName) return;
+    setAdminChatEmployee(employeeName);
+    setActiveTab("chat");
+    await loadChatMessages(employeeName);
   }
 
   async function submitAbsenceRequest() {
@@ -1564,7 +1598,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   function openTab(tab: Tab) {
     setMessage("");
     setActiveTab(tab);
-    if (tab === "chat" && name) loadChatMessages(name);
+    if (tab === "chat") {
+      const isAdminUser = role === "admin" || role === "objektleiter";
+      const target = isAdminUser ? adminChatEmployee : name;
+      if (target) loadChatMessages(target);
+    }
     if (tab === "admin") loadMobileAdminData(false);
   }
 
@@ -1703,7 +1741,19 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
 
         {activeTab === "chat" && (
-          <ChatScreen messages={chatMessages} chatText={chatText} setChatText={setChatText} sendChatMessage={sendChatMessage} chatError={chatError} chatEndRef={chatEndRef} openTab={openTab} />
+          <ChatScreen
+            messages={chatMessages}
+            chatText={chatText}
+            setChatText={setChatText}
+            sendChatMessage={sendChatMessage}
+            chatError={chatError}
+            chatEndRef={chatEndRef}
+            role={role}
+            employees={adminMobileData.employees}
+            selectedEmployee={adminChatEmployee}
+            selectEmployee={openAdminChatWith}
+            openTab={openTab}
+          />
         )}
 
         {activeTab === "profile" && (
@@ -1803,6 +1853,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             manualNotes={adminManualNotes}
             setManualNotes={setAdminManualNotes}
             createManualTimeEntry={createMobileManualTimeEntry}
+            openChatWith={openAdminChatWith}
             openTab={openTab}
           />
         )}
@@ -2466,21 +2517,71 @@ function SearchScreen({ tasks, notifications, openTab }: { tasks: Task[]; notifi
   );
 }
 
-function ChatScreen(props: { messages: ChatMessage[]; chatText: string; setChatText: (value: string) => void; sendChatMessage: () => void; chatError: string; chatEndRef: RefObject<HTMLDivElement | null>; openTab: (tab: Tab) => void }) {
+function ChatScreen(props: {
+  messages: ChatMessage[];
+  chatText: string;
+  setChatText: (value: string) => void;
+  sendChatMessage: () => void;
+  chatError: string;
+  chatEndRef: RefObject<HTMLDivElement | null>;
+  role: string;
+  employees: AdminMobileRow[];
+  selectedEmployee: string;
+  selectEmployee: (employeeName: string) => void;
+  openTab: (tab: Tab) => void;
+}) {
+  const isAdminUser = props.role === "admin" || props.role === "objektleiter";
+  const activeEmployee = isAdminUser ? props.selectedEmployee : "";
+
   return (
     <SimplePage title="Nachrichten" openTab={props.openTab} searchPlaceholder="Suche">
-      <div className="min-h-[55vh] space-y-3">
-        {props.messages.length === 0 && <EmptyState text="Keine Nachrichten bisher" />}
-        {props.messages.map((msg) => <div key={msg.id} className={`max-w-[85%] rounded-[22px] p-4 ${msg.sender_role === "employee" ? "ml-auto bg-blue-600 text-white" : "bg-white text-slate-950 shadow-sm border border-slate-100"}`}><p className="text-sm font-semibold">{msg.message}</p><p className={`mt-1 text-[11px] ${msg.sender_role === "employee" ? "text-blue-100" : "text-slate-400"}`}>{new Date(msg.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</p></div>)}
-        <div ref={props.chatEndRef} />
-      </div>
-      <div className="fixed bottom-[72px] left-0 right-0 mx-auto max-w-md bg-[#f5f7fb]/95 p-4 backdrop-blur">
-        <div className="flex gap-2">
-          <input value={props.chatText} onChange={(e) => props.setChatText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") props.sendChatMessage(); }} placeholder="Nachricht schreiben..." className="flex-1 rounded-2xl bg-white px-4 py-4 outline-none shadow-sm" />
-          <button type="button" onClick={props.sendChatMessage} className="rounded-2xl bg-blue-600 px-5 text-white font-black">➤</button>
+      {isAdminUser && (
+        <div className="mb-4 rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+          <p className="text-sm font-black uppercase tracking-wide text-slate-400">Unterhaltung</p>
+          <select
+            value={activeEmployee}
+            onChange={(e) => props.selectEmployee(e.target.value)}
+            className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 text-lg font-black outline-none"
+          >
+            <option value="">Mitarbeiter auswählen</option>
+            {props.employees
+              .filter((employee) => employee.active !== false && String(employee.role || "").toLowerCase() !== "admin")
+              .map((employee) => (
+                <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>
+              ))}
+          </select>
         </div>
-        {props.chatError && <p className="mt-2 text-sm font-bold text-red-500">{props.chatError}</p>}
-      </div>
+      )}
+
+      {isAdminUser && !activeEmployee ? (
+        <EmptyState text="Bitte Mitarbeiter auswählen, um den Chat zu öffnen." />
+      ) : (
+        <>
+          <div className="min-h-[55vh] space-y-3 pb-28">
+            {props.messages.length === 0 && <EmptyState text="Keine Nachrichten bisher" />}
+            {props.messages.map((msg) => {
+              const mine = isAdminUser ? msg.sender_role === "admin" : msg.sender_role === "employee";
+              return (
+                <div key={msg.id} className={`max-w-[85%] rounded-[22px] p-4 ${mine ? "ml-auto bg-blue-600 text-white" : "bg-white text-slate-950 shadow-sm border border-slate-100"}`}>
+                  <p className="text-sm font-semibold">{msg.message}</p>
+                  <p className={`mt-1 text-[11px] ${mine ? "text-blue-100" : "text-slate-400"}`}>
+                    {msg.sender_name || (msg.sender_role === "admin" ? "Admin" : "Mitarbeiter")} · {new Date(msg.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
+              );
+            })}
+            <div ref={props.chatEndRef} />
+          </div>
+
+          <div className="fixed bottom-[72px] left-0 right-0 mx-auto max-w-md bg-[#f5f7fb]/95 p-4 backdrop-blur">
+            <div className="flex gap-2">
+              <input value={props.chatText} onChange={(e) => props.setChatText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") props.sendChatMessage(); }} placeholder="Nachricht schreiben..." className="flex-1 rounded-2xl bg-white px-4 py-4 outline-none shadow-sm" />
+              <button type="button" onClick={props.sendChatMessage} className="rounded-2xl bg-blue-600 px-5 text-white font-black">➤</button>
+            </div>
+            {props.chatError && <p className="mt-2 text-sm font-bold text-red-500">{props.chatError}</p>}
+          </div>
+        </>
+      )}
     </SimplePage>
   );
 }
@@ -2827,6 +2928,7 @@ function AdminMobileScreen(props: {
   manualNotes: string;
   setManualNotes: (value: string) => void;
   createManualTimeEntry: () => void;
+  openChatWith: (employeeName: string) => void;
   openTab: (tab: Tab) => void;
 }) {
   const canAdmin = props.role === "admin" || props.role === "objektleiter";
@@ -2848,7 +2950,21 @@ function AdminMobileScreen(props: {
   const unreadChats = props.data.chats
     .filter((row) => String(row.sender_role || "").toLowerCase() !== "admin")
     .filter((row) => row.read_by_admin !== true)
-    .slice(0, 20);
+    .slice(0, 50);
+
+  const unreadChatGroups = Object.values(unreadChats.reduce((acc: Record<string, AdminMobileRow & { unread_count: number }>, row) => {
+    const key = String(row.employee_name || row.sender_name || "Unbekannt");
+    const current = acc[key];
+    const currentTime = current ? new Date(String(current.created_at || "")).getTime() : 0;
+    const rowTime = new Date(String(row.created_at || "")).getTime();
+    if (!current || rowTime >= currentTime) {
+      acc[key] = { ...row, employee_name: key, unread_count: (current?.unread_count || 0) + 1 };
+    } else {
+      current.unread_count = (current.unread_count || 0) + 1;
+    }
+    return acc;
+  }, {})).slice(0, 20);
+
   const openMaterials = props.data.materialReports
     .filter((row) => String(row.status || "open").toLowerCase() !== "done")
     .slice(0, 20);
@@ -2914,9 +3030,9 @@ function AdminMobileScreen(props: {
     props.setTab("approval");
   }
 
-  const totalTodos = openTimeEntries.length + openAbsences.length + openMaterials.length + openQualityReports.length + unreadChats.length + missingTimeTasks.length;
+  const totalTodos = openTimeEntries.length + openAbsences.length + openMaterials.length + openQualityReports.length + unreadChatGroups.length + missingTimeTasks.length;
   const urgentTodos = [
-    ...unreadChats.map((row) => ({ id: `chat-${row.id}`, kind: "Chat", title: row.employee_name || row.sender_name || "Nachricht", text: row.message || "Neue Nachricht", action: "Antworten", onClick: () => props.openTab("chat") })),
+    ...unreadChatGroups.map((row) => ({ id: `chat-${row.employee_name}`, kind: "Chat", title: row.employee_name || row.sender_name || "Nachricht", text: `${row.message || "Neue Nachricht"}${Number(row.unread_count || 0) > 1 ? ` · ${row.unread_count} ungelesen` : ""}`, action: "Antworten", onClick: () => props.openChatWith(String(row.employee_name || "")) })),
     ...openAbsences.map((row) => ({ id: `absence-${row.id}`, kind: "Antrag", title: row.absence_type || "Abwesenheit", text: `${row.employee_name || "-"} · ${dateLabel(row.start_date)} → ${dateLabel(row.end_date || row.start_date)}`, action: "Genehmigen", onClick: () => props.decideAbsence(row, true) })),
     ...openMaterials.map((row) => ({ id: `material-${row.id}`, kind: "Material", title: row.material_name || row.product_name || "Material", text: `${row.employee_name || "-"} · ${row.object_name || row.site || row.work_site_name || "Objekt"}`, action: "Erledigt", onClick: () => props.resolveMaterialReport(row) })),
     ...openQualityReports.map((row) => ({ id: `quality-${row.id}`, kind: "Qualität", title: row.site || row.title || "Qualitätsnachweis", text: `${row.employee_name || "-"} · ${Number(row.passed_items || 0)}/${Number(row.total_items || 0)}`, action: "Prüfen", onClick: () => props.reviewQualityReport(row, true) })),
@@ -2953,7 +3069,7 @@ function AdminMobileScreen(props: {
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3">
               <InfoBox label="Heute zu tun" value={String(totalTodos)} />
-              <InfoBox label="Chat offen" value={String(unreadChats.length)} />
+              <InfoBox label="Chat offen" value={String(unreadChatGroups.length)} />
               <InfoBox label="Zeiten offen" value={String(openTimeEntries.length + missingTimeTasks.length)} />
               <InfoBox label="Material / Qualität" value={String(openMaterials.length + openQualityReports.length)} />
             </div>
