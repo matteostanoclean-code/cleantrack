@@ -119,6 +119,8 @@ type TimeEntry = {
   created_at: string;
   check_in_at?: string | null;
   check_out_at?: string | null;
+  finished_at?: string | null;
+  updated_at?: string | null;
   work_date?: string | null;
   auto_clock_out: boolean | null;
   worked_minutes?: number | null;
@@ -235,6 +237,37 @@ function absenceEntryTypeKey(entry: TimeEntry) {
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
+}
+
+function isAbsenceEntry(entry: TimeEntry) {
+  const action = String(entry.action || "").trim().toLowerCase();
+  const type = String(entry.entry_type || "").trim().toLowerCase();
+  return action === "absence" || type === "absence" || Boolean(entry.absence_request_id);
+}
+
+function isApprovedTimeEntry(entry: TimeEntry) {
+  const status = String(entry.status || "").trim().toLowerCase();
+  return entry.approved === true || status === "approved" || status === "freigegeben";
+}
+
+function entryMinutes(entry: TimeEntry) {
+  const direct = Number(entry.payroll_minutes || entry.worked_minutes || 0);
+  if (direct > 0) return direct;
+
+  const startRaw = entry.check_in_at || entry.created_at;
+  const endRaw = entry.check_out_at || entry.finished_at || entry.updated_at;
+  if (!startRaw || !endRaw) return 0;
+
+  const start = new Date(startRaw).getTime();
+  const end = new Date(endRaw).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+
+  const pause = Number(entry.pause_minutes || 0);
+  return Math.max(0, Math.round((end - start) / 60000) - pause);
+}
+
+function timeEntryDay(entry: TimeEntry) {
+  return String(entry.work_date || entry.check_in_at || entry.check_out_at || entry.created_at || "").slice(0, 10);
 }
 
 function absenceEntryMinutes(entries: TimeEntry[], predicate: (entry: TimeEntry) => boolean) {
@@ -707,6 +740,28 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     }
   }
 
+  async function resolveMobileMaterialReport(row: AdminMobileRow) {
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({
+        action: "update",
+        table: "material_reports",
+        id: row.id,
+        payload: {
+          status: "done",
+          resolved_at: new Date().toISOString(),
+        },
+      });
+      await loadMobileAdminData(true);
+      setAdminMobileMessage("Materialmeldung wurde erledigt.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Materialmeldung konnte nicht erledigt werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
   async function createObjectMaterial() {
     setAdminMobileMessage("");
     if (!adminMaterialSiteId) {
@@ -766,7 +821,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   }
 
   async function loadMaterials() {
-    const { data } = await supabase.from("material_products").select("id,name,category,unit,work_site_id,object_name").order("name");
+    const { data } = await supabase.from("material_products").select("id,name,category,unit,work_site_id,object_name,current_stock,minimum_stock,image_url").order("name");
     setMaterials((data || []) as MaterialProduct[]);
   }
 
@@ -1427,6 +1482,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             saving={adminMobileSaving}
             refresh={() => loadMobileAdminData(false)}
             approveTime={approveMobileTime}
+            resolveMaterialReport={resolveMobileMaterialReport}
             selectedSiteId={adminMaterialSiteId}
             setSelectedSiteId={setAdminMaterialSiteId}
             materialName={adminMaterialName}
@@ -1571,257 +1627,103 @@ function priorityClass(priority?: string | null) {
   return "bg-slate-100 text-slate-600";
 }
 
+function InfoCard({ label, value, badgeClass = "" }: { label: string; value: string; badgeClass?: string }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-2 font-black ${badgeClass || "text-slate-800"}`}>{value}</p>
+    </div>
+  );
+}
+
+function MobileInfoRow({ icon, label, value, iconClass = "text-slate-400" }: { icon: string; label: string; value: string; iconClass?: string }) {
+  return (
+    <div className="flex items-center gap-5 py-5">
+      <span className={`w-10 text-3xl ${iconClass}`}>{icon}</span>
+      <div>
+        <p className="text-lg font-semibold text-slate-400">{label}</p>
+        <p className="mt-1 text-2xl font-black text-slate-950">{value}</p>
+      </div>
+    </div>
+  );
+}
+
 function TasksScreen({ tasks, selectedTask, openTask, closeTask, toggleTask, openTab, message }: { tasks: Task[]; selectedTask: Task | null; openTask: (task: Task) => void; closeTask: () => void; toggleTask: (task: Task) => void; openTab: (tab: Tab) => void; message: string }) {
   if (selectedTask) {
+    const due = selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString("de-DE", { month: "short", day: "2-digit" }) : selectedTask.task_date ? new Date(selectedTask.task_date).toLocaleDateString("de-DE", { month: "short", day: "2-digit" }) : "-";
+
     return (
-      <SimplePage title="Aufgabe" openTab={openTab}>
-        <div className="rounded-[26px] bg-white p-5 shadow-sm border border-slate-100">
+      <SimplePage title={selectedTask.title || "Aufgabe"} openTab={openTab}>
+        <div className="rounded-[30px] bg-white p-5 shadow-sm border border-slate-100">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-slate-400">{selectedTask.task_category || "Aufgabe"}</p>
-              <h2 className="mt-1 text-2xl font-black text-slate-950">{selectedTask.title}</h2>
+              <h2 className="text-3xl font-black text-slate-950">{selectedTask.title}</h2>
+              <p className="mt-1 text-lg font-bold text-slate-400">{selectedTask.task_category || "Aufgabe"}</p>
             </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-black ${selectedTask.done ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{selectedTask.done ? "Erledigt" : "Offen"}</span>
+            <button type="button" onClick={() => toggleTask(selectedTask)} className={`h-12 w-12 rounded-full border-4 ${selectedTask.done ? "border-green-400 bg-green-50" : "border-slate-200 bg-white"}`} />
           </div>
 
-          <div className="mt-5 grid gap-3 text-sm">
-            <InfoCard label="Priorität" value={selectedTask.priority || "Mittel"} badgeClass={priorityClass(selectedTask.priority)} />
-            <InfoCard label="Fällig" value={selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString("de-DE") : selectedTask.task_date ? new Date(selectedTask.task_date).toLocaleDateString("de-DE") : "-"} />
-            <InfoCard label="Objekt" value={selectedTask.site || "Kein Objekt hinterlegt"} />
-            <InfoCard label="Kunde" value={selectedTask.customer_name || "-"} />
+          <div className="mt-6 flex gap-6 border-b border-slate-100">
+            <span className="border-b-4 border-blue-500 pb-3 text-lg font-bold text-slate-950">Aufgabe</span>
+            <span className="pb-3 text-lg font-bold text-slate-500">Logbuch</span>
           </div>
 
-          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-slate-400">Beschreibung</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-slate-700">{selectedTask.notes || "Keine Beschreibung hinterlegt."}</p>
+          <div className="mt-6 divide-y divide-slate-100">
+            <MobileInfoRow icon="⚠" label="Aufgabentyp" value={selectedTask.task_category || "Sonstiges"} iconClass="text-orange-500" />
+            <MobileInfoRow icon="▥" label="Priorität" value={selectedTask.priority || "Mittel"} iconClass="text-blue-500" />
+            <MobileInfoRow icon="▦" label="Fälligkeitsdatum" value={due} iconClass="text-slate-400" />
+            <MobileInfoRow icon="●" label="Zugewiesen an" value={selectedTask.employee_name || "Nicht zugewiesen"} iconClass="text-slate-400" />
+            <MobileInfoRow icon="⌂" label="Objekt" value={selectedTask.site || "Kein Objekt"} iconClass="text-slate-400" />
           </div>
+
+          {selectedTask.notes && (
+            <div className="mt-6 rounded-[22px] bg-slate-50 p-4">
+              <p className="text-sm font-black uppercase tracking-wide text-slate-400">Beschreibung</p>
+              <p className="mt-2 whitespace-pre-wrap text-lg font-semibold text-slate-700">{selectedTask.notes}</p>
+            </div>
+          )}
 
           {message && <div className="mt-4 rounded-2xl bg-blue-50 p-3 text-sm font-black text-blue-800">{message}</div>}
+        </div>
 
-          <div className="mt-5 grid gap-3">
-            <button type="button" onClick={() => toggleTask(selectedTask)} className={`w-full rounded-2xl py-4 font-black text-white ${selectedTask.done ? "bg-slate-700" : "bg-blue-600"}`}>
-              {selectedTask.done ? "Wieder öffnen" : "Als erledigt markieren"}
-            </button>
-            <button type="button" onClick={closeTask} className="w-full rounded-2xl border border-slate-200 bg-white py-4 font-black text-slate-600">Zurück zu Aufgaben</button>
-          </div>
+        <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto grid max-w-md grid-cols-2 gap-3 border-t border-slate-100 bg-white p-4">
+          <button type="button" onClick={() => toggleTask(selectedTask)} className="rounded-2xl bg-green-100 py-4 font-black text-green-700">
+            {selectedTask.done ? "Wieder öffnen" : "Aufgabe erledigen"}
+          </button>
+          <button type="button" onClick={closeTask} className="rounded-2xl bg-slate-50 py-4 font-black text-slate-700">Zurück</button>
         </div>
       </SimplePage>
     );
   }
 
+  const open = tasks.filter((task) => !task.done);
+  const done = tasks.filter((task) => task.done);
+  const progress = tasks.length ? Math.round((done.length / tasks.length) * 100) : 0;
+
   return (
-    <SimplePage title="Aufgaben" openTab={openTab} searchPlaceholder="Aufgaben suchen">
-      <div className="flex gap-5 border-b border-slate-100 text-sm font-bold text-slate-400">
-        <span className="border-b-2 border-blue-500 pb-3 text-blue-600">Alle</span>
-        <span className="pb-3">Mir zugewiesen</span>
-        <span className="pb-3">Offen</span>
+    <SimplePage title="Aufgaben" openTab={openTab} searchPlaceholder="Aufgabe suchen">
+      <div className="mb-5 flex items-center justify-between">
+        <p className="font-black text-slate-500">Heutige Aufgaben</p>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-black text-slate-500">{done.length}/{tasks.length}</span>
+          <div className="h-3 w-20 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-green-400" style={{ width: `${progress}%` }} /></div>
+        </div>
       </div>
-      <div className="mt-5 space-y-3">
-        {tasks.length === 0 && <EmptyState text="Keine separaten Aufgaben. Einsätze findest du unter Einsatzübersicht." />}
+
+      <div className="space-y-8">
+        {tasks.length === 0 && <EmptyState text="Keine Aufgaben vorhanden" />}
         {tasks.map((task) => (
-          <button key={task.id} type="button" onClick={() => openTask(task)} className="w-full rounded-[22px] bg-white p-4 text-left shadow-sm border border-slate-100">
-            <div className="flex items-start gap-3">
-              <span className={`mt-1 flex h-6 w-6 items-center justify-center rounded-full border ${task.done ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300"}`}>{task.done ? "✓" : ""}</span>
-              <div className="flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-black">{task.title}</p>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${priorityClass(task.priority)}`}>{task.priority || "Mittel"}</span>
-                </div>
-                <p className="mt-1 text-xs font-semibold text-slate-400">{task.site || "Kein Objekt"}</p>
-                <p className="mt-2 text-xs text-slate-500">Fällig: {task.due_date ? new Date(task.due_date).toLocaleDateString("de-DE") : task.task_date ? new Date(task.task_date).toLocaleDateString("de-DE") : "-"}</p>
+          <button key={task.id} type="button" onClick={() => openTask(task)} className="block w-full text-left">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-lg font-bold text-orange-400">● {task.task_category || "Aufgabe"}</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">{task.title}</h2>
+                <p className="mt-2 text-lg font-semibold text-slate-600">{task.due_date ? new Date(task.due_date).toLocaleDateString("de-DE", { day: "numeric", month: "short" }) : task.task_date ? new Date(task.task_date).toLocaleDateString("de-DE", { day: "numeric", month: "short" }) : ""}</p>
               </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-black ${task.done ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"}`}>{task.done ? "Erledigt" : "Offen"}</span>
+              <span className={`rounded-xl px-4 py-2 text-sm font-black ${task.done ? "bg-green-400 text-white" : "bg-slate-300 text-white"}`}>{task.done ? "Erledigt" : "Offen"}</span>
             </div>
           </button>
         ))}
-      </div>
-    </SimplePage>
-  );
-}
-
-function InfoCard({ label, value, badgeClass }: { label: string; value: string; badgeClass?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-      <span className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</span>
-      <span className={`rounded-full px-3 py-1 text-sm font-black ${badgeClass || "bg-white text-slate-700"}`}>{value}</span>
-    </div>
-  );
-}
-
-
-function monthStartISO() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-}
-
-function currentMonthName() {
-  return new Date().toLocaleDateString("de-DE", { month: "long" });
-}
-
-function entryDate(entry: TimeEntry) {
-  return String(entry.work_date || entry.check_in_at || entry.check_out_at || entry.created_at || "").slice(0, 10);
-}
-
-function isApprovedTimeEntry(entry: TimeEntry) {
-  const status = String(entry.status || "").trim().toLowerCase();
-  return entry.approved === true || status === "approved" || status === "freigegeben";
-}
-
-function entryMinutes(entry: TimeEntry) {
-  const direct = Number(entry.payroll_minutes || entry.worked_minutes || 0);
-  if (direct > 0) return direct;
-  if (entry.check_in_at && entry.check_out_at) {
-    const diff = Math.round((new Date(entry.check_out_at).getTime() - new Date(entry.check_in_at).getTime()) / 60000);
-    return Math.max(0, diff - Number(entry.pause_minutes || 0));
-  }
-  return 0;
-}
-
-function clockRange(entry: TimeEntry) {
-  const start = entry.check_in_at || entry.created_at;
-  const end = entry.check_out_at || entry.created_at;
-  return `${start ? new Date(start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"} → ${end ? new Date(end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"} Uhr`;
-}
-
-function isAbsenceEntry(entry: TimeEntry) {
-  const action = String(entry.action || "").toLowerCase();
-  const type = String(entry.entry_type || "").toLowerCase();
-  return action === "absence" || type === "absence";
-}
-
-function approvedAbsenceMinutes(entries: TimeEntry[]) {
-  return entries
-    .filter(isAbsenceEntry)
-    .filter(isApprovedTimeEntry)
-    .reduce((sum, entry) => sum + entryMinutes(entry), 0);
-}
-
-function TimesheetScreen(props: { profile: EmployeeProfile | null; tasks: Task[]; entries: TimeEntry[]; absenceRequests: AbsenceRequest[]; openTab: (tab: Tab) => void }) {
-  const monthKey = todayISO().slice(0, 7);
-  const monthTasks = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey && task.item_type !== "task" && task.task_type !== "task");
-  const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
-  const planned = monthLimit || monthTasks.reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
-  const approvedEntries = props.entries.filter(isApprovedTimeEntry);
-  const approvedMinutes = approvedEntries.reduce((sum, entry) => sum + entryMinutes(entry), 0);
-  const progress = planned > 0 ? Math.min(100, Math.round((approvedMinutes / planned) * 100)) : 0;
-  const monthAbsences = props.absenceRequests.filter((item) => String(item.start_date || "").slice(0, 7) === monthKey || String(item.end_date || "").slice(0, 7) === monthKey);
-  const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
-  const recordedTaskKeys = new Set(props.entries.map((entry) => `${entryDate(entry)}|${String(entry.site || entry.work_site_name || "")}`).filter(Boolean));
-  const missingTasks = monthTasks.filter((task) => {
-    if (String(task.task_date || "") > todayISO()) return false;
-    if (recordedTaskIds.has(task.id)) return false;
-    const key = `${String(task.task_date || "")}|${String(task.site || "")}`;
-    return !recordedTaskKeys.has(key);
-  });
-  const checking = props.entries.filter((entry) => !isApprovedTimeEntry(entry) && entryMinutes(entry) > 0);
-
-  const rows: Array<{ key: string; date: string; title: string; subtitle: string; range: string; minutes: number; status: string; color: string; dot: string; }> = [];
-
-  for (const absence of monthAbsences) {
-    const status = String(absence.status || "").toLowerCase().includes("approved") || String(absence.status || "").toLowerCase().includes("genehmigt") ? "Abwesenheit" : "In Prüfung";
-    const start = new Date(absence.start_date);
-    const end = new Date(absence.end_date || absence.start_date);
-    const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
-    rows.push({
-      key: `absence-${absence.id}`,
-      date: absence.start_date,
-      title: "Abwesend",
-      subtitle: absence.absence_type || "Abwesenheit",
-      range: `${start.toLocaleDateString("de-DE")} → ${end.toLocaleDateString("de-DE")}`,
-      minutes: status === "Abwesenheit" && !String(absence.absence_type || "").toLowerCase().includes("unbezahlt")
-        ? props.entries
-            .filter(isAbsenceEntry)
-            .filter((entry) => String(entry.absence_request_id || "") === String(absence.id || ""))
-            .reduce((sum, entry) => sum + entryMinutes(entry), 0)
-        : 0,
-      status,
-      color: status === "Abwesenheit" ? "bg-blue-600 text-white" : "bg-orange-500 text-white",
-      dot: "bg-slate-400",
-    });
-  }
-
-  for (const entry of props.entries) {
-    const minutes = entryMinutes(entry);
-    if (minutes <= 0) continue;
-    const approved = isApprovedTimeEntry(entry);
-    rows.push({
-      key: `entry-${entry.id}`,
-      date: entryDate(entry),
-      title: entry.site || entry.work_site_name || "Einsatz",
-      subtitle: "Unterhaltsreinigung",
-      range: clockRange(entry),
-      minutes,
-      status: approved ? "Freigegeben" : "In Prüfung",
-      color: approved ? "bg-emerald-500 text-white" : "bg-orange-500 text-white",
-      dot: "bg-orange-400",
-    });
-  }
-
-  for (const task of missingTasks) {
-    rows.push({
-      key: `missing-${task.id}`,
-      date: task.task_date,
-      title: task.site || "Objekt",
-      subtitle: task.title || "Unterhaltsreinigung",
-      range: `${formatClock(task.start_time)} → ${formatClock(task.end_time)} Uhr`,
-      minutes: 0,
-      status: "Nicht erfasst",
-      color: "bg-red-500 text-white",
-      dot: "bg-orange-400",
-    });
-  }
-
-  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-
-  return (
-    <SimplePage title="Stempeln" openTab={props.openTab}>
-      <div className="bg-white px-2 pb-4">
-        <div className="mb-8">
-          <div className="flex items-center gap-3">
-            <h2 className="text-5xl font-black capitalize text-slate-800">{currentMonthName()}</h2>
-            <span className="text-3xl text-slate-300">⌄</span>
-          </div>
-
-          <div className="mt-12">
-            <p className="text-sm font-black text-slate-300">Freigegebene Stunden</p>
-            <p className="mt-4 text-5xl font-black text-slate-800">{formatMinutes(approvedMinutes)} <span className="text-slate-300">/ {formatMinutes(planned)}</span></p>
-            <div className="mt-7 h-3 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-emerald-400" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-
-          <div className="mt-12 flex flex-wrap items-center gap-6 text-sm font-black text-slate-400">
-            <span>Alle <b className="ml-1 rounded-full bg-slate-100 px-3 py-2 text-slate-500">{rows.length}</b></span>
-            {checking.length > 0 && <span><span className="mr-2 inline-block h-3 w-3 rounded-full bg-orange-400" />In Prüfung <b className="ml-2">{checking.length}</b></span>}
-            {missingTasks.length > 0 && <span><span className="mr-2 inline-block h-3 w-3 rounded-full bg-red-500" />Nicht erfasst <b className="ml-2">{missingTasks.length}</b></span>}
-            {monthAbsences.length > 0 && <span><span className="mr-2 inline-block h-3 w-3 rounded-full bg-blue-600" />Abwesenheit <b className="ml-2">{monthAbsences.length}</b></span>}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {rows.length === 0 && <EmptyState text="Für diesen Monat gibt es noch keine Zeiten." />}
-          {rows.map((row, index) => {
-            const isToday = row.date === todayISO();
-            const previous = rows[index - 1];
-            const showHeader = index === 0 || previous?.date !== row.date;
-            return (
-              <div key={row.key}>
-                {showHeader && <p className="mb-3 mt-6 font-black text-slate-400">{isToday ? "Heute" : new Date(row.date).toLocaleDateString("de-DE", { weekday: "long" })}</p>}
-                <div className="rounded-[26px] border border-slate-200 bg-white p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-orange-500"><span className={`mr-2 inline-block h-3 w-3 rounded-full ${row.dot}`} />{row.subtitle}</p>
-                      <p className="mt-3 truncate text-xl font-black text-slate-800">{row.title}</p>
-                      <p className="mt-2 text-sm font-bold text-slate-400">{row.range}</p>
-                    </div>
-                    <span className={`shrink-0 rounded-lg px-3 py-2 text-xs font-black ${row.color}`}>{row.status}</span>
-                  </div>
-                  <div className="mt-3 text-right text-lg font-black text-slate-800">{formatMinutes(row.minutes)}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
     </SimplePage>
   );
@@ -1902,6 +1804,114 @@ function ClockScreen(props: {
   );
 }
 
+
+function TimesheetScreen(props: {
+  profile: EmployeeProfile | null;
+  tasks: Task[];
+  entries: TimeEntry[];
+  absenceRequests: AbsenceRequest[];
+  openTab: (tab: Tab) => void;
+}) {
+  const monthKey = todayISO().slice(0, 7);
+  const monthTasks = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey && task.item_type !== "task" && task.task_type !== "task");
+  const approvedWorkEntries = props.entries.filter((entry) => !isAbsenceEntry(entry)).filter(isApprovedTimeEntry);
+  const approvedWorkMinutes = approvedWorkEntries.reduce((sum, entry) => sum + entryMinutes(entry), 0);
+  const vacationMinutes = vacationEntryMinutes(props.entries);
+  const sickMinutes = sickEntryMinutes(props.entries);
+  const paidFreeMinutes = paidFreeEntryMinutes(props.entries);
+  const unpaidMinutes = unpaidEntryMinutes(props.entries);
+  const paidAbsenceMinutes = vacationMinutes + sickMinutes + paidFreeMinutes;
+  const payrollMinutes = approvedWorkMinutes + paidAbsenceMinutes;
+  const plannedMinutes = monthTasks.reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+  const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
+  const target = monthLimit || plannedMinutes;
+  const progress = target > 0 ? Math.min(100, Math.round((payrollMinutes / target) * 100)) : 0;
+
+  const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
+  const missingTasks = monthTasks.filter((task) => String(task.task_date || "") <= todayISO() && !recordedTaskIds.has(task.id));
+  const visibleEntries = [...props.entries].sort((a, b) => String(timeEntryDay(b) || "").localeCompare(String(timeEntryDay(a) || ""))).slice(0, 20);
+
+  return (
+    <SimplePage title="Stundenzettel" openTab={props.openTab}>
+      <div className="space-y-5">
+        <div className="rounded-[30px] bg-white p-5 shadow-sm border border-slate-100">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-black uppercase tracking-wide text-slate-400">Aktueller Monat</p>
+              <h2 className="mt-1 text-3xl font-black text-slate-950">{formatMinutes(payrollMinutes)}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">Freigegebene Lohnzeit inkl. bezahlter Abwesenheit</p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-black text-blue-700">{progress}%</span>
+          </div>
+          <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <InfoBox label="Planzeit" value={formatMinutes(plannedMinutes)} />
+            <InfoBox label="Arbeitszeit" value={formatMinutes(approvedWorkMinutes)} />
+            <InfoBox label="Urlaub" value={formatMinutes(vacationMinutes)} />
+            <InfoBox label="Krank/Frei" value={formatMinutes(sickMinutes + paidFreeMinutes)} />
+          </div>
+        </div>
+
+        <div className="rounded-[26px] bg-white p-5 shadow-sm border border-slate-100">
+          <h2 className="text-xl font-black text-slate-950">Status</h2>
+          <div className="mt-4 grid gap-3">
+            <div className="rounded-2xl bg-green-50 p-4">
+              <p className="text-sm font-black text-green-700">Freigegeben</p>
+              <p className="mt-1 text-2xl font-black text-green-800">{formatMinutes(payrollMinutes)}</p>
+            </div>
+            <div className="rounded-2xl bg-amber-50 p-4">
+              <p className="text-sm font-black text-amber-700">Nicht erfasst / offen</p>
+              <p className="mt-1 text-2xl font-black text-amber-800">{missingTasks.length}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm font-black text-slate-500">Unbezahlt frei</p>
+              <p className="mt-1 text-2xl font-black text-slate-700">{formatMinutes(unpaidMinutes)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="mb-3 text-xl font-black text-slate-500">Einträge</h2>
+          <div className="space-y-3">
+            {visibleEntries.length === 0 && <EmptyState text="Noch keine Zeiten vorhanden." />}
+            {visibleEntries.map((entry) => {
+              const isAbsence = isAbsenceEntry(entry);
+              const approved = isApprovedTimeEntry(entry);
+              return (
+                <div key={entry.id} className="rounded-[24px] bg-white p-4 shadow-sm border border-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-black text-slate-950">{dateLabel(timeEntryDay(entry))}</p>
+                      <p className="mt-1 text-sm font-bold text-slate-500">{isAbsence ? (entry.absence_type || entry.reason || "Abwesenheit") : (entry.site || entry.work_site_name || "Arbeitszeit")}</p>
+                    </div>
+                    <span className={`rounded-xl px-3 py-1 text-xs font-black ${approved ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>{approved ? "freigegeben" : "offen"}</span>
+                  </div>
+                  <p className="mt-3 text-2xl font-black text-slate-950">{formatMinutes(entryMinutes(entry))}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {missingTasks.length > 0 && (
+          <div>
+            <h2 className="mb-3 text-xl font-black text-slate-500">Nicht erfasst</h2>
+            <div className="space-y-3">
+              {missingTasks.slice(0, 10).map((task) => (
+                <div key={task.id} className="rounded-[24px] border border-amber-100 bg-amber-50 p-4">
+                  <p className="font-black text-amber-900">{dateLabel(task.task_date)} · {task.site || "Objekt"}</p>
+                  <p className="mt-1 text-sm font-bold text-amber-700">{formatClock(task.start_time)} - {formatClock(task.end_time)} · {formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </SimplePage>
+  );
+}
 
 function ScheduleScreen({
   tasks,
@@ -2179,60 +2189,65 @@ function AbsenceRequestScreen(props: {
   submit: () => void;
   openTab: (tab: Tab) => void;
 }) {
+  const chips = ["Urlaub", "Krankheit", "Bezahlt Frei", "Unbezahlt Frei"];
+
   return (
     <SimplePage title="Abwesenheit" openTab={props.openTab}>
-      <div className="rounded-[24px] bg-white p-5 shadow-sm border border-slate-100">
-        <p className="text-sm font-bold text-slate-400">Hier reiche ich Urlaub, Krankheit oder andere Abwesenheiten ein.</p>
+      <div className="space-y-5">
+        <div className="rounded-[30px] bg-white p-5 shadow-sm border border-slate-100">
+          <h2 className="text-2xl font-black text-slate-950">Abwesenheit einreichen</h2>
+          <p className="mt-1 text-sm font-bold text-slate-400">Urlaub wird mit den geplanten Einsatzstunden berechnet.</p>
 
-        <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-400">Art der Abwesenheit</label>
-        <select value={props.absenceType} onChange={(e) => props.setAbsenceType(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none">
-          <option value="Urlaub">Urlaub</option>
-          <option value="Krankheit">Krankheit</option>
-          <option value="Unbezahlt">Unbezahlt</option>
-          <option value="Sonstiges">Sonstiges</option>
-        </select>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            {chips.map((chip) => (
+              <button key={chip} type="button" onClick={() => props.setAbsenceType(chip)} className={`rounded-2xl border py-4 text-sm font-black ${props.absenceType === chip ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500"}`}>{chip}</button>
+            ))}
+          </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <label>
-            <span className="block text-xs font-black uppercase tracking-wide text-slate-400">Von</span>
-            <input type="date" value={props.startDate} onChange={(e) => props.setStartDate(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <label className="rounded-[22px] border border-slate-100 p-4">
+              <span className="text-sm font-bold text-slate-400">Von</span>
+              <input type="date" value={props.startDate} onChange={(e) => props.setStartDate(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+            </label>
+            <label className="rounded-[22px] border border-slate-100 p-4">
+              <span className="text-sm font-bold text-slate-400">Bis</span>
+              <input type="date" value={props.endDate} onChange={(e) => props.setEndDate(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+            </label>
+          </div>
+
+          <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+            <span className="text-sm font-bold text-slate-400">Grund / Notiz</span>
+            <textarea value={props.reason} onChange={(e) => props.setReason(e.target.value)} placeholder="Optional" className="mt-2 min-h-24 w-full bg-transparent text-lg font-semibold outline-none placeholder:text-slate-300" />
           </label>
-          <label>
-            <span className="block text-xs font-black uppercase tracking-wide text-slate-400">Bis</span>
-            <input type="date" value={props.endDate} onChange={(e) => props.setEndDate(e.target.value)} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
-          </label>
+
+          {props.message && <div className="mt-4 rounded-2xl bg-blue-50 p-3 text-sm font-black text-blue-800">{props.message}</div>}
+
+          <button type="button" disabled={props.saving} onClick={props.submit} className="mt-5 w-full rounded-2xl bg-blue-600 py-5 text-lg font-black text-white disabled:bg-slate-200">
+            {props.saving ? "Wird eingereicht..." : "Abwesenheit einreichen"}
+          </button>
         </div>
 
-        <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-400">Grund / Hinweis</label>
-        <textarea value={props.reason} onChange={(e) => props.setReason(e.target.value)} placeholder="Zum Beispiel: Urlaub beantragt" className="mt-2 min-h-28 w-full rounded-2xl bg-slate-50 px-4 py-4 font-semibold outline-none" />
-
-        <button type="button" disabled={props.saving} onClick={props.submit} className="mt-5 w-full rounded-2xl bg-blue-600 py-4 text-white font-black disabled:opacity-60">
-          {props.saving ? "Wird gesendet..." : "Abwesenheit einreichen"}
-        </button>
-
-        {props.message && <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-700">{props.message}</p>}
-      </div>
-
-      <h2 className="mt-6 mb-3 text-sm font-black">Meine Anträge</h2>
-      <div className="space-y-3">
-        {props.requests.length === 0 && <EmptyState text="Noch keine Abwesenheit eingereicht" />}
-        {props.requests.map((item) => {
-          const status = item.status || "open";
-          const statusClass = status === "approved" ? "bg-green-100 text-green-700" : status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700";
-          const statusLabel = status === "approved" ? "Genehmigt" : status === "rejected" ? "Abgelehnt" : "Offen";
-          return (
-            <div key={item.id} className="rounded-[22px] bg-white p-4 shadow-sm border border-slate-100">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-black">{item.absence_type}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">{new Date(item.start_date).toLocaleDateString("de-DE")} bis {new Date(item.end_date).toLocaleDateString("de-DE")}</p>
+        <div>
+          <h2 className="mb-3 text-xl font-black text-slate-500">Meine Anträge</h2>
+          <div className="space-y-3">
+            {props.requests.length === 0 && <EmptyState text="Noch keine Abwesenheiten eingereicht." />}
+            {props.requests.map((request) => {
+              const status = String(request.status || "open").toLowerCase();
+              return (
+                <div key={request.id} className="rounded-[24px] bg-white p-4 shadow-sm border border-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xl font-black text-slate-950">{request.absence_type}</p>
+                      <p className="mt-1 text-sm font-bold text-slate-500">{dateLabel(request.start_date)} → {dateLabel(request.end_date || request.start_date)}</p>
+                      {request.reason && <p className="mt-2 text-sm font-semibold text-slate-500">{request.reason}</p>}
+                    </div>
+                    <span className={`rounded-xl px-3 py-1 text-xs font-black ${status.includes("approved") || status.includes("genehmigt") ? "bg-green-100 text-green-700" : status.includes("rejected") || status.includes("abgelehnt") ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>{request.status || "offen"}</span>
+                  </div>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-black ${statusClass}`}>{statusLabel}</span>
-              </div>
-              {item.reason && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-600">{item.reason}</p>}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
       </div>
     </SimplePage>
   );
@@ -2459,6 +2474,7 @@ function AdminMobileScreen(props: {
   saving: boolean;
   refresh: () => void;
   approveTime: (row: AdminMobileRow, approved: boolean) => void;
+  resolveMaterialReport: (row: AdminMobileRow) => void;
   selectedSiteId: string;
   setSelectedSiteId: (value: string) => void;
   materialName: string;
@@ -2601,8 +2617,17 @@ function AdminMobileScreen(props: {
                 {materialReports.length === 0 && <EmptyState text="Keine Materialmeldungen vorhanden." />}
                 {materialReports.map((report) => (
                   <div key={report.id} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
-                    <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
-                    <p className="text-sm font-bold text-orange-700">{report.employee_name || "-"} · {report.site || report.work_site_name || "Objekt"} · {report.quantity_requested || 1}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
+                        <p className="text-sm font-bold text-orange-700">{report.employee_name || "-"} · {report.site || report.work_site_name || "Objekt"} · {report.quantity_requested || 1}</p>
+                        {report.notes && <p className="mt-2 text-sm font-semibold text-orange-800">{report.notes}</p>}
+                      </div>
+                      <span className={`rounded-xl px-3 py-1 text-xs font-black ${String(report.status || "").toLowerCase() === "done" ? "bg-green-100 text-green-700" : "bg-white text-orange-700"}`}>{String(report.status || "open")}</span>
+                    </div>
+                    {String(report.status || "").toLowerCase() !== "done" && (
+                      <button type="button" disabled={props.saving} onClick={() => props.resolveMaterialReport(report)} className="mt-3 w-full rounded-2xl bg-white py-3 font-black text-orange-700">Erledigt markieren</button>
+                    )}
                   </div>
                 ))}
               </div>
