@@ -347,7 +347,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
   const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material" | "assignment">("today");
-  const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; materialReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], materialReports: [], materials: [], sites: [] });
+  const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], absenceRequests: [], materialReports: [], qualityReports: [], materials: [], sites: [] });
   const [adminMaterialSiteId, setAdminMaterialSiteId] = useState("");
   const [adminMaterialName, setAdminMaterialName] = useState("");
   const [adminMaterialUnit, setAdminMaterialUnit] = useState("Stk.");
@@ -709,15 +709,17 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     if (role !== "admin" && role !== "objektleiter") return;
     if (!silent) setAdminMobileMessage("Lade Admin-Daten...");
     try {
-      const [employees, adminTasks, adminEntries, materialReports, adminMaterials, adminSites] = await Promise.all([
+      const [employees, adminTasks, adminEntries, absenceRequests, materialReports, qualityReports, adminMaterials, adminSites] = await Promise.all([
         adminSelect("employee_profiles", "name", 200),
         adminSelect("tasks", "task_date", 300),
         adminSelect("time_entries", "created_at", 300),
+        adminSelect("absence_requests", "created_at", 200),
         adminSelect("material_reports", "created_at", 200),
+        adminSelect("quality_reports", "created_at", 200),
         adminSelect("material_products", "name", 300),
         adminSelect("work_sites", "name", 300),
       ]);
-      setAdminMobileData({ employees, tasks: adminTasks, entries: adminEntries, materialReports, materials: adminMaterials, sites: adminSites });
+      setAdminMobileData({ employees, tasks: adminTasks, entries: adminEntries, absenceRequests, materialReports, qualityReports, materials: adminMaterials, sites: adminSites });
       setAdminMobileMessage("");
     } catch (error) {
       setAdminMobileMessage(error instanceof Error ? error.message : "Admin-Daten konnten nicht geladen werden.");
@@ -764,6 +766,105 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       setAdminMobileMessage("Materialmeldung wurde erledigt.");
     } catch (error) {
       setAdminMobileMessage(error instanceof Error ? error.message : "Materialmeldung konnte nicht erledigt werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  function dateListBetween(startDate: string, endDate: string) {
+    const result: string[] = [];
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate || startDate}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return startDate ? [startDate] : [];
+    for (let current = new Date(start); current <= end; current.setDate(current.getDate() + 1)) {
+      result.push(current.toISOString().slice(0, 10));
+    }
+    return result;
+  }
+
+  function isPaidAbsenceType(typeValue: unknown) {
+    const type = String(typeValue || "").toLowerCase();
+    if (type.includes("unbezahlt")) return false;
+    return type.includes("urlaub") || type.includes("krank") || type.includes("bezahlt") || type.includes("frei");
+  }
+
+  async function decideMobileAbsence(row: AdminMobileRow, approved: boolean) {
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      const nextStatus = approved ? "approved" : "rejected";
+      await adminApi({
+        action: "update",
+        table: "absence_requests",
+        id: row.id,
+        payload: {
+          status: nextStatus,
+          decided_at: new Date().toISOString(),
+        },
+      });
+
+      if (approved) {
+        const days = dateListBetween(String(row.start_date || ""), String(row.end_date || row.start_date || ""));
+        const paid = isPaidAbsenceType(row.absence_type);
+        for (const day of days) {
+          const planned = adminMobileData.tasks
+            .filter((task) => String(task.employee_name || "") === String(row.employee_name || ""))
+            .filter((task) => String(task.task_date || task.due_date || "").slice(0, 10) === day)
+            .filter((task) => task.item_type !== "task" && task.task_type !== "task")
+            .reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+
+          const alreadyExists = adminMobileData.entries.some((entry) => String(entry.absence_request_id || "") === String(row.id || "") && String(entry.work_date || "").slice(0, 10) === day);
+          if (!alreadyExists) {
+            await adminApi({
+              action: "insert",
+              table: "time_entries",
+              payload: {
+                employee_name: row.employee_name,
+                work_date: day,
+                absence_request_id: row.id,
+                absence_type: row.absence_type,
+                entry_type: "absence",
+                action: "absence",
+                status: "approved",
+                approved: true,
+                planned_minutes: planned,
+                worked_minutes: 0,
+                payroll_minutes: paid ? planned : 0,
+                reason: paid ? row.absence_type : "Unbezahlt Frei",
+                notes: paid ? "Planzeit aus Einsatz gutgeschrieben" : "0:00 Stunden gutgeschrieben",
+              },
+            });
+          }
+        }
+      }
+
+      await loadMobileAdminData(true);
+      setAdminMobileMessage(approved ? "Abwesenheit genehmigt." : "Abwesenheit abgelehnt.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Abwesenheit konnte nicht bearbeitet werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  async function reviewMobileQualityReport(row: AdminMobileRow, approved: boolean) {
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({
+        action: "update",
+        table: "quality_reports",
+        id: row.id,
+        payload: {
+          status: approved ? "reviewed" : "rework",
+          reviewed_at: new Date().toISOString(),
+          review_notes: approved ? "Mobil geprüft und freigegeben" : "Mobil Nacharbeit angefordert",
+        },
+      });
+      await loadMobileAdminData(true);
+      setAdminMobileMessage(approved ? "Qualitätsnachweis geprüft." : "Nacharbeit markiert.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Qualitätsnachweis konnte nicht bearbeitet werden.");
     } finally {
       setAdminMobileSaving(false);
     }
@@ -1548,6 +1649,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             refresh={() => loadMobileAdminData(false)}
             approveTime={approveMobileTime}
             resolveMaterialReport={resolveMobileMaterialReport}
+            decideAbsence={decideMobileAbsence}
+            reviewQualityReport={reviewMobileQualityReport}
             selectedSiteId={adminMaterialSiteId}
             setSelectedSiteId={setAdminMaterialSiteId}
             materialName={adminMaterialName}
@@ -2547,7 +2650,7 @@ function SimplePage({ title, children, openTab, searchPlaceholder }: { title: st
 
 function AdminMobileScreen(props: {
   role: string;
-  data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; materialReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] };
+  data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] };
   tab: "today" | "approval" | "material" | "assignment";
   setTab: (value: "today" | "approval" | "material" | "assignment") => void;
   message: string;
@@ -2555,6 +2658,8 @@ function AdminMobileScreen(props: {
   refresh: () => void;
   approveTime: (row: AdminMobileRow, approved: boolean) => void;
   resolveMaterialReport: (row: AdminMobileRow) => void;
+  decideAbsence: (row: AdminMobileRow, approved: boolean) => void;
+  reviewQualityReport: (row: AdminMobileRow, approved: boolean) => void;
   selectedSiteId: string;
   setSelectedSiteId: (value: string) => void;
   materialName: string;
@@ -2591,6 +2696,15 @@ function AdminMobileScreen(props: {
   const selectedSite = props.data.sites.find((site) => site.id === props.selectedSiteId) || null;
   const objectMaterials = props.data.materials.filter((item) => !props.selectedSiteId || item.work_site_id === props.selectedSiteId);
   const materialReports = props.data.materialReports.slice(0, 20);
+  const openAbsences = props.data.absenceRequests
+    .filter((row) => !["approved", "genehmigt", "rejected", "abgelehnt"].includes(String(row.status || "").toLowerCase()))
+    .slice(0, 20);
+  const openQualityReports = props.data.qualityReports
+    .filter((row) => !["reviewed", "geprüft"].includes(String(row.status || "").toLowerCase()))
+    .slice(0, 20);
+  const openMaterials = props.data.materialReports
+    .filter((row) => String(row.status || "open").toLowerCase() !== "done")
+    .slice(0, 20);
 
   if (!canAdmin) {
     return (
@@ -2607,7 +2721,7 @@ function AdminMobileScreen(props: {
           {[
             ["today", "Heute"],
             ["assignment", "Einsatz"],
-            ["approval", "Zeitenfreigabe"],
+            ["approval", "Freigaben"],
             ["material", "Material"],
           ].map(([id, label]) => (
             <button key={id} type="button" onClick={() => props.setTab(id as "today" | "approval" | "material" | "assignment")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${props.tab === id ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-100"}`}>{label}</button>
@@ -2715,33 +2829,103 @@ function AdminMobileScreen(props: {
         )}
 
         {props.tab === "approval" && (
-          <div className="space-y-4">
-            <div className="flex gap-2 overflow-x-auto">
-              {["Datum", "Objektleiter", "Fehler", "Objekte", "Mitarbeitergruppen"].map((item) => <span key={item} className="shrink-0 rounded-full border border-slate-100 bg-white px-4 py-2 text-sm font-black text-slate-500">{item}</span>)}
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              <InfoBox label="Offene Zeiten" value={String(openTimeEntries.length)} />
+              <InfoBox label="Abwesenheit" value={String(openAbsences.length)} />
+              <InfoBox label="Material offen" value={String(openMaterials.length)} />
+              <InfoBox label="Qualität" value={String(openQualityReports.length)} />
             </div>
-            {openTimeEntries.length === 0 && <EmptyState text="Keine offenen Zeiten zur Freigabe." />}
-            {openTimeEntries.map((entry) => {
-              const planned = Number(entry.planned_minutes || 0);
-              const worked = Number(entry.worked_minutes || entry.payroll_minutes || 0);
-              const diff = worked - planned;
-              return (
-                <div key={entry.id} className="rounded-[28px] bg-white p-5 shadow-sm border border-slate-100">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xl font-black">{dateLabel(entry.work_date || entry.created_at)}</p>
-                      <p className="mt-2 text-sm font-bold text-slate-500">{entry.employee_name || "-"} · {entry.site || entry.work_site_name || "Objekt"}</p>
-                      <p className="mt-4 text-sm font-bold text-slate-500">Soll: {formatMinutes(planned)}</p>
-                      <p className={`mt-1 font-black ${diff < 0 ? "text-red-500" : "text-emerald-600"}`}>{diff >= 0 ? "+" : "-"} {formatMinutes(Math.abs(diff))}</p>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Zeiten freigeben</h2>
+              <div className="mt-4 space-y-4">
+                {openTimeEntries.length === 0 && <EmptyState text="Keine offenen Zeiten zur Freigabe." />}
+                {openTimeEntries.map((entry) => {
+                  const planned = Number(entry.planned_minutes || 0);
+                  const worked = Number(entry.worked_minutes || entry.payroll_minutes || 0);
+                  const diff = worked - planned;
+                  return (
+                    <div key={entry.id} className="rounded-[28px] bg-slate-50 p-5 border border-slate-100">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xl font-black">{dateLabel(entry.work_date || entry.created_at)}</p>
+                          <p className="mt-2 text-sm font-bold text-slate-500">{entry.employee_name || "-"} · {entry.site || entry.work_site_name || "Objekt"}</p>
+                          <p className="mt-4 text-sm font-bold text-slate-500">Soll: {formatMinutes(planned)} · Ist: {formatMinutes(worked)}</p>
+                          <p className={`mt-1 font-black ${diff < 0 ? "text-red-500" : "text-emerald-600"}`}>{diff >= 0 ? "+" : "-"} {formatMinutes(Math.abs(diff))}</p>
+                        </div>
+                        <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, true)} className="flex h-20 w-20 items-center justify-center rounded-[22px] bg-green-500 text-4xl font-black text-white">✓</button>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, false)} className="rounded-2xl bg-red-50 py-3 font-black text-red-600">Ablehnen</button>
+                        <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, true)} className="rounded-2xl bg-green-50 py-3 font-black text-green-700">Freigeben</button>
+                      </div>
                     </div>
-                    <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, true)} className="flex h-20 w-20 items-center justify-center rounded-[22px] bg-green-500 text-4xl font-black text-white">✓</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Abwesenheiten freigeben</h2>
+              <div className="mt-4 space-y-4">
+                {openAbsences.length === 0 && <EmptyState text="Keine offenen Abwesenheiten." />}
+                {openAbsences.map((row) => (
+                  <div key={row.id} className="rounded-[24px] bg-emerald-50 p-4 border border-emerald-100">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xl font-black text-emerald-950">{row.absence_type || "Abwesenheit"}</p>
+                        <p className="mt-1 text-sm font-bold text-emerald-700">{row.employee_name || "-"} · {dateLabel(row.start_date)} → {dateLabel(row.end_date || row.start_date)}</p>
+                        {row.reason && <p className="mt-2 text-sm font-semibold text-emerald-800">{row.reason}</p>}
+                      </div>
+                      <span className="rounded-xl bg-white px-3 py-1 text-xs font-black text-emerald-700">{row.status || "open"}</span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <button type="button" disabled={props.saving} onClick={() => props.decideAbsence(row, false)} className="rounded-2xl bg-white py-3 font-black text-red-600">Ablehnen</button>
+                      <button type="button" disabled={props.saving} onClick={() => props.decideAbsence(row, true)} className="rounded-2xl bg-green-600 py-3 font-black text-white">Genehmigen</button>
+                    </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, false)} className="rounded-2xl bg-red-50 py-3 font-black text-red-600">Ablehnen</button>
-                    <button type="button" disabled={props.saving} onClick={() => props.approveTime(entry, true)} className="rounded-2xl bg-green-50 py-3 font-black text-green-700">Freigeben</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Material erledigen</h2>
+              <div className="mt-4 space-y-4">
+                {openMaterials.length === 0 && <EmptyState text="Keine offenen Materialmeldungen." />}
+                {openMaterials.map((report) => (
+                  <div key={report.id} className="rounded-[24px] bg-orange-50 p-4 border border-orange-100">
+                    <p className="text-xl font-black text-orange-950">{report.material_name || report.product_name || "Material"}</p>
+                    <p className="mt-1 text-sm font-bold text-orange-700">{report.employee_name || "-"} · {report.site || report.work_site_name || "Objekt"} · Menge {report.quantity_requested || 1}</p>
+                    {report.notes && <p className="mt-2 text-sm font-semibold text-orange-800">{report.notes}</p>}
+                    <button type="button" disabled={props.saving} onClick={() => props.resolveMaterialReport(report)} className="mt-4 w-full rounded-2xl bg-white py-3 font-black text-orange-700">Erledigt markieren</button>
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Qualitätsnachweise prüfen</h2>
+              <div className="mt-4 space-y-4">
+                {openQualityReports.length === 0 && <EmptyState text="Keine offenen Qualitätsnachweise." />}
+                {openQualityReports.map((report) => (
+                  <div key={report.id} className="rounded-[24px] bg-blue-50 p-4 border border-blue-100">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xl font-black text-blue-950">{report.site || report.title || "Qualitätsnachweis"}</p>
+                        <p className="mt-1 text-sm font-bold text-blue-700">{report.employee_name || "-"} · Checkliste {Number(report.passed_items || 0)}/{Number(report.total_items || 0)}</p>
+                        {report.notes && <p className="mt-2 text-sm font-semibold text-blue-800">{report.notes}</p>}
+                      </div>
+                      {report.photo_url && <a href={report.photo_url} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-xs font-black text-blue-700">Foto</a>}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <button type="button" disabled={props.saving} onClick={() => props.reviewQualityReport(report, false)} className="rounded-2xl bg-white py-3 font-black text-red-600">Nacharbeit</button>
+                      <button type="button" disabled={props.saving} onClick={() => props.reviewQualityReport(report, true)} className="rounded-2xl bg-blue-600 py-3 font-black text-white">Geprüft</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
