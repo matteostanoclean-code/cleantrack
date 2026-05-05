@@ -1,7 +1,75 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
 
 type Row = Record<string, any>;
+
+function pushEnv() {
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+  const vapidSubject = process.env.VAPID_SUBJECT;
+  if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) return null;
+  return { vapidPublicKey, vapidPrivateKey, vapidSubject };
+}
+
+function isAdminPushRole(role: unknown) {
+  const value = String(role || "").trim().toLowerCase();
+  return value === "admin" || value === "objektleiter" || value === "object_lead" || value === "objectleader";
+}
+
+async function sendAdminPush(supabaseAdmin: any, title: string, message: string, type = "admin_todo") {
+  const env = pushEnv();
+  if (!env) return;
+
+  const { data: admins } = await supabaseAdmin
+    .from("employee_profiles")
+    .select("name, role, active")
+    .neq("active", false);
+
+  const adminNames = (admins || [])
+    .filter((row: any) => isAdminPushRole(row.role))
+    .map((row: any) => row.name)
+    .filter(Boolean);
+
+  if (adminNames.length === 0) return;
+
+  const { data: subscriptions } = await supabaseAdmin
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth, employee_name")
+    .in("employee_name", adminNames);
+
+  if (!subscriptions || subscriptions.length === 0) return;
+
+  webpush.setVapidDetails(env.vapidSubject, env.vapidPublicKey, env.vapidPrivateKey);
+
+  const payload = JSON.stringify({
+    title,
+    body: message,
+    url: "/mitarbeiter?tab=admin",
+    type,
+  });
+
+  for (const item of subscriptions) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: item.endpoint,
+          keys: {
+            p256dh: item.p256dh,
+            auth: item.auth,
+          },
+        },
+        payload
+      );
+    } catch (error) {
+      const pushError = error as { statusCode?: number };
+      if (pushError.statusCode === 404 || pushError.statusCode === 410) {
+        await supabaseAdmin.from("push_subscriptions").delete().eq("id", item.id);
+      }
+    }
+  }
+}
+
 
 function getEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -257,6 +325,8 @@ export async function POST(request: Request) {
         },
       ]);
 
+      await sendAdminPush(supabaseAdmin, "Überstunden angefragt", notificationPayload.message, "overtime_request");
+
       return NextResponse.json({ success: true, message: "Überstundenanfrage wurde gesendet." });
     }
 
@@ -472,13 +542,15 @@ export async function POST(request: Request) {
       if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
 
       if (body.reason === "left_geofence" || body.reason === "max_time_reached") {
+        const adminMessage = body.reason === "left_geofence"
+          ? `${profile.name} hat den GPS-Bereich bei ${task.site || site?.name || "einem Objekt"} verlassen.`
+          : `${profile.name} hat die geplante Arbeitszeit bei ${task.site || site?.name || "einem Objekt"} erreicht.`;
+
         await supabaseAdmin.from("admin_notifications").insert([
           {
             employee_name: profile.name,
             title: body.reason === "left_geofence" ? "Automatisch ausgestempelt" : "Planzeit erreicht",
-            message: body.reason === "left_geofence"
-              ? `${profile.name} hat den GPS-Bereich bei ${task.site || site?.name || "einem Objekt"} verlassen.`
-              : `${profile.name} hat die geplante Arbeitszeit bei ${task.site || site?.name || "einem Objekt"} erreicht.`,
+            message: adminMessage,
             notification_type: body.reason === "left_geofence" ? "auto_clock_out" : "planned_time_reached",
             status: "open",
             task_id: task.id,
@@ -486,6 +558,8 @@ export async function POST(request: Request) {
             site: task.site || site?.name || null,
           },
         ]);
+
+        await sendAdminPush(supabaseAdmin, "Automatische Zeitmeldung", adminMessage, body.reason === "left_geofence" ? "auto_clock_out" : "planned_time_reached");
       }
 
       return NextResponse.json({

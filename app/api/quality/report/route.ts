@@ -1,5 +1,70 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
+
+function pushEnv() {
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+  const vapidSubject = process.env.VAPID_SUBJECT;
+  if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) return null;
+  return { vapidPublicKey, vapidPrivateKey, vapidSubject };
+}
+
+function isAdminPushRole(role: unknown) {
+  const value = String(role || "").trim().toLowerCase();
+  return value === "admin" || value === "objektleiter" || value === "object_lead" || value === "objectleader";
+}
+
+async function sendAdminPush(supabaseAdmin: any, title: string, message: string, type = "admin_todo") {
+  const env = pushEnv();
+  if (!env) return;
+
+  const { data: admins } = await supabaseAdmin
+    .from("employee_profiles")
+    .select("name, role, active")
+    .neq("active", false);
+
+  const names = (admins || []).filter((row: any) => isAdminPushRole(row.role)).map((row: any) => row.name).filter(Boolean);
+  if (names.length === 0) return;
+
+  const { data: subscriptions } = await supabaseAdmin
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth, employee_name")
+    .in("employee_name", names);
+
+  if (!subscriptions || subscriptions.length === 0) return;
+
+  webpush.setVapidDetails(env.vapidSubject, env.vapidPublicKey, env.vapidPrivateKey);
+
+  const payload = JSON.stringify({
+    title,
+    body: message,
+    url: "/mitarbeiter?tab=admin",
+    type,
+  });
+
+  for (const item of subscriptions) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: item.endpoint,
+          keys: {
+            p256dh: item.p256dh,
+            auth: item.auth,
+          },
+        },
+        payload
+      );
+    } catch (error) {
+      const pushError = error as { statusCode?: number };
+      if (pushError.statusCode === 404 || pushError.statusCode === 410) {
+        await supabaseAdmin.from("push_subscriptions").delete().eq("id", item.id);
+      }
+    }
+  }
+}
+
+
 
 function getEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -159,16 +224,20 @@ export async function POST(request: Request) {
     const { error: insertError } = await supabaseAdmin.from("quality_reports").insert([payload]);
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
 
+    const adminMessage = `${profile.name} hat den Qualitätsnachweis für ${task.site || "einen Einsatz"} eingereicht.`;
+
     await supabaseAdmin.from("admin_notifications").insert([{
       employee_name: profile.name,
       title: "Qualitätsnachweis eingereicht",
-      message: `${profile.name} hat den Qualitätsnachweis für ${task.site || "einen Einsatz"} eingereicht.`,
+      message: adminMessage,
       notification_type: "quality_report",
       status: "open",
       task_id: task.id,
       work_site_id: task.work_site_id || null,
       site: task.site || null,
     }]);
+
+    await sendAdminPush(supabaseAdmin, "Qualitätsnachweis eingereicht", adminMessage, "quality_report");
 
     return NextResponse.json({
       success: true,

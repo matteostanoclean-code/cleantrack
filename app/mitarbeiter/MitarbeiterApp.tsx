@@ -347,7 +347,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
   const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material" | "assignment">("today");
-  const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], absenceRequests: [], materialReports: [], qualityReports: [], materials: [], sites: [] });
+  const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[]; chats: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], absenceRequests: [], materialReports: [], qualityReports: [], materials: [], sites: [], chats: [] });
   const [adminMaterialSiteId, setAdminMaterialSiteId] = useState("");
   const [adminMaterialName, setAdminMaterialName] = useState("");
   const [adminMaterialUnit, setAdminMaterialUnit] = useState("Stk.");
@@ -359,6 +359,13 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [adminAssignmentEnd, setAdminAssignmentEnd] = useState("09:00");
   const [adminAssignmentPlanned, setAdminAssignmentPlanned] = useState("60");
   const [adminAssignmentNotes, setAdminAssignmentNotes] = useState("");
+  const [adminManualEmployeeName, setAdminManualEmployeeName] = useState("");
+  const [adminManualSiteId, setAdminManualSiteId] = useState("");
+  const [adminManualDate, setAdminManualDate] = useState(todayISO());
+  const [adminManualStart, setAdminManualStart] = useState("08:00");
+  const [adminManualEnd, setAdminManualEnd] = useState("09:00");
+  const [adminManualReason, setAdminManualReason] = useState("Zeit nachgetragen");
+  const [adminManualNotes, setAdminManualNotes] = useState("");
   const [adminMobileMessage, setAdminMobileMessage] = useState("");
   const [adminMobileSaving, setAdminMobileSaving] = useState(false);
   const [absenceType, setAbsenceType] = useState("Urlaub");
@@ -700,6 +707,27 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     return json;
   }
 
+  async function notifyAdmins(title: string, message: string, type = "admin_todo") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+
+      await fetch("/api/push/admin-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title,
+          message,
+          type,
+          url: "/mitarbeiter?tab=admin",
+        }),
+      });
+    } catch {
+      // Push darf nie die eigentliche Aktion blockieren.
+    }
+  }
+
   async function adminSelect(table: string, orderBy = "created_at", limit = 150) {
     const json = await adminApi({ action: "select", table, orderBy, ascending: false, limit });
     return (json.data || []) as AdminMobileRow[];
@@ -709,7 +737,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     if (role !== "admin" && role !== "objektleiter") return;
     if (!silent) setAdminMobileMessage("Lade Admin-Daten...");
     try {
-      const [employees, adminTasks, adminEntries, absenceRequests, materialReports, qualityReports, adminMaterials, adminSites] = await Promise.all([
+      const [employees, adminTasks, adminEntries, absenceRequests, materialReports, qualityReports, adminMaterials, adminSites, chats] = await Promise.all([
         adminSelect("employee_profiles", "name", 200),
         adminSelect("tasks", "task_date", 300),
         adminSelect("time_entries", "created_at", 300),
@@ -718,8 +746,9 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         adminSelect("quality_reports", "created_at", 200),
         adminSelect("material_products", "name", 300),
         adminSelect("work_sites", "name", 300),
+        adminSelect("chat_messages", "created_at", 200),
       ]);
-      setAdminMobileData({ employees, tasks: adminTasks, entries: adminEntries, absenceRequests, materialReports, qualityReports, materials: adminMaterials, sites: adminSites });
+      setAdminMobileData({ employees, tasks: adminTasks, entries: adminEntries, absenceRequests, materialReports, qualityReports, materials: adminMaterials, sites: adminSites, chats });
       setAdminMobileMessage("");
     } catch (error) {
       setAdminMobileMessage(error instanceof Error ? error.message : "Admin-Daten konnten nicht geladen werden.");
@@ -865,6 +894,89 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       setAdminMobileMessage(approved ? "Qualitätsnachweis geprüft." : "Nacharbeit markiert.");
     } catch (error) {
       setAdminMobileMessage(error instanceof Error ? error.message : "Qualitätsnachweis konnte nicht bearbeitet werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  function adminTimeToMinutes(value: string) {
+    const [hours, minutes] = String(value || "").split(":").map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
+  }
+
+  function adminDateTimeIso(dateValue: string, timeValue: string, addDay = false) {
+    const value = new Date(`${dateValue}T${timeValue}:00`);
+    if (addDay) value.setDate(value.getDate() + 1);
+    return value.toISOString();
+  }
+
+  async function createMobileManualTimeEntry() {
+    setAdminMobileMessage("");
+
+    if (!adminManualEmployeeName) {
+      setAdminMobileMessage("Bitte Mitarbeiter auswählen.");
+      return;
+    }
+
+    if (!adminManualDate || !adminManualStart || !adminManualEnd) {
+      setAdminMobileMessage("Bitte Datum, Start und Ende eintragen.");
+      return;
+    }
+
+    const startMinutes = adminTimeToMinutes(adminManualStart);
+    const endMinutes = adminTimeToMinutes(adminManualEnd);
+
+    if (startMinutes === null || endMinutes === null) {
+      setAdminMobileMessage("Bitte gültige Zeiten eintragen.");
+      return;
+    }
+
+    let duration = endMinutes - startMinutes;
+    const overnight = duration < 0;
+    if (overnight) duration += 1440;
+
+    if (duration <= 0) {
+      setAdminMobileMessage("Die nachgetragene Zeit muss größer als 0 Minuten sein.");
+      return;
+    }
+
+    const site = adminMobileData.sites.find((item) => item.id === adminManualSiteId) || workSites.find((item) => item.id === adminManualSiteId);
+
+    setAdminMobileSaving(true);
+    try {
+      await adminApi({
+        action: "insert",
+        table: "time_entries",
+        payload: {
+          employee_name: adminManualEmployeeName,
+          work_date: adminManualDate,
+          check_in_at: adminDateTimeIso(adminManualDate, adminManualStart),
+          check_out_at: adminDateTimeIso(adminManualDate, adminManualEnd, overnight),
+          site: site?.name || null,
+          work_site_name: site?.name || null,
+          work_site_id: site?.id || null,
+          action: "manual",
+          entry_type: "manual",
+          reason: adminManualReason || "Zeit nachgetragen",
+          notes: adminManualNotes || null,
+          planned_minutes: duration,
+          worked_minutes: duration,
+          payroll_minutes: duration,
+          approved: true,
+          status: "approved",
+        },
+      });
+
+      setAdminManualNotes("");
+      setAdminMobileMessage(`Zeit wurde nachgetragen und freigegeben: ${formatMinutes(duration)}.`);
+      await loadMobileAdminData(true);
+      if (name) {
+        await loadTodayEntries(name);
+        await loadMonthEntries(name);
+      }
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Zeit konnte nicht nachgetragen werden.");
     } finally {
       setAdminMobileSaving(false);
     }
@@ -1321,6 +1433,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       return;
     }
 
+    await notifyAdmins("Neue Chatnachricht", `${name} hat eine neue Nachricht geschrieben.`, "chat_message");
     setChatText("");
     await loadChatMessages(name);
   }
@@ -1675,6 +1788,21 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             assignmentNotes={adminAssignmentNotes}
             setAssignmentNotes={setAdminAssignmentNotes}
             createAssignment={createMobileAssignment}
+            manualEmployeeName={adminManualEmployeeName}
+            setManualEmployeeName={setAdminManualEmployeeName}
+            manualSiteId={adminManualSiteId}
+            setManualSiteId={setAdminManualSiteId}
+            manualDate={adminManualDate}
+            setManualDate={setAdminManualDate}
+            manualStart={adminManualStart}
+            setManualStart={setAdminManualStart}
+            manualEnd={adminManualEnd}
+            setManualEnd={setAdminManualEnd}
+            manualReason={adminManualReason}
+            setManualReason={setAdminManualReason}
+            manualNotes={adminManualNotes}
+            setManualNotes={setAdminManualNotes}
+            createManualTimeEntry={createMobileManualTimeEntry}
             openTab={openTab}
           />
         )}
@@ -2650,7 +2778,7 @@ function SimplePage({ title, children, openTab, searchPlaceholder }: { title: st
 
 function AdminMobileScreen(props: {
   role: string;
-  data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[] };
+  data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[]; chats: AdminMobileRow[] };
   tab: "today" | "approval" | "material" | "assignment";
   setTab: (value: "today" | "approval" | "material" | "assignment") => void;
   message: string;
@@ -2684,6 +2812,21 @@ function AdminMobileScreen(props: {
   assignmentNotes: string;
   setAssignmentNotes: (value: string) => void;
   createAssignment: () => void;
+  manualEmployeeName: string;
+  setManualEmployeeName: (value: string) => void;
+  manualSiteId: string;
+  setManualSiteId: (value: string) => void;
+  manualDate: string;
+  setManualDate: (value: string) => void;
+  manualStart: string;
+  setManualStart: (value: string) => void;
+  manualEnd: string;
+  setManualEnd: (value: string) => void;
+  manualReason: string;
+  setManualReason: (value: string) => void;
+  manualNotes: string;
+  setManualNotes: (value: string) => void;
+  createManualTimeEntry: () => void;
   openTab: (tab: Tab) => void;
 }) {
   const canAdmin = props.role === "admin" || props.role === "objektleiter";
@@ -2702,9 +2845,21 @@ function AdminMobileScreen(props: {
   const openQualityReports = props.data.qualityReports
     .filter((row) => !["reviewed", "geprüft"].includes(String(row.status || "").toLowerCase()))
     .slice(0, 20);
+  const unreadChats = props.data.chats
+    .filter((row) => String(row.sender_role || "").toLowerCase() !== "admin")
+    .filter((row) => row.read_by_admin !== true)
+    .slice(0, 20);
   const openMaterials = props.data.materialReports
     .filter((row) => String(row.status || "open").toLowerCase() !== "done")
     .slice(0, 20);
+  const totalTodos = openTimeEntries.length + openAbsences.length + openMaterials.length + openQualityReports.length + unreadChats.length;
+  const urgentTodos = [
+    ...unreadChats.map((row) => ({ id: `chat-${row.id}`, kind: "Chat", title: row.employee_name || row.sender_name || "Nachricht", text: row.message || "Neue Nachricht", action: "Antworten", onClick: () => props.openTab("chat") })),
+    ...openAbsences.map((row) => ({ id: `absence-${row.id}`, kind: "Antrag", title: row.absence_type || "Abwesenheit", text: `${row.employee_name || "-"} · ${dateLabel(row.start_date)} → ${dateLabel(row.end_date || row.start_date)}`, action: "Genehmigen", onClick: () => props.decideAbsence(row, true) })),
+    ...openMaterials.map((row) => ({ id: `material-${row.id}`, kind: "Material", title: row.material_name || row.product_name || "Material", text: `${row.employee_name || "-"} · ${row.object_name || row.site || row.work_site_name || "Objekt"}`, action: "Erledigt", onClick: () => props.resolveMaterialReport(row) })),
+    ...openQualityReports.map((row) => ({ id: `quality-${row.id}`, kind: "Qualität", title: row.site || row.title || "Qualitätsnachweis", text: `${row.employee_name || "-"} · ${Number(row.passed_items || 0)}/${Number(row.total_items || 0)}`, action: "Prüfen", onClick: () => props.reviewQualityReport(row, true) })),
+    ...openTimeEntries.map((row) => ({ id: `time-${row.id}`, kind: "Zeit", title: row.employee_name || "Zeit", text: `${row.site || row.work_site_name || "Objekt"} · ${formatMinutes(Number(row.worked_minutes || row.payroll_minutes || 0))}`, action: "Freigeben", onClick: () => props.approveTime(row, true) })),
+  ].slice(0, 8);
 
   if (!canAdmin) {
     return (
@@ -2732,19 +2887,45 @@ function AdminMobileScreen(props: {
         {props.message && <div className="rounded-2xl bg-blue-50 p-3 text-sm font-black text-blue-800">{props.message}</div>}
 
         {props.tab === "today" && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3">
-              <InfoBox label="Einsätze heute" value={String(todayTasks.length)} />
-              <InfoBox label="Offene Zeiten" value={String(openTimeEntries.length)} />
-              <InfoBox label="Mitarbeiter" value={String(props.data.employees.length)} />
-              <InfoBox label="Materialmeldungen" value={String(materialReports.length)} />
+              <InfoBox label="Heute zu tun" value={String(totalTodos)} />
+              <InfoBox label="Chat offen" value={String(unreadChats.length)} />
+              <InfoBox label="Freigaben" value={String(openTimeEntries.length + openAbsences.length)} />
+              <InfoBox label="Material / Qualität" value={String(openMaterials.length + openQualityReports.length)} />
+            </div>
+
+            <div className="rounded-[30px] bg-white p-5 shadow-sm border border-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-950">To-do-Zentrale</h2>
+                  <p className="mt-1 text-sm font-bold text-slate-400">Alles, was ich heute direkt abarbeiten muss.</p>
+                </div>
+                <button type="button" onClick={props.refresh} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-500">↻</button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {urgentTodos.length === 0 && <EmptyState text="Alles erledigt. Keine offenen Admin-Aufgaben." />}
+                {urgentTodos.map((todo) => (
+                  <div key={todo.id} className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-blue-700">{todo.kind}</span>
+                        <p className="mt-3 text-xl font-black text-slate-950">{todo.title}</p>
+                        <p className="mt-1 text-sm font-bold text-slate-500">{todo.text}</p>
+                      </div>
+                      <button type="button" disabled={props.saving} onClick={todo.onClick} className="shrink-0 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-slate-200">{todo.action}</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
               <h2 className="text-xl font-black">Heutige Einsätze</h2>
               <div className="mt-4 space-y-3">
                 {todayTasks.length === 0 && <EmptyState text="Heute sind keine Einsätze geplant." />}
-                {todayTasks.slice(0, 10).map((task) => (
+                {todayTasks.slice(0, 8).map((task) => (
                   <div key={task.id} className="rounded-[22px] border border-slate-100 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -2835,6 +3016,58 @@ function AdminMobileScreen(props: {
               <InfoBox label="Abwesenheit" value={String(openAbsences.length)} />
               <InfoBox label="Material offen" value={String(openMaterials.length)} />
               <InfoBox label="Qualität" value={String(openQualityReports.length)} />
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Zeit nachtragen</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">Wenn ein Mitarbeiter das Stempeln vergessen hat, trage ich die Zeit hier manuell nach.</p>
+
+              <label className="mt-4 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Mitarbeiter</span>
+                <select value={props.manualEmployeeName} onChange={(e) => props.setManualEmployeeName(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                  <option value="">Mitarbeiter auswählen</option>
+                  {props.data.employees.filter((employee) => employee.active !== false && String(employee.role || "").toLowerCase() !== "admin").map((employee) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
+                </select>
+              </label>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Objekt</span>
+                <select value={props.manualSiteId} onChange={(e) => props.setManualSiteId(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                  <option value="">Objekt auswählen</option>
+                  {props.data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+                </select>
+              </label>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Datum</span>
+                  <input type="date" value={props.manualDate} onChange={(e) => props.setManualDate(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Grund</span>
+                  <input value={props.manualReason} onChange={(e) => props.setManualReason(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Von</span>
+                  <input type="time" value={props.manualStart} onChange={(e) => props.setManualStart(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Bis</span>
+                  <input type="time" value={props.manualEnd} onChange={(e) => props.setManualEnd(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+              </div>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Kommentar</span>
+                <textarea value={props.manualNotes} onChange={(e) => props.setManualNotes(e.target.value)} placeholder="Optional" className="mt-2 min-h-20 w-full bg-transparent text-lg font-semibold outline-none placeholder:text-slate-300" />
+              </label>
+
+              <button type="button" disabled={props.saving} onClick={props.createManualTimeEntry} className="mt-4 w-full rounded-2xl bg-blue-600 py-5 text-lg font-black text-white disabled:bg-slate-200">
+                {props.saving ? "Wird gespeichert..." : "+ Zeit nachtragen"}
+              </button>
             </div>
 
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">

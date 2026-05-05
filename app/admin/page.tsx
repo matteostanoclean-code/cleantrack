@@ -3938,7 +3938,7 @@ function Times(p: any) {
       )}
 
       <PageHeader icon="⏱" title="Zeiten & Lohnexport" sub="Ich gebe Zeiten frei und exportiere danach die Monatsstunden.">
-        <Button onClick={() => p.openCorrection()}>Zeit korrigieren</Button>
+        <Button onClick={() => p.openCorrection()}>Zeit nachtragen</Button>
         <Button onClick={p.exportRows}>Zeiten CSV</Button>
         <Button primary onClick={exportPayroll}>Lohnexport CSV</Button>
       </PageHeader>
@@ -4524,7 +4524,10 @@ function KeyModal(p: any) {
 }
 function TimeCorrectionModal(p: any) {
   return (
-    <ModalShell title={p.form.id ? "Zeit korrigieren" : "Zeitkorrektur erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+    <ModalShell title={p.form.id ? "Zeit korrigieren" : "Zeit nachtragen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+      <div className="mb-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-800">
+        Fehlende Zeiten können hier manuell nachgetragen und direkt freigegeben werden.
+      </div>
       <Field label="Mitarbeiter">
         <Select required value={p.form.employee_name} onChange={(e) => p.setForm({ ...p.form, employee_name: e.target.value })}>
           <option value="">Mitarbeiter auswählen</option>
