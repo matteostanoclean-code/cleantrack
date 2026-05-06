@@ -152,6 +152,32 @@ function dateLabel(value: unknown) {
   return date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function isApprovedAbsenceStatus(statusValue: unknown) {
+  const status = String(statusValue || "").trim().toLowerCase();
+  return status === "approved" || status === "genehmigt" || status === "freigegeben";
+}
+
+function absenceCoversDate(absence: { start_date?: unknown; end_date?: unknown }, dateValue: unknown) {
+  const day = String(dateValue || "").slice(0, 10);
+  const start = String(absence.start_date || "").slice(0, 10);
+  const end = String(absence.end_date || absence.start_date || "").slice(0, 10);
+  return Boolean(day && start && day >= start && day <= end);
+}
+
+function employeeAbsenceForDate(absences: Array<{ employee_name?: unknown; start_date?: unknown; end_date?: unknown; absence_type?: unknown; status?: unknown }>, employeeName: unknown, dateValue: unknown) {
+  const employee = String(employeeName || "").trim();
+  if (!employee) return null;
+  return absences.find((absence) =>
+    String(absence.employee_name || "").trim() === employee &&
+    isApprovedAbsenceStatus(absence.status) &&
+    absenceCoversDate(absence, dateValue)
+  ) || null;
+}
+
+function absenceDisplayName(absence: { absence_type?: unknown } | null) {
+  return String(absence?.absence_type || "Abwesenheit");
+}
+
 function formatClock(value: string | null) {
   if (!value) return "--:--";
   if (value.length <= 5) return value;
@@ -365,12 +391,14 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [materialCart, setMaterialCart] = useState<Record<string, number>>({});
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialMessage, setMaterialMessage] = useState("");
-  const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material" | "assignment">("today");
+  const [adminMobileTab, setAdminMobileTab] = useState<"today" | "approval" | "material" | "assignment" | "task">("today");
   const [adminMobileData, setAdminMobileData] = useState<{ employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[]; chats: AdminMobileRow[] }>({ employees: [], tasks: [], entries: [], absenceRequests: [], materialReports: [], qualityReports: [], materials: [], sites: [], chats: [] });
   const [adminMaterialSiteId, setAdminMaterialSiteId] = useState("");
   const [adminMaterialName, setAdminMaterialName] = useState("");
   const [adminMaterialUnit, setAdminMaterialUnit] = useState("Stk.");
   const [adminMaterialCategory, setAdminMaterialCategory] = useState("Artikel ohne Gruppe");
+  const [adminMaterialEditId, setAdminMaterialEditId] = useState("");
+  const [adminAssignmentEditId, setAdminAssignmentEditId] = useState("");
   const [adminAssignmentSiteId, setAdminAssignmentSiteId] = useState("");
   const [adminAssignmentEmployeeName, setAdminAssignmentEmployeeName] = useState("");
   const [adminAssignmentDate, setAdminAssignmentDate] = useState(todayISO());
@@ -385,6 +413,13 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const [adminManualEnd, setAdminManualEnd] = useState("09:00");
   const [adminManualReason, setAdminManualReason] = useState("Zeit nachgetragen");
   const [adminManualNotes, setAdminManualNotes] = useState("");
+  const [adminTaskEditId, setAdminTaskEditId] = useState("");
+  const [adminTaskTitle, setAdminTaskTitle] = useState("");
+  const [adminTaskEmployeeName, setAdminTaskEmployeeName] = useState("");
+  const [adminTaskSiteId, setAdminTaskSiteId] = useState("");
+  const [adminTaskDueDate, setAdminTaskDueDate] = useState(todayISO());
+  const [adminTaskPriority, setAdminTaskPriority] = useState("Mittel");
+  const [adminTaskNotes, setAdminTaskNotes] = useState("");
   const [adminMobileMessage, setAdminMobileMessage] = useState("");
   const [adminMobileSaving, setAdminMobileSaving] = useState(false);
   const [absenceType, setAbsenceType] = useState("Urlaub");
@@ -422,8 +457,15 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const name = profile?.name || "";
   const role = profile?.role || "employee";
   const today = todayISO();
-  const todayAssignments = useMemo(() => sortTasksByTime(tasks.filter((task) => task.task_date === today && task.item_type !== "task" && task.task_type !== "task")), [tasks, today]);
-  const todayActionTasks = useMemo(() => sortTasksByTime(tasks.filter((task) => task.task_date === today && (task.item_type === "task" || task.task_type === "task"))), [tasks, today]);
+  const approvedAbsenceRequests = useMemo(() => absenceRequests.filter((request) => isApprovedAbsenceStatus(request.status)), [absenceRequests]);
+  const todayAbsence = useMemo(() => approvedAbsenceRequests.find((request) => absenceCoversDate(request, today)) || null, [approvedAbsenceRequests, today]);
+  const employeeVisibleTasks = useMemo(() => tasks.filter((task) => {
+    const isAssignment = task.item_type !== "task" && task.task_type !== "task";
+    if (!isAssignment) return true;
+    return !approvedAbsenceRequests.some((request) => absenceCoversDate(request, task.task_date || task.due_date));
+  }), [tasks, approvedAbsenceRequests]);
+  const todayAssignments = useMemo(() => sortTasksByTime(employeeVisibleTasks.filter((task) => task.task_date === today && task.item_type !== "task" && task.task_type !== "task")), [employeeVisibleTasks, today]);
+  const todayActionTasks = useMemo(() => sortTasksByTime(employeeVisibleTasks.filter((task) => task.task_date === today && (task.item_type === "task" || task.task_type === "task"))), [employeeVisibleTasks, today]);
   const openTasks = todayAssignments.filter((task) => !task.done).length;
   const doneTasks = todayAssignments.filter((task) => task.done).length;
   const plannedMinutes = todayAssignments.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
@@ -504,8 +546,9 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const adminMissingTimes = useMemo(() => adminMobileData.tasks
     .filter((task) => String(task.item_type || "").toLowerCase() !== "task" && String(task.task_type || "").toLowerCase() !== "task")
     .filter((task) => Boolean(String(task.employee_name || "").trim()))
+    .filter((task) => !employeeAbsenceForDate(adminMobileData.absenceRequests, task.employee_name, task.task_date || task.due_date))
     .filter(adminTaskDueForMissingTime)
-    .filter((task) => !adminMobileData.entries.some((entry) => adminEntryMatchesTask(entry, task))), [adminMobileData.tasks, adminMobileData.entries, today]);
+    .filter((task) => !adminMobileData.entries.some((entry) => adminEntryMatchesTask(entry, task))), [adminMobileData.tasks, adminMobileData.entries, adminMobileData.absenceRequests, today]);
 
   const adminTodoCount = isAdminRole
     ? adminUnreadChatGroups.length + adminOpenTimeEntries.length + adminOpenAbsences.length + adminOpenMaterials.length + adminOpenQualityReports.length + adminMissingTimes.length
@@ -1095,6 +1138,161 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     }
   }
 
+  function resetAdminTaskForm() {
+    setAdminTaskEditId("");
+    setAdminTaskTitle("");
+    setAdminTaskEmployeeName("");
+    setAdminTaskSiteId("");
+    setAdminTaskDueDate(todayISO());
+    setAdminTaskPriority("Mittel");
+    setAdminTaskNotes("");
+  }
+
+  function editAdminTask(row: AdminMobileRow) {
+    setAdminTaskEditId(String(row.id || ""));
+    setAdminTaskTitle(String(row.title || ""));
+    setAdminTaskEmployeeName(String(row.employee_name || ""));
+    setAdminTaskSiteId(String(row.work_site_id || row.site_id || ""));
+    setAdminTaskDueDate(String(row.due_date || row.task_date || todayISO()).slice(0, 10));
+    setAdminTaskPriority(String(row.priority || "Mittel"));
+    setAdminTaskNotes(String(row.notes || ""));
+    setAdminMobileTab("task");
+    setAdminMobileMessage("Aufgabe kann jetzt bearbeitet werden.");
+  }
+
+  async function saveAdminTask() {
+    setAdminMobileMessage("");
+    if (!adminTaskTitle.trim()) {
+      setAdminMobileMessage("Bitte Aufgabentitel eintragen.");
+      return;
+    }
+
+    const site = adminMobileData.sites.find((item) => item.id === adminTaskSiteId) || workSites.find((item) => item.id === adminTaskSiteId);
+    const payload = {
+      title: adminTaskTitle.trim(),
+      item_type: "task",
+      task_type: "task",
+      task_category: "Aufgabe",
+      task_date: adminTaskDueDate,
+      due_date: adminTaskDueDate,
+      employee_name: adminTaskEmployeeName || null,
+      work_site_id: adminTaskSiteId || null,
+      site: site?.name || null,
+      customer_name: site?.customer_name || null,
+      priority: adminTaskPriority || "Mittel",
+      notes: adminTaskNotes || null,
+      status: "open",
+      done: false,
+    };
+
+    setAdminMobileSaving(true);
+    try {
+      if (adminTaskEditId) {
+        await adminApi({
+          action: "update",
+          table: "tasks",
+          id: adminTaskEditId,
+          payload,
+        });
+        setAdminMobileMessage("Aufgabe wurde gespeichert.");
+      } else {
+        await adminApi({
+          action: "insert",
+          table: "tasks",
+          payload,
+        });
+        setAdminMobileMessage("Aufgabe wurde erstellt.");
+      }
+      resetAdminTaskForm();
+      await loadMobileAdminData(true);
+      if (name) await loadTasks(name);
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Aufgabe konnte nicht gespeichert werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  async function deleteAdminTask(row: AdminMobileRow) {
+    if (!row?.id) return;
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({ action: "delete", table: "tasks", id: row.id });
+      await loadMobileAdminData(true);
+      if (name) await loadTasks(name);
+      setAdminMobileMessage("Aufgabe wurde gelöscht.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Aufgabe konnte nicht gelöscht werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  function resetMobileAssignmentForm() {
+    setAdminAssignmentEditId("");
+    setAdminAssignmentSiteId("");
+    setAdminAssignmentEmployeeName("");
+    setAdminAssignmentDate(todayISO());
+    setAdminAssignmentStart("08:00");
+    setAdminAssignmentEnd("09:00");
+    setAdminAssignmentPlanned("60");
+    setAdminAssignmentNotes("");
+  }
+
+  function editMobileAssignment(row: AdminMobileRow) {
+    setAdminAssignmentEditId(String(row.id || ""));
+    setAdminAssignmentSiteId(String(row.work_site_id || row.site_id || ""));
+    setAdminAssignmentEmployeeName(String(row.employee_name || ""));
+    setAdminAssignmentDate(String(row.task_date || row.due_date || todayISO()).slice(0, 10));
+    setAdminAssignmentStart(String(row.start_time || "08:00").slice(0, 5));
+    setAdminAssignmentEnd(String(row.end_time || "09:00").slice(0, 5));
+    setAdminAssignmentPlanned(String(row.planned_minutes || row.max_minutes || 60));
+    setAdminAssignmentNotes(String(row.notes || ""));
+    setAdminMobileTab("assignment");
+    setAdminMobileMessage("Einsatz kann jetzt bearbeitet werden.");
+  }
+
+  async function removeMobileAssignmentEmployee(row: AdminMobileRow) {
+    if (!row?.id) return;
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({
+        action: "update",
+        table: "tasks",
+        id: row.id,
+        payload: {
+          employee_name: null,
+          status: "unassigned",
+        },
+      });
+      await loadMobileAdminData(true);
+      if (name) await loadTasks(name);
+      setAdminMobileMessage("Mitarbeiter wurde vom Einsatz entfernt.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Mitarbeiter konnte nicht entfernt werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  async function deleteMobileAssignment(row: AdminMobileRow) {
+    if (!row?.id) return;
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({ action: "delete", table: "tasks", id: row.id });
+      await loadMobileAdminData(true);
+      if (name) await loadTasks(name);
+      setAdminMobileMessage("Einsatz wurde gelöscht.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Einsatz konnte nicht gelöscht werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
   async function createMobileAssignment() {
     setAdminMobileMessage("");
 
@@ -1103,51 +1301,97 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
       return;
     }
 
-    if (!adminAssignmentEmployeeName) {
-      setAdminMobileMessage("Bitte Mitarbeiter auswählen.");
-      return;
-    }
-
     if (!adminAssignmentDate || !adminAssignmentStart || !adminAssignmentEnd) {
       setAdminMobileMessage("Bitte Datum und Zeitfenster eintragen.");
       return;
     }
 
-    const site = adminMobileData.sites.find((item) => item.id === adminAssignmentSiteId) || workSites.find((item) => item.id === adminAssignmentSiteId);
     const planned = Math.max(1, Number(adminAssignmentPlanned || 0));
+    const site = adminMobileData.sites.find((item) => item.id === adminAssignmentSiteId) || workSites.find((item) => item.id === adminAssignmentSiteId);
+    const absence = employeeAbsenceForDate(adminMobileData.absenceRequests, adminAssignmentEmployeeName, adminAssignmentDate);
+
+    if (adminAssignmentEmployeeName && absence) {
+      setAdminMobileMessage(`${adminAssignmentEmployeeName} ist am ${dateLabel(adminAssignmentDate)} abwesend (${absenceDisplayName(absence)}). Bitte anderen Mitarbeiter wählen oder den Einsatz ohne Mitarbeiter speichern.`);
+      return;
+    }
+
+    const payload = {
+      title: site?.name ? `Einsatz ${site.name}` : "Einsatz",
+      item_type: "assignment",
+      task_type: "assignment",
+      task_date: adminAssignmentDate,
+      due_date: adminAssignmentDate,
+      start_time: adminAssignmentStart,
+      end_time: adminAssignmentEnd,
+      planned_minutes: planned,
+      max_minutes: planned,
+      employee_name: adminAssignmentEmployeeName || null,
+      work_site_id: adminAssignmentSiteId,
+      site: site?.name || null,
+      customer_name: site?.customer_name || null,
+      status: adminAssignmentEmployeeName ? "open" : "unassigned",
+      done: false,
+      notes: adminAssignmentNotes || null,
+      priority: "Normal",
+    };
 
     setAdminMobileSaving(true);
     try {
-      await adminApi({
-        action: "insert",
-        table: "tasks",
-        payload: {
-          title: site?.name ? `Einsatz ${site.name}` : "Einsatz",
-          item_type: "assignment",
-          task_type: "assignment",
-          task_date: adminAssignmentDate,
-          due_date: adminAssignmentDate,
-          start_time: adminAssignmentStart,
-          end_time: adminAssignmentEnd,
-          planned_minutes: planned,
-          max_minutes: planned,
-          employee_name: adminAssignmentEmployeeName,
-          work_site_id: adminAssignmentSiteId,
-          site: site?.name || null,
-          customer_name: site?.customer_name || null,
-          status: "open",
-          done: false,
-          notes: adminAssignmentNotes || null,
-          priority: "Normal",
-        },
-      });
+      if (adminAssignmentEditId) {
+        await adminApi({
+          action: "update",
+          table: "tasks",
+          id: adminAssignmentEditId,
+          payload,
+        });
+        setAdminMobileMessage("Einsatz wurde gespeichert.");
+      } else {
+        await adminApi({
+          action: "insert",
+          table: "tasks",
+          payload,
+        });
+        setAdminMobileMessage("Einsatz wurde erstellt.");
+      }
 
-      setAdminAssignmentNotes("");
+      resetMobileAssignmentForm();
       await loadMobileAdminData(true);
       if (name) await loadTasks(name);
-      setAdminMobileMessage("Einsatz wurde erstellt.");
     } catch (error) {
-      setAdminMobileMessage(error instanceof Error ? error.message : "Einsatz konnte nicht erstellt werden.");
+      setAdminMobileMessage(error instanceof Error ? error.message : "Einsatz konnte nicht gespeichert werden.");
+    } finally {
+      setAdminMobileSaving(false);
+    }
+  }
+
+  function resetObjectMaterialForm() {
+    setAdminMaterialEditId("");
+    setAdminMaterialName("");
+    setAdminMaterialUnit("Stk.");
+    setAdminMaterialCategory("Artikel ohne Gruppe");
+  }
+
+  function editObjectMaterial(row: AdminMobileRow) {
+    setAdminMaterialEditId(String(row.id || ""));
+    setAdminMaterialSiteId(String(row.work_site_id || ""));
+    setAdminMaterialName(String(row.name || ""));
+    setAdminMaterialUnit(String(row.unit || "Stk."));
+    setAdminMaterialCategory(String(row.category || "Artikel ohne Gruppe"));
+    setAdminMobileTab("material");
+    setAdminMobileMessage("Material kann jetzt bearbeitet werden.");
+  }
+
+  async function deleteObjectMaterial(row: AdminMobileRow) {
+    if (!row?.id) return;
+    setAdminMobileSaving(true);
+    setAdminMobileMessage("");
+    try {
+      await adminApi({ action: "delete", table: "material_products", id: row.id });
+      await loadMaterials();
+      await loadMobileAdminData(true);
+      setAdminMobileMessage("Material wurde gelöscht.");
+    } catch (error) {
+      setAdminMobileMessage(error instanceof Error ? error.message : "Material konnte nicht gelöscht werden.");
     } finally {
       setAdminMobileSaving(false);
     }
@@ -1165,25 +1409,37 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
     }
 
     const site = adminMobileData.sites.find((item) => item.id === adminMaterialSiteId) || workSites.find((item) => item.id === adminMaterialSiteId);
+    const payload = {
+      name: adminMaterialName.trim(),
+      unit: adminMaterialUnit.trim() || "Stk.",
+      category: adminMaterialCategory.trim() || "Artikel ohne Gruppe",
+      work_site_id: adminMaterialSiteId,
+      object_name: site?.name || null,
+    };
+
     setAdminMobileSaving(true);
     try {
-      await adminApi({
-        action: "insert",
-        table: "material_products",
-        payload: {
-          name: adminMaterialName.trim(),
-          unit: adminMaterialUnit.trim() || "Stk.",
-          category: adminMaterialCategory.trim() || "Artikel ohne Gruppe",
-          work_site_id: adminMaterialSiteId,
-          object_name: site?.name || null,
-        },
-      });
-      setAdminMaterialName("");
+      if (adminMaterialEditId) {
+        await adminApi({
+          action: "update",
+          table: "material_products",
+          id: adminMaterialEditId,
+          payload,
+        });
+        setAdminMobileMessage("Material wurde gespeichert.");
+      } else {
+        await adminApi({
+          action: "insert",
+          table: "material_products",
+          payload,
+        });
+        setAdminMobileMessage("Material wurde objektbezogen angelegt.");
+      }
+      resetObjectMaterialForm();
       await loadMaterials();
       await loadMobileAdminData(true);
-      setAdminMobileMessage("Material wurde objektbezogen angelegt.");
     } catch (error) {
-      setAdminMobileMessage(error instanceof Error ? error.message : "Material konnte nicht angelegt werden.");
+      setAdminMobileMessage(error instanceof Error ? error.message : "Material konnte nicht gespeichert werden.");
     } finally {
       setAdminMobileSaving(false);
     }
@@ -1774,6 +2030,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             progress={progress}
             workedMinutes={workedMinutes}
             plannedMinutes={plannedMinutes}
+            todayAbsence={todayAbsence}
             loadingData={loadingData}
             refresh={() => name && loadAllData(name)}
             openTab={openTab}
@@ -1829,7 +2086,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
 
         {activeTab === "schedule" && (
           <ScheduleScreen
-            tasks={tasks}
+            tasks={employeeVisibleTasks}
             workSites={workSites}
             selectedAssignment={selectedAssignment}
             openAssignment={setSelectedAssignment}
@@ -1935,6 +2192,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             materialCategory={adminMaterialCategory}
             setMaterialCategory={setAdminMaterialCategory}
             createMaterial={createObjectMaterial}
+            materialEditId={adminMaterialEditId}
+            editMaterial={editObjectMaterial}
+            deleteMaterial={deleteObjectMaterial}
+            resetMaterialForm={resetObjectMaterialForm}
+            assignmentEditId={adminAssignmentEditId}
             assignmentSiteId={adminAssignmentSiteId}
             setAssignmentSiteId={setAdminAssignmentSiteId}
             assignmentEmployeeName={adminAssignmentEmployeeName}
@@ -1950,6 +2212,27 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             assignmentNotes={adminAssignmentNotes}
             setAssignmentNotes={setAdminAssignmentNotes}
             createAssignment={createMobileAssignment}
+            editAssignment={editMobileAssignment}
+            removeAssignmentEmployee={removeMobileAssignmentEmployee}
+            deleteAssignment={deleteMobileAssignment}
+            resetAssignmentForm={resetMobileAssignmentForm}
+            taskEditId={adminTaskEditId}
+            taskTitle={adminTaskTitle}
+            setTaskTitle={setAdminTaskTitle}
+            taskEmployeeName={adminTaskEmployeeName}
+            setTaskEmployeeName={setAdminTaskEmployeeName}
+            taskSiteId={adminTaskSiteId}
+            setTaskSiteId={setAdminTaskSiteId}
+            taskDueDate={adminTaskDueDate}
+            setTaskDueDate={setAdminTaskDueDate}
+            taskPriority={adminTaskPriority}
+            setTaskPriority={setAdminTaskPriority}
+            taskNotes={adminTaskNotes}
+            setTaskNotes={setAdminTaskNotes}
+            saveTask={saveAdminTask}
+            editTask={editAdminTask}
+            deleteTask={deleteAdminTask}
+            resetTaskForm={resetAdminTaskForm}
             manualEmployeeName={adminManualEmployeeName}
             setManualEmployeeName={setAdminManualEmployeeName}
             manualSiteId={adminManualSiteId}
@@ -1985,6 +2268,7 @@ function HomeScreen(props: {
   progress: number;
   workedMinutes: number;
   plannedMinutes: number;
+  todayAbsence?: AbsenceRequest | null;
   loadingData: boolean;
   refresh: () => void;
   openTab: (tab: Tab) => void;
@@ -2029,6 +2313,14 @@ function HomeScreen(props: {
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-blue-600 font-black">→</div>
         </div>
       </button>
+
+      {props.todayAbsence && (
+        <div className="mt-5 rounded-[24px] border border-orange-100 bg-orange-50 p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wide text-orange-500">Heute abwesend</p>
+          <h2 className="mt-1 text-xl font-black text-orange-950">{absenceDisplayName(props.todayAbsence)}</h2>
+          <p className="mt-1 text-sm font-bold text-orange-700">Einsätze für diesen Tag werden nicht zum Stempeln angezeigt.</p>
+        </div>
+      )}
 
       <div className="mt-5 rounded-[28px] border border-slate-100 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
@@ -2992,8 +3284,8 @@ function SimplePage({ title, children, openTab, searchPlaceholder }: { title: st
 function AdminMobileScreen(props: {
   role: string;
   data: { employees: AdminMobileRow[]; tasks: AdminMobileRow[]; entries: AdminMobileRow[]; absenceRequests: AdminMobileRow[]; materialReports: AdminMobileRow[]; qualityReports: AdminMobileRow[]; materials: AdminMobileRow[]; sites: AdminMobileRow[]; chats: AdminMobileRow[] };
-  tab: "today" | "approval" | "material" | "assignment";
-  setTab: (value: "today" | "approval" | "material" | "assignment") => void;
+  tab: "today" | "approval" | "material" | "assignment" | "task";
+  setTab: (value: "today" | "approval" | "material" | "assignment" | "task") => void;
   message: string;
   saving: boolean;
   refresh: () => void;
@@ -3010,6 +3302,11 @@ function AdminMobileScreen(props: {
   materialCategory: string;
   setMaterialCategory: (value: string) => void;
   createMaterial: () => void;
+  materialEditId: string;
+  editMaterial: (row: AdminMobileRow) => void;
+  deleteMaterial: (row: AdminMobileRow) => void;
+  resetMaterialForm: () => void;
+  assignmentEditId: string;
   assignmentSiteId: string;
   setAssignmentSiteId: (value: string) => void;
   assignmentEmployeeName: string;
@@ -3025,6 +3322,27 @@ function AdminMobileScreen(props: {
   assignmentNotes: string;
   setAssignmentNotes: (value: string) => void;
   createAssignment: () => void;
+  editAssignment: (row: AdminMobileRow) => void;
+  removeAssignmentEmployee: (row: AdminMobileRow) => void;
+  deleteAssignment: (row: AdminMobileRow) => void;
+  resetAssignmentForm: () => void;
+  taskEditId: string;
+  taskTitle: string;
+  setTaskTitle: (value: string) => void;
+  taskEmployeeName: string;
+  setTaskEmployeeName: (value: string) => void;
+  taskSiteId: string;
+  setTaskSiteId: (value: string) => void;
+  taskDueDate: string;
+  setTaskDueDate: (value: string) => void;
+  taskPriority: string;
+  setTaskPriority: (value: string) => void;
+  taskNotes: string;
+  setTaskNotes: (value: string) => void;
+  saveTask: () => void;
+  editTask: (row: AdminMobileRow) => void;
+  deleteTask: (row: AdminMobileRow) => void;
+  resetTaskForm: () => void;
   manualEmployeeName: string;
   setManualEmployeeName: (value: string) => void;
   manualSiteId: string;
@@ -3081,6 +3399,20 @@ function AdminMobileScreen(props: {
     .filter((row) => String(row.status || "open").toLowerCase() !== "done")
     .slice(0, 20);
 
+  function adminApprovedAbsenceFor(employeeName: unknown, dateValue: unknown) {
+    return employeeAbsenceForDate(props.data.absenceRequests, employeeName, dateValue);
+  }
+
+  function taskHasApprovedAbsence(task: AdminMobileRow) {
+    return Boolean(adminApprovedAbsenceFor(task.employee_name, task.task_date || task.due_date));
+  }
+
+  const assignmentTasks = props.data.tasks
+    .filter((task) => String(task.item_type || "").toLowerCase() !== "task" && String(task.task_type || "").toLowerCase() !== "task");
+
+  const adminTaskItems = props.data.tasks
+    .filter((task) => String(task.item_type || "").toLowerCase() === "task" || String(task.task_type || "").toLowerCase() === "task");
+
   function taskDateValue(task: AdminMobileRow) {
     return String(task.task_date || task.due_date || "").slice(0, 10);
   }
@@ -3127,6 +3459,7 @@ function AdminMobileScreen(props: {
   const missingTimeTasks = props.data.tasks
     .filter(isAssignmentTask)
     .filter((task) => Boolean(String(task.employee_name || "").trim()))
+    .filter((task) => !taskHasApprovedAbsence(task))
     .filter(isTaskDueForTimeCheck)
     .filter((task) => !props.data.entries.some((entry) => entryMatchesTask(entry, task)))
     .slice(0, 20);
@@ -3167,10 +3500,11 @@ function AdminMobileScreen(props: {
           {[
             ["today", "Heute"],
             ["assignment", "Einsatz"],
+            ["task", "Aufgaben"],
             ["approval", "Freigaben"],
             ["material", "Material"],
           ].map(([id, label]) => (
-            <button key={id} type="button" onClick={() => props.setTab(id as "today" | "approval" | "material" | "assignment")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${props.tab === id ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-100"}`}>{label}</button>
+            <button key={id} type="button" onClick={() => props.setTab(id as "today" | "approval" | "material" | "assignment" | "task")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${props.tab === id ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-100"}`}>{label}</button>
           ))}
           <button type="button" onClick={props.refresh} className="ml-auto shrink-0 rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-500">↻</button>
         </div>
@@ -3235,8 +3569,15 @@ function AdminMobileScreen(props: {
         {props.tab === "assignment" && (
           <div className="space-y-4">
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
-              <h2 className="text-xl font-black">Einsatz erstellen</h2>
-              <p className="mt-1 text-sm font-bold text-slate-400">Schnellplanung direkt am Handy.</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black">{props.assignmentEditId ? "Einsatz bearbeiten" : "Einsatz erstellen"}</h2>
+                  <p className="mt-1 text-sm font-bold text-slate-400">Schnellplanung direkt am Handy. Ohne Mitarbeiter wird der Einsatz ungeplant gespeichert.</p>
+                </div>
+                {props.assignmentEditId && (
+                  <button type="button" onClick={props.resetAssignmentForm} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">Neu</button>
+                )}
+              </div>
 
               <label className="mt-4 block rounded-[22px] border border-slate-100 p-4">
                 <span className="text-sm font-bold text-slate-400">Objekt</span>
@@ -3249,10 +3590,16 @@ function AdminMobileScreen(props: {
               <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
                 <span className="text-sm font-bold text-slate-400">Mitarbeiter</span>
                 <select value={props.assignmentEmployeeName} onChange={(e) => props.setAssignmentEmployeeName(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
-                  <option value="">Mitarbeiter auswählen</option>
+                  <option value="">Ohne Mitarbeiter / ungeplant</option>
                   {props.data.employees.filter((employee) => employee.active !== false && String(employee.role || "").toLowerCase() !== "admin").map((employee) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
                 </select>
               </label>
+
+              {props.assignmentEmployeeName && adminApprovedAbsenceFor(props.assignmentEmployeeName, props.assignmentDate) && (
+                <div className="mt-3 rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm font-black text-orange-700">
+                  {props.assignmentEmployeeName} ist am {dateLabel(props.assignmentDate)} abwesend ({absenceDisplayName(adminApprovedAbsenceFor(props.assignmentEmployeeName, props.assignmentDate))}). Bitte anderen Mitarbeiter wählen oder ohne Mitarbeiter speichern.
+                </div>
+              )}
 
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="rounded-[22px] border border-slate-100 p-4">
@@ -3282,17 +3629,115 @@ function AdminMobileScreen(props: {
               </label>
 
               <button type="button" disabled={props.saving} onClick={props.createAssignment} className="mt-4 w-full rounded-2xl bg-blue-600 py-5 text-lg font-black text-white disabled:bg-slate-200">
-                {props.saving ? "Wird gespeichert..." : "+ Einsatz erstellen"}
+                {props.saving ? "Wird gespeichert..." : props.assignmentEditId ? "Einsatz speichern" : "+ Einsatz erstellen"}
               </button>
             </div>
 
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
               <h2 className="text-xl font-black">Letzte Einsätze</h2>
               <div className="mt-4 space-y-3">
-                {props.data.tasks.slice(0, 8).map((task) => (
+                {assignmentTasks.slice(0, 12).map((task) => {
+                  const absence = taskHasApprovedAbsence(task) ? adminApprovedAbsenceFor(task.employee_name, task.task_date || task.due_date) : null;
+                  return (
+                    <div key={task.id} className={`rounded-2xl border p-4 ${absence ? "border-orange-100 bg-orange-50" : "border-slate-100"}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-black">{task.site || "Objekt"}</p>
+                          <p className="text-sm font-bold text-slate-400">{dateLabel(task.task_date || task.due_date)} · {task.employee_name || "Nicht zugewiesen"} · {formatClock(task.start_time)} - {formatClock(task.end_time)}</p>
+                          {absence && <p className="mt-2 text-sm font-black text-orange-700">Mitarbeiter abwesend: {absenceDisplayName(absence)}</p>}
+                        </div>
+                        <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{task.employee_name ? "zugewiesen" : "ungeplant"}</span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <button type="button" onClick={() => props.editAssignment(task)} className="rounded-2xl bg-blue-50 py-3 text-sm font-black text-blue-700">Bearbeiten</button>
+                        <button type="button" onClick={() => props.removeAssignmentEmployee(task)} className="rounded-2xl bg-orange-50 py-3 text-sm font-black text-orange-700">MA entfernen</button>
+                        <button type="button" onClick={() => props.deleteAssignment(task)} className="rounded-2xl bg-red-50 py-3 text-sm font-black text-red-600">Löschen</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {props.tab === "task" && (
+          <div className="space-y-4">
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black">{props.taskEditId ? "Aufgabe bearbeiten" : "Aufgabe erstellen"}</h2>
+                  <p className="mt-1 text-sm font-bold text-slate-400">Aufgaben, Reklamationen oder Nacharbeiten anlegen und zuweisen.</p>
+                </div>
+                {props.taskEditId && (
+                  <button type="button" onClick={props.resetTaskForm} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">Neu</button>
+                )}
+              </div>
+
+              <label className="mt-4 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Titel</span>
+                <input value={props.taskTitle} onChange={(e) => props.setTaskTitle(e.target.value)} placeholder="z.B. Nacharbeit, Reklamation, Kontrolle" className="mt-2 w-full bg-transparent text-lg font-black outline-none placeholder:text-slate-300" />
+              </label>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Mitarbeiter</span>
+                <select value={props.taskEmployeeName} onChange={(e) => props.setTaskEmployeeName(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                  <option value="">Nicht zugewiesen</option>
+                  {props.data.employees.filter((employee) => employee.active !== false && String(employee.role || "").toLowerCase() !== "admin").map((employee) => <option key={employee.id || employee.name} value={employee.name}>{employee.name}</option>)}
+                </select>
+              </label>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Objekt</span>
+                <select value={props.taskSiteId} onChange={(e) => props.setTaskSiteId(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                  <option value="">Ohne Objekt</option>
+                  {props.data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+                </select>
+              </label>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Fällig</span>
+                  <input type="date" value={props.taskDueDate} onChange={(e) => props.setTaskDueDate(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+                </label>
+                <label className="rounded-[22px] border border-slate-100 p-4">
+                  <span className="text-sm font-bold text-slate-400">Priorität</span>
+                  <select value={props.taskPriority} onChange={(e) => props.setTaskPriority(e.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none">
+                    <option>Mittel</option>
+                    <option>Hoch</option>
+                    <option>Dringend</option>
+                    <option>Niedrig</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="mt-3 block rounded-[22px] border border-slate-100 p-4">
+                <span className="text-sm font-bold text-slate-400">Beschreibung</span>
+                <textarea value={props.taskNotes} onChange={(e) => props.setTaskNotes(e.target.value)} placeholder="Optional" className="mt-2 min-h-24 w-full bg-transparent text-lg font-semibold outline-none placeholder:text-slate-300" />
+              </label>
+
+              <button type="button" disabled={props.saving} onClick={props.saveTask} className="mt-4 w-full rounded-2xl bg-blue-600 py-5 text-lg font-black text-white disabled:bg-slate-200">
+                {props.saving ? "Wird gespeichert..." : props.taskEditId ? "Aufgabe speichern" : "+ Aufgabe erstellen"}
+              </button>
+            </div>
+
+            <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black">Aufgaben</h2>
+              <div className="mt-4 space-y-3">
+                {adminTaskItems.length === 0 && <EmptyState text="Noch keine Aufgaben vorhanden." />}
+                {adminTaskItems.slice(0, 20).map((task) => (
                   <div key={task.id} className="rounded-2xl border border-slate-100 p-4">
-                    <p className="font-black">{task.site || "Objekt"}</p>
-                    <p className="text-sm font-bold text-slate-400">{dateLabel(task.task_date || task.due_date)} · {task.employee_name || "Nicht zugewiesen"} · {formatClock(task.start_time)} - {formatClock(task.end_time)}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black">{task.title || "Aufgabe"}</p>
+                        <p className="text-sm font-bold text-slate-400">{dateLabel(task.due_date || task.task_date)} · {task.employee_name || "Nicht zugewiesen"} · {task.site || "Ohne Objekt"}</p>
+                      </div>
+                      <span className={priorityClass(String(task.priority || "Mittel")) + " rounded-xl px-3 py-1 text-xs font-black"}>{task.priority || "Mittel"}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => props.editTask(task)} className="rounded-2xl bg-blue-50 py-3 text-sm font-black text-blue-700">Bearbeiten</button>
+                      <button type="button" onClick={() => props.deleteTask(task)} className="rounded-2xl bg-red-50 py-3 text-sm font-black text-red-600">Löschen</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3479,7 +3924,15 @@ function AdminMobileScreen(props: {
         {props.tab === "material" && (
           <div className="space-y-4">
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
-              <h2 className="text-xl font-black">Material objektbezogen anlegen</h2>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black">{props.materialEditId ? "Material bearbeiten" : "Material objektbezogen anlegen"}</h2>
+                  <p className="mt-1 text-sm font-bold text-slate-400">Material kann direkt pro Objekt angelegt und bearbeitet werden.</p>
+                </div>
+                {props.materialEditId && (
+                  <button type="button" onClick={props.resetMaterialForm} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">Neu</button>
+                )}
+              </div>
               <select value={props.selectedSiteId} onChange={(e) => props.setSelectedSiteId(e.target.value)} className="mt-4 w-full rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold outline-none">
                 <option value="">Objekt auswählen</option>
                 {props.data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
@@ -3489,7 +3942,9 @@ function AdminMobileScreen(props: {
                 <input value={props.materialCategory} onChange={(e) => props.setMaterialCategory(e.target.value)} placeholder="Gruppe" className="rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
                 <input value={props.materialUnit} onChange={(e) => props.setMaterialUnit(e.target.value)} placeholder="Einheit" className="rounded-2xl bg-slate-50 px-4 py-4 font-bold outline-none" />
               </div>
-              <button type="button" disabled={props.saving} onClick={props.createMaterial} className="mt-4 w-full rounded-2xl bg-blue-600 py-4 font-black text-white">+ Material anlegen</button>
+              <button type="button" disabled={props.saving} onClick={props.createMaterial} className="mt-4 w-full rounded-2xl bg-blue-600 py-4 font-black text-white">
+                {props.saving ? "Wird gespeichert..." : props.materialEditId ? "Material speichern" : "+ Material anlegen"}
+              </button>
             </div>
 
             <div className="rounded-[26px] bg-white p-4 shadow-sm border border-slate-100">
@@ -3501,6 +3956,10 @@ function AdminMobileScreen(props: {
                   <div key={item.id} className="rounded-2xl border border-slate-100 p-4">
                     <p className="font-black">{item.name}</p>
                     <p className="text-sm font-bold text-slate-400">{item.category || "Artikel ohne Gruppe"} · {item.unit || "Stk."}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => props.editMaterial(item)} className="rounded-2xl bg-blue-50 py-3 text-sm font-black text-blue-700">Bearbeiten</button>
+                      <button type="button" onClick={() => props.deleteMaterial(item)} className="rounded-2xl bg-red-50 py-3 text-sm font-black text-red-600">Löschen</button>
+                    </div>
                   </div>
                 ))}
               </div>
