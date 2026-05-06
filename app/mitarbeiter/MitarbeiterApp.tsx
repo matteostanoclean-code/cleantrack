@@ -211,6 +211,23 @@ function toMinutes(time: string | null | undefined) {
   return (h || 0) * 60 + (m || 0);
 }
 
+function taskWindowMinutes(task: { start_time?: string | null; end_time?: string | null }) {
+  const start = toMinutes(task.start_time || null);
+  const end = toMinutes(task.end_time || null);
+  if (!start && !end) return 0;
+  const safeEnd = end < start ? end + 1440 : end;
+  return Math.max(0, safeEnd - start);
+}
+
+function taskPlannedMinutes(task?: { planned_minutes?: number | null; max_minutes?: number | null; start_time?: string | null; end_time?: string | null } | null) {
+  if (!task) return 0;
+  const planned = Number(task.planned_minutes || 0);
+  if (Number.isFinite(planned) && planned > 0) return planned;
+  const max = Number(task.max_minutes || 0);
+  if (Number.isFinite(max) && max > 0) return max;
+  return taskWindowMinutes(task);
+}
+
 function taskChecklist(task?: Task | null) {
   return Array.isArray(task?.quality_checklist) ? task.quality_checklist.map(String).filter(Boolean) : [];
 }
@@ -468,7 +485,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const todayActionTasks = useMemo(() => sortTasksByTime(employeeVisibleTasks.filter((task) => task.task_date === today && (task.item_type === "task" || task.task_type === "task"))), [employeeVisibleTasks, today]);
   const openTasks = todayAssignments.filter((task) => !task.done).length;
   const doneTasks = todayAssignments.filter((task) => task.done).length;
-  const plannedMinutes = todayAssignments.reduce((sum, task) => sum + (task.planned_minutes || task.max_minutes || 0), 0);
+  const plannedMinutes = todayAssignments.reduce((sum, task) => sum + taskPlannedMinutes(task), 0);
   const calculatedWorkedMinutes = useMemo(() => calculateWorkedMinutes(todayEntries), [todayEntries, status]);
   const workedMinutes = Math.max(calculatedWorkedMinutes, serverWorkedMinutes);
   const payrollMinutesToday = Math.max(serverPayrollMinutes, todayEntries.reduce((sum, entry) => sum + Number(entry.payroll_minutes || entry.worked_minutes || 0), 0), calculatedWorkedMinutes);
@@ -731,7 +748,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
 
   useEffect(() => {
     if (status !== "working" || !selectedTask) return;
-    const maxMinutes = Number(selectedTask.max_minutes || selectedTask.planned_minutes || 0);
+    const maxMinutes = taskPlannedMinutes(selectedTask);
     if (!maxMinutes || workedMinutes < maxMinutes || autoClockOutRef.current) return;
 
     autoClockOutRef.current = true;
@@ -981,7 +998,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             .filter((task) => String(task.employee_name || "") === String(row.employee_name || ""))
             .filter((task) => String(task.task_date || task.due_date || "").slice(0, 10) === day)
             .filter((task) => task.item_type !== "task" && task.task_type !== "task")
-            .reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+            .reduce((sum, task) => sum + taskPlannedMinutes(task), 0);
 
           const existingAbsenceEntries = await adminApi({
             action: "select",
@@ -2514,8 +2531,8 @@ function ClockScreen(props: {
   openTab: (tab: Tab) => void;
 }) {
   const approvedOvertime = Number(props.selectedTask?.approved_overtime_minutes || 0);
-  const maxMinutes = Number(props.selectedTask?.max_minutes || props.selectedTask?.planned_minutes || 0);
-  const basePlan = Number(props.selectedTask?.planned_minutes || 0);
+  const maxMinutes = taskPlannedMinutes(props.selectedTask);
+  const basePlan = taskPlannedMinutes(props.selectedTask);
   const remaining = maxMinutes ? Math.max(0, maxMinutes - props.workedMinutes) : 0;
   const gpsReady = Boolean(props.selectedSite?.latitude && props.selectedSite?.longitude);
   const canRequestOvertime = Boolean(props.selectedTask && maxMinutes && props.workedMinutes >= maxMinutes);
@@ -2588,7 +2605,7 @@ function TimesheetScreen(props: {
   const unpaidMinutes = unpaidEntryMinutes(props.entries);
   const paidAbsenceMinutes = vacationMinutes + sickMinutes + paidFreeMinutes;
   const payrollMinutes = approvedWorkMinutes + paidAbsenceMinutes;
-  const plannedMinutes = monthTasks.reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+  const plannedMinutes = monthTasks.reduce((sum, task) => sum + taskPlannedMinutes(task), 0);
   const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
   const target = monthLimit || plannedMinutes;
   const progress = target > 0 ? Math.min(100, Math.round((payrollMinutes / target) * 100)) : 0;
@@ -2668,7 +2685,7 @@ function TimesheetScreen(props: {
               {missingTasks.slice(0, 10).map((task) => (
                 <div key={task.id} className="rounded-[24px] border border-amber-100 bg-amber-50 p-4">
                   <p className="font-black text-amber-900">{dateLabel(task.task_date)} · {task.site || "Objekt"}</p>
-                  <p className="mt-1 text-sm font-bold text-amber-700">{formatClock(task.start_time)} - {formatClock(task.end_time)} · {formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</p>
+                  <p className="mt-1 text-sm font-bold text-amber-700">{formatClock(task.start_time)} - {formatClock(task.end_time)} · {formatMinutes(taskPlannedMinutes(task))}</p>
                 </div>
               ))}
             </div>
@@ -3203,7 +3220,7 @@ function ProfileScreen(props: { profile: EmployeeProfile | null; workedMinutes: 
     .reduce((sum, item) => sum + dateRangeDays(item.start_date, item.end_date), 0);
 
   const monthKey = todayISO().slice(0, 7);
-  const monthPlan = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey).reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
+  const monthPlan = props.tasks.filter((task) => String(task.task_date || "").slice(0, 7) === monthKey).reduce((sum, task) => sum + taskPlannedMinutes(task), 0);
   const monthLimit = Number(props.profile?.monthly_hour_limit || props.profile?.monthly_hours || 0) * 60;
   const vacationMinutes = vacationEntryMinutes(props.monthEntries);
   const sickMinutes = sickEntryMinutes(props.monthEntries);
@@ -3557,7 +3574,7 @@ function AdminMobileScreen(props: {
                         <p className="font-black text-slate-950">{task.site || "Objekt"}</p>
                         <p className="mt-1 text-sm font-bold text-slate-500">{task.employee_name || "Nicht zugewiesen"} · {formatClock(task.start_time)} → {formatClock(task.end_time)}</p>
                       </div>
-                      <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</span>
+                      <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{formatMinutes(taskPlannedMinutes(task))}</span>
                     </div>
                   </div>
                 ))}
@@ -3765,7 +3782,7 @@ function AdminMobileScreen(props: {
                       <div>
                         <p className="text-lg font-black text-red-950">{task.employee_name || "Mitarbeiter"}</p>
                         <p className="mt-1 text-sm font-bold text-red-700">{task.site || "Objekt"} · {dateLabel(taskDateValue(task))}</p>
-                        <p className="mt-1 text-sm font-bold text-red-700">{formatClock(task.start_time)} - {formatClock(task.end_time)} · {formatMinutes(Number(task.planned_minutes || task.max_minutes || 0))}</p>
+                        <p className="mt-1 text-sm font-bold text-red-700">{formatClock(task.start_time)} - {formatClock(task.end_time)} · {formatMinutes(taskPlannedMinutes(task))}</p>
                       </div>
                       <span className="rounded-xl bg-white px-3 py-1 text-xs font-black text-red-700">fehlt</span>
                     </div>

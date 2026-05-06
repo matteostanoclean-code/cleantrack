@@ -166,7 +166,8 @@ function plannedMinutesValue(row: Row) {
   if (Number.isFinite(planned) && planned > 0) return planned;
   const max = Number(row.max_minutes ?? 0);
   if (Number.isFinite(max) && max > 0) return max;
-  return 0;
+  const windowMinutes = minutes(String(row.start_time || ""), String(row.end_time || ""));
+  return Number.isFinite(windowMinutes) && windowMinutes > 0 ? windowMinutes : 0;
 }
 
 function customerValue(row: Row | undefined | null) {
@@ -564,7 +565,9 @@ function sitePlannedMinutesForMonth(tasks: Row[], site: Row | undefined | null, 
 }
 
 function paidMinutesFromForm(form: Row) {
-  const planned = Number(form.planned_minutes || 0);
+  const directPlan = Number(form.planned_minutes || 0);
+  const fallbackPlan = minutes(String(form.start_time || ""), String(form.end_time || ""));
+  const planned = directPlan > 0 ? directPlan : fallbackPlan;
   const travel = Number(form.travel_minutes || 0);
   const pause = Number(form.break_minutes || 0);
   return Math.max(0, planned + travel - pause);
@@ -1472,7 +1475,9 @@ export default function AdminPage() {
       return;
     }
 
-        const plannedMinutes = Number(taskForm.planned_minutes || 0);
+    const typedPlannedMinutes = Number(taskForm.planned_minutes || 0);
+    const fallbackPlannedMinutes = minutes(String(taskForm.start_time || ""), String(taskForm.end_time || ""));
+    const plannedMinutes = typedPlannedMinutes > 0 ? typedPlannedMinutes : fallbackPlannedMinutes;
     if (!taskForm.work_site_id) {
       setMessage("Bitte Objekt / Standort auswählen.");
       return;
@@ -1482,7 +1487,7 @@ export default function AdminPage() {
       return;
     }
     if (!Number.isFinite(plannedMinutes) || plannedMinutes <= 0) {
-      setMessage("Bitte Planzeit in Minuten eintragen. Von/Bis ist nur das Einstempel-Zeitfenster.");
+      setMessage("Bitte Planzeit in Minuten eintragen oder ein gültiges Von/Bis-Zeitfenster setzen.");
       return;
     }
 
@@ -2462,8 +2467,12 @@ function Dashboard(p: any) {
   );
 }
 
-function Metric({ title, value, hint }: { title: string; value: React.ReactNode; hint: string }) {
-  return <Card className="p-5"><p className="text-sm font-bold text-slate-500">{title}</p><p className="mt-2 text-3xl font-black text-slate-950">{value}</p><p className="mt-1 text-xs text-slate-400">{hint}</p></Card>;
+function Metric({ title, value, hint, onClick, active }: { title: string; value: React.ReactNode; hint: string; onClick?: () => void; active?: boolean }) {
+  const content = <><p className="text-sm font-bold text-slate-500">{title}</p><p className="mt-2 text-3xl font-black text-slate-950">{value}</p><p className="mt-1 text-xs text-slate-400">{hint}</p></>;
+  if (onClick) {
+    return <button type="button" onClick={onClick} className={`rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50 ${active ? "border-blue-500 ring-2 ring-blue-100" : "border-slate-200"}`}>{content}</button>;
+  }
+  return <Card className="p-5">{content}</Card>;
 }
 
 function Quick({ title, text, onClick }: { title: string; text: string; onClick: () => void }) {
@@ -3307,14 +3316,44 @@ function messageDate(value: unknown) {
 }
 
 function Meldungen(p: any) {
-  const openNotifications = (p.notifications || []).filter((item: Row) => !item.status || item.status === "open");
+  const [filter, setFilter] = useState<"all" | "material" | "quality" | "overtime" | "absence" | "gps">("all");
+
+  function isActionableNotification(item: Row) {
+    const type = String(item.notification_type || "").toLowerCase();
+    const title = String(item.title || "").toLowerCase();
+    const message = String(item.message || "").toLowerCase();
+
+    if (type === "overtime_request") return true;
+    if (type === "auto_clock_out" || type === "planned_time_reached") return true;
+
+    // reine System-/Schichtinfos sind keine offene Admin-Arbeit
+    if (type.includes("assignment") || type.includes("task_created") || type.includes("task_updated")) return false;
+    if (title.includes("schicht") || title.includes("einsatz geändert") || title.includes("einsatz wurde")) return false;
+    if (message.includes("nicht mehr dir zugewiesen") || message.includes("wurde dir zugewiesen")) return false;
+
+    return false;
+  }
+
+  const openNotifications = (p.notifications || [])
+    .filter((item: Row) => !item.status || item.status === "open")
+    .filter(isActionableNotification);
+
   const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
-  const otherNotifications = openNotifications.filter((item: Row) => item.notification_type !== "overtime_request");
   const openReports = (p.materialReports || []).filter((item: Row) => !item.status || item.status === "open");
   const openQualityReports = (p.qualityReports || []).filter((item: Row) => !item.status || item.status === "open" || item.status === "complete" || item.status === "rework");
   const openAbsences = (p.absences || []).filter((item: Row) => !item.status || item.status === "open");
-  const autoClockOuts = (p.entries || []).filter((item: Row) => item.auto_clock_out === true || String(item.reason || "").toLowerCase().includes("gps"));
-  const total = overtimeRequests.length + otherNotifications.length + openReports.length + openQualityReports.length + openAbsences.length + autoClockOuts.length;
+  const autoClockOuts = [
+    ...openNotifications.filter((item: Row) => item.notification_type === "auto_clock_out" || item.notification_type === "planned_time_reached"),
+    ...(p.entries || []).filter((item: Row) => item.auto_clock_out === true || String(item.reason || "").toLowerCase().includes("gps")),
+  ];
+
+  const total = overtimeRequests.length + openReports.length + openQualityReports.length + openAbsences.length + autoClockOuts.length;
+
+  const showMaterial = filter === "all" || filter === "material";
+  const showQuality = filter === "all" || filter === "quality";
+  const showOvertime = filter === "all" || filter === "overtime";
+  const showAbsence = filter === "all" || filter === "absence";
+  const showGps = filter === "all" || filter === "gps";
 
   return (
     <div>
@@ -3326,126 +3365,133 @@ function Meldungen(p: any) {
       </PageHeader>
 
       <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Metric title="Alles offen" value={total} hint="Meldungen gesamt" />
-        <Metric title="Material" value={openReports.length} hint="leer / fehlt" />
-        <Metric title="Qualität" value={openQualityReports.length} hint="Nachweise" />
-        <Metric title="Überstunden" value={overtimeRequests.length} hint="Anfragen" />
-        <Metric title="Abwesenheit" value={openAbsences.length} hint="Anträge" />
-        <Metric title="GPS / Auto-Stopp" value={autoClockOuts.length} hint="zu prüfen" />
+        <Metric title="Alles offen" value={total} hint="Meldungen gesamt" onClick={() => setFilter("all")} active={filter === "all"} />
+        <Metric title="Material" value={openReports.length} hint="leer / fehlt" onClick={() => setFilter("material")} active={filter === "material"} />
+        <Metric title="Qualität" value={openQualityReports.length} hint="Nachweise" onClick={() => setFilter("quality")} active={filter === "quality"} />
+        <Metric title="Überstunden" value={overtimeRequests.length} hint="Anfragen" onClick={() => setFilter("overtime")} active={filter === "overtime"} />
+        <Metric title="Abwesenheit" value={openAbsences.length} hint="Anträge" onClick={() => setFilter("absence")} active={filter === "absence"} />
+        <Metric title="GPS / Auto-Stopp" value={autoClockOuts.length} hint="zu prüfen" onClick={() => setFilter("gps")} active={filter === "gps"} />
+      </div>
+
+      <div className="mb-5 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-800">
+        Aktiver Filter: {filter === "all" ? "Alles offen" : filter === "material" ? "Material" : filter === "quality" ? "Qualität" : filter === "overtime" ? "Überstunden" : filter === "absence" ? "Abwesenheit" : "GPS / Auto-Stopp"}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div><h3 className="font-black text-slate-950">Materialmeldungen</h3><p className="text-sm text-slate-500">Mitarbeiter meldet leeres Material am Objekt.</p></div>
-            <Status color={openReports.length ? "red" : "green"}>{openReports.length} offen</Status>
-          </div>
-          <div className="space-y-3">
-            {openReports.length === 0 && <Empty text="Keine offenen Materialmeldungen." />}
-            {openReports.map((r: Row) => (
-              <div key={r.id} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-black text-orange-950">{r.material_name || "Material"}</p>
-                    <p className="text-sm font-bold text-orange-700">Objekt: {r.object_name || r.site || "-"}</p>
-                    <p className="text-xs font-bold text-orange-600">{r.employee_name || "Mitarbeiter"} · Menge: {r.quantity_requested || r.quantity || 1} · {messageDate(r.created_at)}</p>
-                    {r.notes && <p className="mt-2 text-sm text-orange-800">{r.notes}</p>}
-                  </div>
-                  <Button primary onClick={() => p.resolveReport(r)}>Erledigt</Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div><h3 className="font-black text-slate-950">Qualitätsnachweise</h3><p className="text-sm text-slate-500">Nachweise direkt aus dem Einsatz.</p></div>
-            <Status color={openQualityReports.length ? "blue" : "green"}>{openQualityReports.length} neu</Status>
-          </div>
-          <div className="space-y-3">
-            {openQualityReports.length === 0 && <Empty text="Keine neuen Qualitätsnachweise." />}
-            {openQualityReports.slice(0, 5).map((r: Row) => (
-              <div key={r.id} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-black text-indigo-950">{r.site || "Objekt"}</p>
-                    <p className="text-sm font-bold text-indigo-700">{r.employee_name || "Mitarbeiter"} · {messageDate(r.created_at)}</p>
-                    <p className="text-xs font-bold text-indigo-600">Checkliste: {Number(r.passed_items || 0)}/{Number(r.total_items || 0)}</p>
-                    {r.notes && <p className="mt-2 text-sm text-indigo-800">{r.notes}</p>}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {r.photo_url ? <a className="rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-600" href={r.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a> : <Status color="gray">ohne Foto</Status>}
-                    {p.approveQualityReport && <Button primary onClick={() => p.approveQualityReport(r)}>Geprüft</Button>}
-                    {p.requestQualityRework && <Button danger onClick={() => p.requestQualityRework(r)}>Nacharbeit</Button>}
+        {showMaterial && (
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><h3 className="font-black text-slate-950">Materialmeldungen</h3><p className="text-sm text-slate-500">Mitarbeiter meldet leeres Material am Objekt.</p></div>
+              <Status color={openReports.length ? "red" : "green"}>{openReports.length} offen</Status>
+            </div>
+            <div className="space-y-3">
+              {openReports.length === 0 && <Empty text="Keine offenen Materialmeldungen." />}
+              {openReports.map((r: Row) => (
+                <div key={r.id} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black text-orange-950">{r.material_name || "Material"}</p>
+                      <p className="text-sm font-bold text-orange-700">Objekt: {r.object_name || r.site || "-"}</p>
+                      <p className="text-xs font-bold text-orange-600">{r.employee_name || "Mitarbeiter"} · Menge: {r.quantity_requested || r.quantity || 1} · {messageDate(r.created_at)}</p>
+                      {r.notes && <p className="mt-2 text-sm text-orange-800">{r.notes}</p>}
+                    </div>
+                    <Button primary onClick={() => p.resolveReport(r)}>Erledigt</Button>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+              ))}
+            </div>
+          </Card>
+        )}
 
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div><h3 className="font-black text-slate-950">Überstunden</h3><p className="text-sm text-slate-500">Freigabe, bevor Mitarbeiter länger arbeitet.</p></div>
-            <Status color={overtimeRequests.length ? "yellow" : "green"}>{overtimeRequests.length} offen</Status>
-          </div>
-          <div className="space-y-3">
-            {overtimeRequests.length === 0 && <Empty text="Keine offenen Überstundenanfragen." />}
-            {overtimeRequests.map((note: Row) => (
-              <div key={note.id} className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                <p className="font-black text-amber-950">{note.title || "Überstundenanfrage"}</p>
-                <p className="text-sm font-bold text-amber-700">{note.employee_name || "Mitarbeiter"} · {note.site || note.object_name || "Objekt"} · +{note.overtime_minutes || 0} Minuten</p>
-                <p className="mt-1 text-sm text-amber-800">{note.message || "Überstunden werden angefragt."}</p>
-                <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideNotification(note, true)}>Genehmigen</Button><Button danger onClick={() => p.decideNotification(note, false)}>Ablehnen</Button></div>
-              </div>
-            ))}
-          </div>
-        </Card>
+        {showQuality && (
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><h3 className="font-black text-slate-950">Qualitätsnachweise</h3><p className="text-sm text-slate-500">Nachweise direkt aus dem Einsatz.</p></div>
+              <Status color={openQualityReports.length ? "blue" : "green"}>{openQualityReports.length} neu</Status>
+            </div>
+            <div className="space-y-3">
+              {openQualityReports.length === 0 && <Empty text="Keine neuen Qualitätsnachweise." />}
+              {openQualityReports.slice(0, 10).map((r: Row) => (
+                <div key={r.id} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black text-indigo-950">{r.site || "Objekt"}</p>
+                      <p className="text-sm font-bold text-indigo-700">{r.employee_name || "Mitarbeiter"} · {messageDate(r.created_at)}</p>
+                      <p className="text-xs font-bold text-indigo-600">Checkliste: {Number(r.passed_items || 0)}/{Number(r.total_items || 0)}</p>
+                      {r.notes && <p className="mt-2 text-sm text-indigo-800">{r.notes}</p>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {r.photo_url ? <a className="rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-600" href={r.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a> : <Status color="gray">ohne Foto</Status>}
+                      {p.approveQualityReport && <Button primary onClick={() => p.approveQualityReport(r)}>Geprüft</Button>}
+                      {p.requestQualityRework && <Button danger onClick={() => p.requestQualityRework(r)}>Nacharbeit</Button>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div><h3 className="font-black text-slate-950">Abwesenheiten</h3><p className="text-sm text-slate-500">Urlaub, Krankmeldung oder Frei-Antrag.</p></div>
-            <Status color={openAbsences.length ? "yellow" : "green"}>{openAbsences.length} offen</Status>
-          </div>
-          <div className="space-y-3">
-            {openAbsences.length === 0 && <Empty text="Keine offenen Abwesenheiten." />}
-            {openAbsences.map((a: Row) => (
-              <div key={a.id} className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                <p className="font-black text-blue-950">{a.employee_name || "Mitarbeiter"} · {a.absence_type || "Abwesenheit"}</p>
-                <p className="text-sm font-bold text-blue-700">{dateText(a.start_date)} bis {dateText(a.end_date)}</p>
-                {a.reason && <p className="mt-1 text-sm text-blue-800">{a.reason}</p>}
-                <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideAbsence(a, "approved")}>Genehmigen</Button><Button danger onClick={() => p.decideAbsence(a, "rejected")}>Ablehnen</Button></div>
-              </div>
-            ))}
-          </div>
-        </Card>
+        {showOvertime && (
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><h3 className="font-black text-slate-950">Überstunden</h3><p className="text-sm text-slate-500">Freigabe, bevor Mitarbeiter länger arbeitet.</p></div>
+              <Status color={overtimeRequests.length ? "yellow" : "green"}>{overtimeRequests.length} offen</Status>
+            </div>
+            <div className="space-y-3">
+              {overtimeRequests.length === 0 && <Empty text="Keine offenen Überstundenanfragen." />}
+              {overtimeRequests.map((note: Row) => (
+                <div key={note.id} className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                  <p className="font-black text-amber-950">{note.title || "Überstundenanfrage"}</p>
+                  <p className="text-sm font-bold text-amber-700">{note.employee_name || "Mitarbeiter"} · {note.site || note.object_name || "Objekt"} · +{note.overtime_minutes || 0} Minuten</p>
+                  <p className="mt-1 text-sm text-amber-800">{note.message || "Überstunden werden angefragt."}</p>
+                  <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideNotification(note, true)}>Genehmigen</Button><Button danger onClick={() => p.decideNotification(note, false)}>Ablehnen</Button></div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div><h3 className="font-black text-slate-950">Weitere Meldungen</h3><p className="text-sm text-slate-500">GPS, System- und Mitarbeiterhinweise.</p></div>
-            <Status color={(otherNotifications.length + autoClockOuts.length) ? "blue" : "green"}>{otherNotifications.length + autoClockOuts.length} offen</Status>
-          </div>
-          <div className="space-y-3">
-            {otherNotifications.length === 0 && autoClockOuts.length === 0 && <Empty text="Keine weiteren offenen Meldungen." />}
-            {otherNotifications.map((note: Row) => (
-              <div key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-black text-slate-950">{note.title || "Meldung"}</p>
-                <p className="text-sm text-slate-600">{note.message || "-"}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">{note.employee_name || "System"} · {messageDate(note.created_at)}</p>
-                <div className="mt-3"><Button onClick={() => p.closeNotification(note)}>Erledigt markieren</Button></div>
-              </div>
-            ))}
-            {autoClockOuts.map((entry: Row) => (
-              <div key={entry.id} className="rounded-2xl border border-red-100 bg-red-50 p-4">
-                <p className="font-black text-red-950">Automatisch ausgestempelt</p>
-                <p className="text-sm font-bold text-red-700">{entry.employee_name || "Mitarbeiter"} · {entry.work_site_name || entry.site || "Objekt"}</p>
-                <p className="mt-1 text-sm text-red-700">{entry.reason || "GPS-Bereich verlassen oder Planzeit erreicht."}</p>
-                <p className="mt-1 text-xs font-bold text-red-500">{messageDate(entry.created_at)}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
+        {showAbsence && (
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><h3 className="font-black text-slate-950">Abwesenheiten</h3><p className="text-sm text-slate-500">Urlaub, Krankmeldung oder Frei-Antrag.</p></div>
+              <Status color={openAbsences.length ? "yellow" : "green"}>{openAbsences.length} offen</Status>
+            </div>
+            <div className="space-y-3">
+              {openAbsences.length === 0 && <Empty text="Keine offenen Abwesenheiten." />}
+              {openAbsences.map((a: Row) => (
+                <div key={a.id} className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="font-black text-blue-950">{a.employee_name || "Mitarbeiter"} · {a.absence_type || "Abwesenheit"}</p>
+                  <p className="text-sm font-bold text-blue-700">{dateText(a.start_date)} bis {dateText(a.end_date)}</p>
+                  {a.reason && <p className="mt-1 text-sm text-blue-800">{a.reason}</p>}
+                  <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideAbsence(a, "approved")}>Genehmigen</Button><Button danger onClick={() => p.decideAbsence(a, "rejected")}>Ablehnen</Button></div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {showGps && (
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><h3 className="font-black text-slate-950">GPS / Auto-Stopp</h3><p className="text-sm text-slate-500">Nur technische Zeitmeldungen, die geprüft werden müssen.</p></div>
+              <Status color={autoClockOuts.length ? "blue" : "green"}>{autoClockOuts.length} offen</Status>
+            </div>
+            <div className="space-y-3">
+              {autoClockOuts.length === 0 && <Empty text="Keine GPS- oder Auto-Stopp-Meldungen." />}
+              {autoClockOuts.map((entry: Row) => (
+                <div key={entry.id || `${entry.employee_name}-${entry.created_at}`} className="rounded-2xl border border-red-100 bg-red-50 p-4">
+                  <p className="font-black text-red-950">{entry.title || "Automatische Zeitmeldung"}</p>
+                  <p className="text-sm font-bold text-red-700">{entry.employee_name || "Mitarbeiter"} · {entry.work_site_name || entry.site || "Objekt"}</p>
+                  <p className="mt-1 text-sm text-red-700">{entry.message || entry.reason || "GPS-Bereich verlassen oder Planzeit erreicht."}</p>
+                  <p className="mt-1 text-xs font-bold text-red-500">{messageDate(entry.created_at)}</p>
+                  {entry.notification_type && <div className="mt-3"><Button onClick={() => p.closeNotification(entry)}>Erledigt markieren</Button></div>}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

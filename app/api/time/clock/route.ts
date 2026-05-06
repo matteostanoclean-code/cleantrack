@@ -103,6 +103,23 @@ function isTimeInsideWindow(localTime: string, start?: string | null, end?: stri
   return c >= a && c <= b;
 }
 
+function taskWindowMinutes(task: Row) {
+  const start = toMinutes(String(task.start_time || ""));
+  const endRaw = toMinutes(String(task.end_time || ""));
+  if (!start && !endRaw) return 0;
+  const end = endRaw < start ? endRaw + 1440 : endRaw;
+  return Math.max(0, end - start);
+}
+
+function taskPlanLimit(task: Row) {
+  const max = Number(task.max_minutes || 0);
+  if (Number.isFinite(max) && max > 0) return max;
+  const planned = Number(task.planned_minutes || 0);
+  if (Number.isFinite(planned) && planned > 0) return planned;
+  return taskWindowMinutes(task);
+}
+
+
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
   const r = 6371000;
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -156,7 +173,7 @@ function calculateWorkedMinutes(row: Row, endIso = new Date().toISOString()) {
 
 function payableMinutes(row: Row, task: Row, endIso = new Date().toISOString()) {
   const worked = calculateWorkedMinutes(row, endIso);
-  const max = Number(task.max_minutes || task.planned_minutes || 0);
+  const max = taskPlanLimit(task);
   return max > 0 ? Math.min(max, worked) : worked;
 }
 
@@ -351,10 +368,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unbekannte Zeitaktion." }, { status: 400 });
     }
 
-    const max = Number(task.max_minutes || task.planned_minutes || 0);
+    const max = taskPlanLimit(task);
     if (max <= 0) {
       return NextResponse.json(
-        { error: "Für diesen Einsatz fehlt die Planzeit. Bitte im Einsatz eine Planzeit in Minuten eintragen." },
+        { error: "Für diesen Einsatz fehlt die Planzeit. Bitte Planzeit eintragen oder ein gültiges Von/Bis-Zeitfenster setzen." },
         { status: 400 }
       );
     }
