@@ -1159,6 +1159,49 @@ export default function AdminPage() {
     }
   }
 
+  async function deleteAssignment(row: Row) {
+    if (!row?.id) {
+      setMessage("Einsatz konnte nicht gelöscht werden: Einsatz-ID fehlt.");
+      return;
+    }
+
+    let rowsToDelete: Row[] = [row];
+    const groupId = String(row.recurrence_group_id || "").trim();
+
+    if (groupId) {
+      const scope = window.prompt(
+        "Was soll gelöscht werden?\n\nSchreibe: einzeln = nur dieser Termin\nSchreibe: serie = ganze Serie",
+        "einzeln"
+      );
+
+      if (scope === null) return;
+
+      const normalized = scope.trim().toLowerCase();
+      if (normalized === "serie") {
+        rowsToDelete = assignmentRows.filter((task) => String(task.recurrence_group_id || "") === groupId);
+      } else if (normalized !== "einzeln") {
+        setMessage("Löschen abgebrochen. Bitte entweder 'einzeln' oder 'serie' eingeben.");
+        return;
+      }
+    } else {
+      if (!window.confirm("Diesen Einsatz wirklich löschen?")) return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    try {
+      for (const item of rowsToDelete) {
+        if (item.id) await adminCall({ action: "delete", table: "tasks", id: item.id });
+      }
+      setMessage(rowsToDelete.length > 1 ? `${rowsToDelete.length} Einsätze der Serie gelöscht.` : "Einsatz gelöscht.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Einsatz konnte nicht gelöscht werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createEmployeeInvite() {
     if (!employeeInvite.name.trim() || !employeeInvite.email.trim()) {
       setMessage("Bitte Name und E-Mail eintragen.");
@@ -2272,13 +2315,13 @@ const basePayload = {
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
-          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={(row: Row) => removeRow("tasks", row.id, "Einsatz")} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} />}
+          {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={deleteAssignment} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
           {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedCustomer={selectedCustomerFile} setSelectedCustomer={setSelectedCustomerFile} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
-          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} />}
+          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -3486,7 +3529,21 @@ function Meldungen(p: any) {
                   <p className="text-sm font-bold text-red-700">{entry.employee_name || "Mitarbeiter"} · {entry.work_site_name || entry.site || "Objekt"}</p>
                   <p className="mt-1 text-sm text-red-700">{entry.message || entry.reason || "GPS-Bereich verlassen oder Planzeit erreicht."}</p>
                   <p className="mt-1 text-xs font-bold text-red-500">{messageDate(entry.created_at)}</p>
-                  {entry.notification_type && <div className="mt-3"><Button onClick={() => p.closeNotification(entry)}>Erledigt markieren</Button></div>}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button primary onClick={() => {
+                      p.openTimeCorrection?.({
+                        ...entry,
+                        reason: entry.reason || entry.title || "Automatische Zeitmeldung",
+                        notes: entry.message || entry.notes || "",
+                        site: entry.site || entry.object_name || entry.work_site_name || "",
+                        work_site_name: entry.work_site_name || entry.site || entry.object_name || "",
+                        work_date: dateOnly(entry.work_date || entry.created_at),
+                      });
+                      if (entry.notification_type) p.closeNotification?.(entry);
+                    }}>Zeit korrigieren</Button>
+                    <Button onClick={() => p.setTab("zeiten")}>Zeiten öffnen</Button>
+                    {entry.notification_type && <Button onClick={() => p.closeNotification(entry)}>Nur erledigen</Button>}
+                  </div>
                 </div>
               ))}
             </div>
