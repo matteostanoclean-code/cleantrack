@@ -219,7 +219,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const taskId = String(url.searchParams.get("task_id") || "").trim();
 
-    const { start, end } = todayRange();
+    const { start, end, workDate } = todayRange();
     let query = supabaseAdmin
       .from("time_entries")
       .select("*")
@@ -230,7 +230,24 @@ export async function GET(request: Request) {
 
     if (taskId) query = query.eq("task_id", taskId);
 
-    const { data: entries } = await query;
+    const { data: createdEntries } = await query;
+
+    let workDateQuery = supabaseAdmin
+      .from("time_entries")
+      .select("*")
+      .eq("employee_name", profile.name)
+      .eq("work_date", workDate)
+      .order("created_at", { ascending: true });
+
+    if (taskId) workDateQuery = workDateQuery.eq("task_id", taskId);
+
+    const { data: workDateEntries } = await workDateQuery;
+
+    const entryMap = new Map<string, Row>();
+    for (const row of [...(createdEntries || []), ...(workDateEntries || [])]) {
+      entryMap.set(String(row.id || `${row.employee_name}-${row.work_date || row.created_at}-${row.task_id || ""}`), row);
+    }
+    const entries = [...entryMap.values()];
 
     let task: Row | null = null;
     if (taskId) {

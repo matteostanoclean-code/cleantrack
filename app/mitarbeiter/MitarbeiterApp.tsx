@@ -270,8 +270,27 @@ function timeEntryDay(entry: TimeEntry) {
   return String(entry.work_date || entry.check_in_at || entry.check_out_at || entry.created_at || "").slice(0, 10);
 }
 
+function uniqueTimeEntries(entries: TimeEntry[]) {
+  const map = new Map<string, TimeEntry>();
+
+  for (const entry of entries) {
+    const day = timeEntryDay(entry);
+    const isAbsence = isAbsenceEntry(entry);
+    const key = isAbsence
+      ? `absence-${entry.absence_request_id || ""}-${entry.absence_type || entry.reason || ""}-${day}`
+      : `time-${entry.id || ""}-${entry.task_id || ""}-${entry.employee_name || ""}-${entry.work_site_id || entry.site || entry.work_site_name || ""}-${day}-${entry.check_in_at || entry.created_at || ""}`;
+
+    const existing = map.get(key);
+    if (!existing || entryMinutes(entry) >= entryMinutes(existing)) {
+      map.set(key, entry);
+    }
+  }
+
+  return [...map.values()];
+}
+
 function absenceEntryMinutes(entries: TimeEntry[], predicate: (entry: TimeEntry) => boolean) {
-  return entries
+  return uniqueTimeEntries(entries)
     .filter(isAbsenceEntry)
     .filter(isApprovedTimeEntry)
     .filter(predicate)
@@ -415,6 +434,84 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
   const progress = plannedMinutes > 0 ? Math.min(100, Math.round((workedMinutes / plannedMinutes) * 100)) : 0;
   const selectedTask = todayAssignments.find((task) => task.id === selectedTaskId) || todayAssignments.find((task) => !task.done) || todayAssignments[0] || null;
   const selectedSite = selectedTask ? workSites.find((site) => site.id === selectedTask.work_site_id || site.name === selectedTask.site) || null : null;
+  const isAdminRole = role === "admin" || role === "objektleiter";
+
+  function adminRowDate(row: AdminMobileRow) {
+    return String(row.work_date || row.task_date || row.due_date || row.created_at || "").slice(0, 10);
+  }
+
+  function adminTaskDate(row: AdminMobileRow) {
+    return String(row.task_date || row.due_date || "").slice(0, 10);
+  }
+
+  function adminEntryMatchesTask(entry: AdminMobileRow, task: AdminMobileRow) {
+    const taskDate = adminTaskDate(task);
+    if (!taskDate || adminRowDate(entry) !== taskDate) return false;
+
+    const employee = String(task.employee_name || "").trim();
+    if (employee && String(entry.employee_name || "").trim() !== employee) return false;
+
+    const taskId = String(task.id || "");
+    if (taskId && String(entry.task_id || "") === taskId) return true;
+
+    const siteId = String(task.work_site_id || task.site_id || "");
+    if (siteId && String(entry.work_site_id || entry.site_id || "") === siteId) return true;
+
+    const siteName = String(task.site || task.work_site_name || "").trim().toLowerCase();
+    const entrySiteName = String(entry.site || entry.work_site_name || "").trim().toLowerCase();
+    return Boolean(siteName && entrySiteName && siteName === entrySiteName);
+  }
+
+  function adminTaskDueForMissingTime(task: AdminMobileRow) {
+    const taskDate = adminTaskDate(task);
+    if (!taskDate) return false;
+    if (taskDate < today) return true;
+    if (taskDate > today) return false;
+    const endTime = String(task.end_time || "").slice(0, 5);
+    if (!endTime) return true;
+    return endTime <= new Date().toTimeString().slice(0, 5);
+  }
+
+  const adminUnreadChatGroups = useMemo(() => {
+    const unread = adminMobileData.chats
+      .filter((row) => String(row.sender_role || "").toLowerCase() !== "admin")
+      .filter((row) => row.read_by_admin !== true);
+
+    return Object.values(unread.reduce((acc: Record<string, AdminMobileRow & { unread_count: number }>, row) => {
+      const key = String(row.employee_name || row.sender_name || "Unbekannt");
+      const current = acc[key];
+      const currentTime = current ? new Date(String(current.created_at || "")).getTime() : 0;
+      const rowTime = new Date(String(row.created_at || "")).getTime();
+      if (!current || rowTime >= currentTime) acc[key] = { ...row, employee_name: key, unread_count: (current?.unread_count || 0) + 1 };
+      else current.unread_count = (current.unread_count || 0) + 1;
+      return acc;
+    }, {}));
+  }, [adminMobileData.chats]);
+
+  const adminOpenTimeEntries = useMemo(() => adminMobileData.entries
+    .filter((entry) => Number(entry.worked_minutes || entry.payroll_minutes || 0) > 0)
+    .filter((entry) => !(entry.approved === true || String(entry.status || "").toLowerCase() === "approved")), [adminMobileData.entries]);
+
+  const adminOpenAbsences = useMemo(() => adminMobileData.absenceRequests
+    .filter((row) => !["approved", "genehmigt", "rejected", "abgelehnt"].includes(String(row.status || "").toLowerCase())), [adminMobileData.absenceRequests]);
+
+  const adminOpenMaterials = useMemo(() => adminMobileData.materialReports
+    .filter((row) => String(row.status || "open").toLowerCase() !== "done"), [adminMobileData.materialReports]);
+
+  const adminOpenQualityReports = useMemo(() => adminMobileData.qualityReports
+    .filter((row) => !["reviewed", "geprüft"].includes(String(row.status || "").toLowerCase())), [adminMobileData.qualityReports]);
+
+  const adminMissingTimes = useMemo(() => adminMobileData.tasks
+    .filter((task) => String(task.item_type || "").toLowerCase() !== "task" && String(task.task_type || "").toLowerCase() !== "task")
+    .filter((task) => Boolean(String(task.employee_name || "").trim()))
+    .filter(adminTaskDueForMissingTime)
+    .filter((task) => !adminMobileData.entries.some((entry) => adminEntryMatchesTask(entry, task))), [adminMobileData.tasks, adminMobileData.entries, today]);
+
+  const adminTodoCount = isAdminRole
+    ? adminUnreadChatGroups.length + adminOpenTimeEntries.length + adminOpenAbsences.length + adminOpenMaterials.length + adminOpenQualityReports.length + adminMissingTimes.length
+    : 0;
+
+  const adminChatBadgeCount = isAdminRole ? adminUnreadChatGroups.length : unreadChatCount;
 
   function urlBase64ToUint8Array(base64String: string) {
     const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -1859,7 +1956,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
         )}
       </div>
 
-      <BottomNav activeTab={activeTab} openTab={openTab} unreadChatCount={unreadChatCount} role={role} />
+      <BottomNav activeTab={activeTab} openTab={openTab} unreadChatCount={adminChatBadgeCount} adminTodoCount={adminTodoCount} role={role} />
     </main>
   );
 }
@@ -2191,7 +2288,7 @@ function TimesheetScreen(props: {
 
   const recordedTaskIds = new Set(props.entries.map((entry) => String(entry.task_id || "")).filter(Boolean));
   const missingTasks = monthTasks.filter((task) => String(task.task_date || "") <= todayISO() && !recordedTaskIds.has(task.id));
-  const visibleEntries = [...props.entries].sort((a, b) => String(timeEntryDay(b) || "").localeCompare(String(timeEntryDay(a) || ""))).slice(0, 20);
+  const visibleEntries = uniqueTimeEntries(props.entries).sort((a, b) => String(timeEntryDay(b) || "").localeCompare(String(timeEntryDay(a) || ""))).slice(0, 20);
 
   return (
     <SimplePage title="Stundenzettel" openTab={props.openTab}>
@@ -3422,7 +3519,7 @@ function AdminMobileScreen(props: {
   );
 }
 
-function BottomNav({ activeTab, openTab, unreadChatCount, role }: { activeTab: Tab; openTab: (tab: Tab) => void; unreadChatCount: number; role: string }) {
+function BottomNav({ activeTab, openTab, unreadChatCount, adminTodoCount, role }: { activeTab: Tab; openTab: (tab: Tab) => void; unreadChatCount: number; adminTodoCount: number; role: string }) {
   const isAdminRole = role === "admin" || role === "objektleiter";
   const items = isAdminRole
     ? [
@@ -3446,7 +3543,8 @@ function BottomNav({ activeTab, openTab, unreadChatCount, role }: { activeTab: T
         <button key={item.tab} type="button" onClick={() => openTab(item.tab)} className={`relative rounded-2xl py-1 ${activeTab === item.tab ? "text-blue-600" : ""}`}>
           <span className="block text-2xl leading-none">{item.icon}</span>
           <span>{item.label}</span>
-          {item.tab === "chat" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">{unreadChatCount}</span>}
+          {item.tab === "admin" && adminTodoCount > 0 && <span className="absolute right-4 top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] text-white">{adminTodoCount > 9 ? "9+" : adminTodoCount}</span>}
+          {item.tab === "chat" && unreadChatCount > 0 && <span className="absolute right-4 top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] text-white">{unreadChatCount > 9 ? "9+" : unreadChatCount}</span>}
         </button>
       ))}
     </nav>
