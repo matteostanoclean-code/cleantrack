@@ -940,7 +940,20 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
             .filter((task) => task.item_type !== "task" && task.task_type !== "task")
             .reduce((sum, task) => sum + Number(task.planned_minutes || task.max_minutes || 0), 0);
 
-          const alreadyExists = adminMobileData.entries.some((entry) => String(entry.absence_request_id || "") === String(row.id || "") && String(entry.work_date || "").slice(0, 10) === day);
+          const existingAbsenceEntries = await adminApi({
+            action: "select",
+            table: "time_entries",
+            filters: {
+              employee_name: row.employee_name,
+              absence_request_id: row.id,
+              work_date: day,
+            },
+          });
+
+          const alreadyExists = Array.isArray(existingAbsenceEntries?.data)
+            ? existingAbsenceEntries.data.length > 0
+            : adminMobileData.entries.some((entry) => String(entry.absence_request_id || "") === String(row.id || "") && String(entry.work_date || "").slice(0, 10) === day);
+
           if (!alreadyExists) {
             await adminApi({
               action: "insert",
@@ -952,6 +965,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
                 absence_type: row.absence_type,
                 entry_type: "absence",
                 action: "absence",
+                source: "absence_approval",
                 status: "approved",
                 approved: true,
                 planned_minutes: planned,
@@ -1056,6 +1070,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: T
           work_site_id: site?.id || null,
           action: "manual",
           entry_type: "manual",
+          source: "admin_manual_time",
           reason: adminManualReason || "Zeit nachgetragen",
           notes: adminManualNotes || null,
           planned_minutes: duration,
