@@ -888,6 +888,7 @@ export default function AdminPage() {
   const [keys, setKeys] = useState<Row[]>([]);
   const [contacts, setContacts] = useState<Row[]>([]);
   const [chatMessages, setChatMessages] = useState<Row[]>([]);
+  const [allChatMessages, setAllChatMessages] = useState<Row[]>([]);
 
   const [employeeInvite, setEmployeeInvite] = useState(emptyEmployeeInvite);
   const [employeeEdit, setEmployeeEdit] = useState(emptyEmployeeEdit);
@@ -986,7 +987,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows, chatRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
       selectTable("customers", "created_at", false, undefined, true),
       selectTable("work_sites", "name", true),
@@ -1000,6 +1001,7 @@ export default function AdminPage() {
       selectTable("equipment_items", "name", true),
       selectTable("key_items", "key_name", true),
       selectTable("customer_contacts", "name", true),
+      selectTable("chat_messages", "created_at", false, 500, true),
     ]);
     setEmployees(employeeRows);
     setCustomers(customerRows);
@@ -1014,6 +1016,7 @@ export default function AdminPage() {
     setDevices(deviceRows);
     setKeys(keyRows);
     setContacts(contactRows);
+    setAllChatMessages(chatRows);
   }
 
   const activeEmployees = employees.filter((item) => item.role !== "admin" && item.active !== false);
@@ -1053,8 +1056,9 @@ export default function AdminPage() {
       keys: filterRows(keys, q),
       entries: filterRows(entries, q),
       absences: filterRows(absences, q),
+      chatMessages: filterRows(allChatMessages, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports]);
+  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports, allChatMessages]);
 
   async function sendPushToEmployee(employeeName: string, title: string, messageText: string, url = "/mitarbeiter") {
     const cleanName = String(employeeName || "").trim();
@@ -2154,6 +2158,96 @@ const basePayload = {
     });
   }
 
+  async function updateTodoStatus(todo: Row, nextStatus: "open" | "in_progress" | "done" | "rejected" | "archived") {
+    const source = String(todo.todo_source || "");
+    const nowIso = new Date().toISOString();
+
+    setSaving(true);
+    setMessage("");
+    try {
+      if (source === "material") {
+        await adminCall({
+          action: "update",
+          table: "material_reports",
+          id: todo.id,
+          payload: {
+            status: nextStatus === "done" ? "done" : nextStatus,
+            resolved_at: nextStatus === "done" ? nowIso : null,
+          },
+        });
+      } else if (source === "quality") {
+        await adminCall({
+          action: "update",
+          table: "quality_reports",
+          id: todo.id,
+          payload: {
+            status: nextStatus === "done" ? "reviewed" : nextStatus,
+            reviewed_at: ["done", "rejected", "archived"].includes(nextStatus) ? nowIso : null,
+            review_notes: nextStatus === "in_progress" ? "In Bearbeitung" : nextStatus === "archived" ? "Archiviert" : todo.review_notes || null,
+          },
+        });
+      } else if (source === "absence") {
+        await adminCall({
+          action: "update",
+          table: "absence_requests",
+          id: todo.id,
+          payload: {
+            status: nextStatus === "done" ? "approved" : nextStatus === "rejected" ? "rejected" : nextStatus,
+            decided_at: ["done", "rejected", "archived"].includes(nextStatus) ? nowIso : null,
+          },
+        });
+      } else if (source === "time") {
+        await adminCall({
+          action: "update",
+          table: "time_entries",
+          id: todo.id,
+          payload: {
+            status: nextStatus === "done" ? "approved" : nextStatus === "rejected" ? "rejected" : nextStatus,
+            approved: nextStatus === "done" ? true : nextStatus === "rejected" ? false : todo.approved,
+            approved_at: nextStatus === "done" ? nowIso : todo.approved_at || null,
+          },
+        });
+      } else if (source === "chat") {
+        const employeeName = String(todo.todo_employee_name || todo.employee_name || "").trim();
+        const chatRows = employeeName
+          ? allChatMessages.filter((item) => String(item.employee_name || "") === employeeName && item.read_by_admin !== true)
+          : [todo];
+
+        for (const chat of chatRows) {
+          if (!chat.id) continue;
+          await adminCall({
+            action: "update",
+            table: "chat_messages",
+            id: chat.id,
+            payload: {
+              read_by_admin: nextStatus === "open" || nextStatus === "in_progress" ? false : true,
+              todo_status: nextStatus,
+              resolved_at: ["done", "rejected", "archived"].includes(nextStatus) ? nowIso : null,
+            },
+          });
+        }
+      } else {
+        await adminCall({
+          action: "update",
+          table: "admin_notifications",
+          id: todo.id,
+          payload: {
+            status: nextStatus === "done" ? "done" : nextStatus,
+            resolved_at: ["done", "rejected", "archived"].includes(nextStatus) ? nowIso : null,
+            admin_response: nextStatus === "done" ? "Erledigt" : nextStatus === "in_progress" ? "In Bearbeitung" : nextStatus === "archived" ? "Archiviert" : nextStatus,
+          },
+        });
+      }
+
+      setMessage(nextStatus === "in_progress" ? "Aufgabe ist jetzt in Bearbeitung." : nextStatus === "done" ? "Aufgabe erledigt." : nextStatus === "rejected" ? "Aufgabe abgelehnt." : nextStatus === "archived" ? "Aufgabe archiviert." : "Aufgabe aktualisiert.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Aufgabe konnte nicht aktualisiert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function sendChat() {
     if (!chatEmployee || !chatText.trim()) {
       setMessage("Bitte Mitarbeiter und Nachricht auswählen.");
@@ -2174,8 +2268,16 @@ const basePayload = {
   async function loadChat(employeeName: string) {
     setChatEmployee(employeeName);
     try {
+      const unread = allChatMessages.filter((item) => String(item.employee_name || "") === String(employeeName || "") && String(item.sender_role || "") !== "admin" && item.read_by_admin !== true);
+      for (const msg of unread) {
+        if (msg.id) {
+          await adminCall({ action: "update", table: "chat_messages", id: msg.id, payload: { read_by_admin: true, todo_status: "done", resolved_at: new Date().toISOString() } });
+        }
+      }
+
       const json = await adminCall({ action: "select", table: "chat_messages", orderBy: "created_at", ascending: true, filters: { employee_name: employeeName } });
       setChatMessages(json.data || []);
+      await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Chat konnte nicht geladen werden.");
     }
@@ -2321,7 +2423,7 @@ const basePayload = {
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
-          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} />}
+          {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} chatMessages={filtered.chatMessages} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} updateTodoStatus={updateTodoStatus} loadChat={loadChat} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -3359,197 +3461,332 @@ function messageDate(value: unknown) {
 }
 
 function Meldungen(p: any) {
-  const [filter, setFilter] = useState<"all" | "material" | "quality" | "overtime" | "absence" | "gps">("all");
+  const [category, setCategory] = useState<"all" | "chat" | "material" | "quality" | "overtime" | "absence" | "gps" | "time">("all");
+  const [statusFilter, setStatusFilter] = useState<"open" | "in_progress" | "done" | "rejected" | "archived">("open");
 
-  function isActionableNotification(item: Row) {
+  function normalizeTodoStatus(row: Row, source: string) {
+    const raw = String(row.todo_status || row.status || "").toLowerCase();
+
+    if (source === "chat") {
+      if (raw === "archived") return "archived";
+      if (raw === "rejected") return "rejected";
+      if (raw === "in_progress") return "in_progress";
+      return row.read_by_admin === true ? "done" : "open";
+    }
+
+    if (["archived", "archive"].includes(raw)) return "archived";
+    if (["in_progress", "bearbeitung", "in bearbeitung"].includes(raw)) return "in_progress";
+    if (["rejected", "abgelehnt", "declined", "rework"].includes(raw)) return "rejected";
+    if (["done", "approved", "reviewed", "resolved", "closed", "erledigt", "geprüft"].includes(raw)) return "done";
+    return "open";
+  }
+
+  function isSystemInfo(item: Row) {
     const type = String(item.notification_type || "").toLowerCase();
     const title = String(item.title || "").toLowerCase();
     const message = String(item.message || "").toLowerCase();
-
-    if (type === "overtime_request") return true;
-    if (type === "auto_clock_out" || type === "planned_time_reached") return true;
-
-    // reine System-/Schichtinfos sind keine offene Admin-Arbeit
-    if (type.includes("assignment") || type.includes("task_created") || type.includes("task_updated")) return false;
-    if (title.includes("schicht") || title.includes("einsatz geändert") || title.includes("einsatz wurde")) return false;
-    if (message.includes("nicht mehr dir zugewiesen") || message.includes("wurde dir zugewiesen")) return false;
-
-    return false;
+    return (
+      type.includes("assignment") ||
+      type.includes("task_created") ||
+      type.includes("task_updated") ||
+      title.includes("schicht") ||
+      title.includes("einsatz geändert") ||
+      title.includes("einsatz wurde") ||
+      message.includes("nicht mehr dir zugewiesen") ||
+      message.includes("wurde dir zugewiesen")
+    );
   }
 
-  const openNotifications = (p.notifications || [])
-    .filter((item: Row) => !item.status || item.status === "open")
-    .filter(isActionableNotification);
+  function notificationCategory(item: Row) {
+    const type = String(item.notification_type || "").toLowerCase();
+    const title = String(item.title || "").toLowerCase();
+    const message = String(item.message || "").toLowerCase();
+    if (type === "overtime_request" || title.includes("überstunden")) return "overtime";
+    if (type === "auto_clock_out" || type === "planned_time_reached" || message.includes("gps") || message.includes("planzeit")) return "gps";
+    return "time";
+  }
 
-  const overtimeRequests = openNotifications.filter((item: Row) => item.notification_type === "overtime_request");
-  const openReports = (p.materialReports || []).filter((item: Row) => !item.status || item.status === "open");
-  const openQualityReports = (p.qualityReports || []).filter((item: Row) => !item.status || item.status === "open" || item.status === "complete" || item.status === "rework");
-  const openAbsences = (p.absences || []).filter((item: Row) => !item.status || item.status === "open");
-  const autoClockOuts = [
-    ...openNotifications.filter((item: Row) => item.notification_type === "auto_clock_out" || item.notification_type === "planned_time_reached"),
-    ...(p.entries || []).filter((item: Row) => item.auto_clock_out === true || String(item.reason || "").toLowerCase().includes("gps")),
-  ];
+  function todoDate(value: unknown) {
+    return messageDate(value);
+  }
 
-  const total = overtimeRequests.length + openReports.length + openQualityReports.length + openAbsences.length + autoClockOuts.length;
+  const materialTodos = (p.materialReports || []).map((row: Row) => ({
+    ...row,
+    todo_source: "material",
+    todo_category: "material",
+    todo_title: row.material_name || row.product_name || "Materialmeldung",
+    todo_subtitle: `${row.employee_name || "Mitarbeiter"} · ${row.object_name || row.site || "Objekt"}`,
+    todo_text: `Menge ${row.quantity_requested || row.quantity || 1}${row.notes ? ` · ${row.notes}` : ""}`,
+    todo_status: normalizeTodoStatus(row, "material"),
+    todo_created_at: row.created_at,
+  }));
 
-  const showMaterial = filter === "all" || filter === "material";
-  const showQuality = filter === "all" || filter === "quality";
-  const showOvertime = filter === "all" || filter === "overtime";
-  const showAbsence = filter === "all" || filter === "absence";
-  const showGps = filter === "all" || filter === "gps";
+  const qualityTodos = (p.qualityReports || []).map((row: Row) => ({
+    ...row,
+    todo_source: "quality",
+    todo_category: "quality",
+    todo_title: row.site || row.title || "Qualitätsnachweis",
+    todo_subtitle: `${row.employee_name || "Mitarbeiter"} · Checkliste ${Number(row.passed_items || 0)}/${Number(row.total_items || 0)}`,
+    todo_text: row.review_notes || row.notes || "Nachweis prüfen.",
+    todo_status: normalizeTodoStatus(row, "quality"),
+    todo_created_at: row.created_at,
+  }));
+
+  const absenceTodos = (p.absences || []).map((row: Row) => ({
+    ...row,
+    todo_source: "absence",
+    todo_category: "absence",
+    todo_title: row.absence_type || "Abwesenheit",
+    todo_subtitle: `${row.employee_name || "Mitarbeiter"} · ${dateText(row.start_date)} bis ${dateText(row.end_date || row.start_date)}`,
+    todo_text: row.reason || "Antrag prüfen.",
+    todo_status: normalizeTodoStatus(row, "absence"),
+    todo_created_at: row.created_at || row.start_date,
+  }));
+
+  const notificationTodos = (p.notifications || [])
+    .filter((row: Row) => !isSystemInfo(row))
+    .map((row: Row) => {
+      const itemCategory = notificationCategory(row);
+      return {
+        ...row,
+        todo_source: "notification",
+        todo_category: itemCategory,
+        todo_title: row.title || (itemCategory === "gps" ? "GPS / Auto-Stopp" : "Meldung"),
+        todo_subtitle: `${row.employee_name || "Mitarbeiter"} · ${row.site || row.object_name || row.work_site_name || "Objekt"}`,
+        todo_text: row.message || row.reason || "-",
+        todo_status: normalizeTodoStatus(row, "notification"),
+        todo_created_at: row.created_at,
+      };
+    });
+
+  const timeTodos = (p.entries || [])
+    .filter((row: Row) => Number(row.worked_minutes || row.payroll_minutes || 0) > 0 || row.auto_clock_out === true || String(row.reason || "").toLowerCase().includes("gps"))
+    .map((row: Row) => {
+      const isGps = row.auto_clock_out === true || String(row.reason || "").toLowerCase().includes("gps") || String(row.reason || "").toLowerCase().includes("geofence");
+      return {
+        ...row,
+        todo_source: "time",
+        todo_category: isGps ? "gps" : "time",
+        todo_title: isGps ? "Automatische Zeitmeldung" : "Zeitfreigabe",
+        todo_subtitle: `${row.employee_name || "Mitarbeiter"} · ${row.site || row.work_site_name || "Objekt"}`,
+        todo_text: `${row.reason || "Zeit prüfen"} · ${prettyHours(Number(row.worked_minutes || row.payroll_minutes || 0))} Std.`,
+        todo_status: normalizeTodoStatus(row, "time"),
+        todo_created_at: row.created_at || row.work_date,
+      };
+    });
+
+  const unreadChatGroups = Object.values((p.chatMessages || [])
+    .filter((row: Row) => String(row.sender_role || "").toLowerCase() !== "admin")
+    .filter((row: Row) => row.read_by_admin !== true || ["in_progress", "archived", "rejected"].includes(String(row.todo_status || "").toLowerCase()))
+    .reduce((acc: Record<string, Row>, row: Row) => {
+      const key = String(row.employee_name || row.sender_name || "Unbekannt");
+      const current = acc[key];
+      const rowTime = new Date(String(row.created_at || "")).getTime();
+      const currentTime = current ? new Date(String(current.created_at || "")).getTime() : 0;
+      if (!current || rowTime >= currentTime) {
+        acc[key] = {
+          ...row,
+          todo_source: "chat",
+          todo_category: "chat",
+          todo_employee_name: key,
+          unread_count: Number(current?.unread_count || 0) + 1,
+          todo_title: key,
+          todo_subtitle: `${Number(current?.unread_count || 0) + 1} ungelesen`,
+          todo_text: row.message || "Neue Nachricht",
+          todo_status: normalizeTodoStatus(row, "chat"),
+          todo_created_at: row.created_at,
+        };
+      } else {
+        current.unread_count = Number(current.unread_count || 0) + 1;
+        current.todo_subtitle = `${current.unread_count} ungelesen`;
+      }
+      return acc;
+    }, {}));
+
+  const allTodos = [
+    ...unreadChatGroups,
+    ...materialTodos,
+    ...qualityTodos,
+    ...absenceTodos,
+    ...notificationTodos,
+    ...timeTodos,
+  ].sort((a: Row, b: Row) => new Date(String(b.todo_created_at || b.created_at || 0)).getTime() - new Date(String(a.todo_created_at || a.created_at || 0)).getTime());
+
+  const counts = {
+    all: allTodos.filter((todo: Row) => todo.todo_status === statusFilter).length,
+    chat: allTodos.filter((todo: Row) => todo.todo_category === "chat" && todo.todo_status === statusFilter).length,
+    material: allTodos.filter((todo: Row) => todo.todo_category === "material" && todo.todo_status === statusFilter).length,
+    quality: allTodos.filter((todo: Row) => todo.todo_category === "quality" && todo.todo_status === statusFilter).length,
+    overtime: allTodos.filter((todo: Row) => todo.todo_category === "overtime" && todo.todo_status === statusFilter).length,
+    absence: allTodos.filter((todo: Row) => todo.todo_category === "absence" && todo.todo_status === statusFilter).length,
+    gps: allTodos.filter((todo: Row) => todo.todo_category === "gps" && todo.todo_status === statusFilter).length,
+    time: allTodos.filter((todo: Row) => todo.todo_category === "time" && todo.todo_status === statusFilter).length,
+  };
+
+  const statusCounts = {
+    open: allTodos.filter((todo: Row) => todo.todo_status === "open").length,
+    in_progress: allTodos.filter((todo: Row) => todo.todo_status === "in_progress").length,
+    done: allTodos.filter((todo: Row) => todo.todo_status === "done").length,
+    rejected: allTodos.filter((todo: Row) => todo.todo_status === "rejected").length,
+    archived: allTodos.filter((todo: Row) => todo.todo_status === "archived").length,
+  };
+
+  const visibleTodos = allTodos
+    .filter((todo: Row) => todo.todo_status === statusFilter)
+    .filter((todo: Row) => category === "all" || todo.todo_category === category);
+
+  function categoryLabel(value: string) {
+    if (value === "all") return "Alles";
+    if (value === "chat") return "Chat";
+    if (value === "material") return "Material";
+    if (value === "quality") return "Qualität";
+    if (value === "overtime") return "Überstunden";
+    if (value === "absence") return "Abwesenheit";
+    if (value === "gps") return "GPS / Auto-Stopp";
+    if (value === "time") return "Zeiten";
+    return value;
+  }
+
+  function statusLabel(value: string) {
+    if (value === "open") return "Offen";
+    if (value === "in_progress") return "In Bearbeitung";
+    if (value === "done") return "Erledigt";
+    if (value === "rejected") return "Abgelehnt";
+    if (value === "archived") return "Archiv";
+    return value;
+  }
+
+  function statusColor(value: string): "green" | "blue" | "yellow" | "red" | "gray" {
+    if (value === "open") return "red";
+    if (value === "in_progress") return "yellow";
+    if (value === "done") return "green";
+    if (value === "rejected") return "red";
+    if (value === "archived") return "gray";
+    return "gray";
+  }
+
+  function openTodo(todo: Row) {
+    if (todo.todo_category === "material") return p.setTab("material");
+    if (todo.todo_category === "quality") return p.setTab("planung");
+    if (todo.todo_category === "absence") return p.setTab("abwesenheiten");
+    if (todo.todo_category === "time") return p.setTab("zeiten");
+    if (todo.todo_category === "chat") {
+      const employee = String(todo.todo_employee_name || todo.employee_name || "");
+      if (employee) p.loadChat?.(employee);
+      p.setTab("chat");
+      return;
+    }
+    if (todo.todo_category === "gps") {
+      p.openTimeCorrection?.({
+        ...todo,
+        reason: todo.reason || todo.todo_title || "Automatische Zeitmeldung",
+        notes: todo.message || todo.todo_text || "",
+        site: todo.site || todo.object_name || todo.work_site_name || "",
+        work_site_name: todo.work_site_name || todo.site || todo.object_name || "",
+        work_date: dateOnly(todo.work_date || todo.created_at),
+      });
+      if (todo.todo_source === "notification") p.closeNotification?.(todo);
+      return;
+    }
+    p.setTab("zeiten");
+  }
+
+  function mark(todo: Row, nextStatus: "open" | "in_progress" | "done" | "rejected" | "archived") {
+    p.updateTodoStatus?.(todo, nextStatus);
+  }
 
   return (
     <div>
-      <PageHeader icon="🔔" title="Meldezentrale" sub="Hier sammle ich alles, worauf ich reagieren muss.">
+      <PageHeader icon="🔔" title="Meldezentrale" sub="Eine Arbeitsliste für alles: offen, in Bearbeitung, erledigt, abgelehnt und Archiv.">
         <Button onClick={() => p.setTab("material")}>Material öffnen</Button>
-        <Button onClick={() => p.setTab("planung")}>Nachweise öffnen</Button>
         <Button onClick={() => p.setTab("zeiten")}>Zeiten öffnen</Button>
         <Button onClick={() => p.setTab("abwesenheiten")}>Abwesenheiten öffnen</Button>
       </PageHeader>
 
-      <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Metric title="Alles offen" value={total} hint="Meldungen gesamt" onClick={() => setFilter("all")} active={filter === "all"} />
-        <Metric title="Material" value={openReports.length} hint="leer / fehlt" onClick={() => setFilter("material")} active={filter === "material"} />
-        <Metric title="Qualität" value={openQualityReports.length} hint="Nachweise" onClick={() => setFilter("quality")} active={filter === "quality"} />
-        <Metric title="Überstunden" value={overtimeRequests.length} hint="Anfragen" onClick={() => setFilter("overtime")} active={filter === "overtime"} />
-        <Metric title="Abwesenheit" value={openAbsences.length} hint="Anträge" onClick={() => setFilter("absence")} active={filter === "absence"} />
-        <Metric title="GPS / Auto-Stopp" value={autoClockOuts.length} hint="zu prüfen" onClick={() => setFilter("gps")} active={filter === "gps"} />
+      <div className="mb-5 grid gap-3 md:grid-cols-5">
+        {[
+          ["open", "Offen", statusCounts.open],
+          ["in_progress", "In Bearbeitung", statusCounts.in_progress],
+          ["done", "Erledigt", statusCounts.done],
+          ["rejected", "Abgelehnt", statusCounts.rejected],
+          ["archived", "Archiv", statusCounts.archived],
+        ].map(([id, label, count]) => (
+          <button key={String(id)} type="button" onClick={() => setStatusFilter(id as any)} className={`rounded-2xl border bg-white p-4 text-left shadow-sm ${statusFilter === id ? "border-blue-500 ring-2 ring-blue-100" : "border-slate-200"}`}>
+            <p className="text-sm font-black text-slate-500">{label}</p>
+            <p className="mt-2 text-3xl font-black text-slate-950">{String(count)}</p>
+          </button>
+        ))}
       </div>
 
-      <div className="mb-5 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-800">
-        Aktiver Filter: {filter === "all" ? "Alles offen" : filter === "material" ? "Material" : filter === "quality" ? "Qualität" : filter === "overtime" ? "Überstunden" : filter === "absence" ? "Abwesenheit" : "GPS / Auto-Stopp"}
+      <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric title="Alles" value={counts.all} hint={statusLabel(statusFilter)} onClick={() => setCategory("all")} active={category === "all"} />
+        <Metric title="Chat" value={counts.chat} hint="Nachrichten" onClick={() => setCategory("chat")} active={category === "chat"} />
+        <Metric title="Material" value={counts.material} hint="leer / fehlt" onClick={() => setCategory("material")} active={category === "material"} />
+        <Metric title="Qualität" value={counts.quality} hint="Nachweise" onClick={() => setCategory("quality")} active={category === "quality"} />
+        <Metric title="Überstunden" value={counts.overtime} hint="Anfragen" onClick={() => setCategory("overtime")} active={category === "overtime"} />
+        <Metric title="Abwesenheit" value={counts.absence} hint="Anträge" onClick={() => setCategory("absence")} active={category === "absence"} />
+        <Metric title="GPS / Auto-Stopp" value={counts.gps} hint="Zeitmeldungen" onClick={() => setCategory("gps")} active={category === "gps"} />
+        <Metric title="Zeiten" value={counts.time} hint="Freigaben" onClick={() => setCategory("time")} active={category === "time"} />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        {showMaterial && (
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div><h3 className="font-black text-slate-950">Materialmeldungen</h3><p className="text-sm text-slate-500">Mitarbeiter meldet leeres Material am Objekt.</p></div>
-              <Status color={openReports.length ? "red" : "green"}>{openReports.length} offen</Status>
-            </div>
-            <div className="space-y-3">
-              {openReports.length === 0 && <Empty text="Keine offenen Materialmeldungen." />}
-              {openReports.map((r: Row) => (
-                <div key={r.id} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-black text-orange-950">{r.material_name || "Material"}</p>
-                      <p className="text-sm font-bold text-orange-700">Objekt: {r.object_name || r.site || "-"}</p>
-                      <p className="text-xs font-bold text-orange-600">{r.employee_name || "Mitarbeiter"} · Menge: {r.quantity_requested || r.quantity || 1} · {messageDate(r.created_at)}</p>
-                      {r.notes && <p className="mt-2 text-sm text-orange-800">{r.notes}</p>}
+      <Card className="p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-black text-slate-950">{categoryLabel(category)} · {statusLabel(statusFilter)}</h3>
+            <p className="text-sm text-slate-500">Ich sehe hier nur das, was zum ausgewählten Feld gehört.</p>
+          </div>
+          <Status color={statusColor(statusFilter)}>{visibleTodos.length} Einträge</Status>
+        </div>
+
+        {visibleTodos.length === 0 ? <Empty text="Keine Einträge in dieser Ansicht." /> : (
+          <div className="space-y-3">
+            {visibleTodos.map((todo: Row) => (
+              <div key={`${todo.todo_source}-${todo.id}-${todo.todo_employee_name || ""}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Status color={statusColor(String(todo.todo_status))}>{statusLabel(String(todo.todo_status))}</Status>
+                      <Status color="blue">{categoryLabel(String(todo.todo_category))}</Status>
                     </div>
-                    <Button primary onClick={() => p.resolveReport(r)}>Erledigt</Button>
+                    <p className="mt-3 text-lg font-black text-slate-950">{todo.todo_title}</p>
+                    <p className="text-sm font-bold text-slate-600">{todo.todo_subtitle}</p>
+                    <p className="mt-1 text-sm text-slate-500">{todo.todo_text}</p>
+                    <p className="mt-2 text-xs font-bold text-slate-400">{todoDate(todo.todo_created_at || todo.created_at)}</p>
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button onClick={() => openTodo(todo)}>Öffnen / bearbeiten</Button>
+                    {todo.todo_status === "open" && <Button onClick={() => mark(todo, "in_progress")}>In Bearbeitung</Button>}
+                    {todo.todo_source === "notification" && todo.todo_category === "overtime" && todo.todo_status !== "done" && (
+                      <>
+                        <Button primary onClick={() => p.decideNotification(todo, true)}>Genehmigen</Button>
+                        <Button danger onClick={() => p.decideNotification(todo, false)}>Ablehnen</Button>
+                      </>
+                    )}
+                    {todo.todo_source === "absence" && todo.todo_status !== "done" && (
+                      <>
+                        <Button primary onClick={() => p.decideAbsence(todo, "approved")}>Genehmigen</Button>
+                        <Button danger onClick={() => p.decideAbsence(todo, "rejected")}>Ablehnen</Button>
+                      </>
+                    )}
+                    {todo.todo_source === "material" && todo.todo_status !== "done" && <Button primary onClick={() => p.resolveReport(todo)}>Erledigt</Button>}
+                    {todo.todo_source === "quality" && todo.todo_status !== "done" && (
+                      <>
+                        <Button primary onClick={() => p.approveQualityReport?.(todo)}>Geprüft</Button>
+                        <Button danger onClick={() => p.requestQualityRework?.(todo)}>Nacharbeit</Button>
+                      </>
+                    )}
+                    {todo.todo_source === "time" && todo.todo_status !== "done" && <Button primary onClick={() => mark(todo, "done")}>Zeit erledigen</Button>}
+                    {todo.todo_source === "chat" && todo.todo_status !== "done" && <Button primary onClick={() => mark(todo, "done")}>Als gelesen</Button>}
+                    {todo.todo_status !== "done" && todo.todo_status !== "rejected" && <Button onClick={() => mark(todo, "done")}>Erledigt</Button>}
+                    {todo.todo_status !== "archived" && <Button onClick={() => mark(todo, "archived")}>Archiv</Button>}
                   </div>
                 </div>
-              ))}
-            </div>
-          </Card>
+              </div>
+            ))}
+          </div>
         )}
-
-        {showQuality && (
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div><h3 className="font-black text-slate-950">Qualitätsnachweise</h3><p className="text-sm text-slate-500">Nachweise direkt aus dem Einsatz.</p></div>
-              <Status color={openQualityReports.length ? "blue" : "green"}>{openQualityReports.length} neu</Status>
-            </div>
-            <div className="space-y-3">
-              {openQualityReports.length === 0 && <Empty text="Keine neuen Qualitätsnachweise." />}
-              {openQualityReports.slice(0, 10).map((r: Row) => (
-                <div key={r.id} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-black text-indigo-950">{r.site || "Objekt"}</p>
-                      <p className="text-sm font-bold text-indigo-700">{r.employee_name || "Mitarbeiter"} · {messageDate(r.created_at)}</p>
-                      <p className="text-xs font-bold text-indigo-600">Checkliste: {Number(r.passed_items || 0)}/{Number(r.total_items || 0)}</p>
-                      {r.notes && <p className="mt-2 text-sm text-indigo-800">{r.notes}</p>}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {r.photo_url ? <a className="rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-600" href={r.photo_url} target="_blank" rel="noreferrer">Foto öffnen</a> : <Status color="gray">ohne Foto</Status>}
-                      {p.approveQualityReport && <Button primary onClick={() => p.approveQualityReport(r)}>Geprüft</Button>}
-                      {p.requestQualityRework && <Button danger onClick={() => p.requestQualityRework(r)}>Nacharbeit</Button>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-
-        {showOvertime && (
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div><h3 className="font-black text-slate-950">Überstunden</h3><p className="text-sm text-slate-500">Freigabe, bevor Mitarbeiter länger arbeitet.</p></div>
-              <Status color={overtimeRequests.length ? "yellow" : "green"}>{overtimeRequests.length} offen</Status>
-            </div>
-            <div className="space-y-3">
-              {overtimeRequests.length === 0 && <Empty text="Keine offenen Überstundenanfragen." />}
-              {overtimeRequests.map((note: Row) => (
-                <div key={note.id} className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                  <p className="font-black text-amber-950">{note.title || "Überstundenanfrage"}</p>
-                  <p className="text-sm font-bold text-amber-700">{note.employee_name || "Mitarbeiter"} · {note.site || note.object_name || "Objekt"} · +{note.overtime_minutes || 0} Minuten</p>
-                  <p className="mt-1 text-sm text-amber-800">{note.message || "Überstunden werden angefragt."}</p>
-                  <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideNotification(note, true)}>Genehmigen</Button><Button danger onClick={() => p.decideNotification(note, false)}>Ablehnen</Button></div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-
-        {showAbsence && (
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div><h3 className="font-black text-slate-950">Abwesenheiten</h3><p className="text-sm text-slate-500">Urlaub, Krankmeldung oder Frei-Antrag.</p></div>
-              <Status color={openAbsences.length ? "yellow" : "green"}>{openAbsences.length} offen</Status>
-            </div>
-            <div className="space-y-3">
-              {openAbsences.length === 0 && <Empty text="Keine offenen Abwesenheiten." />}
-              {openAbsences.map((a: Row) => (
-                <div key={a.id} className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="font-black text-blue-950">{a.employee_name || "Mitarbeiter"} · {a.absence_type || "Abwesenheit"}</p>
-                  <p className="text-sm font-bold text-blue-700">{dateText(a.start_date)} bis {dateText(a.end_date)}</p>
-                  {a.reason && <p className="mt-1 text-sm text-blue-800">{a.reason}</p>}
-                  <div className="mt-3 flex flex-wrap gap-2"><Button primary onClick={() => p.decideAbsence(a, "approved")}>Genehmigen</Button><Button danger onClick={() => p.decideAbsence(a, "rejected")}>Ablehnen</Button></div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-
-        {showGps && (
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div><h3 className="font-black text-slate-950">GPS / Auto-Stopp</h3><p className="text-sm text-slate-500">Nur technische Zeitmeldungen, die geprüft werden müssen.</p></div>
-              <Status color={autoClockOuts.length ? "blue" : "green"}>{autoClockOuts.length} offen</Status>
-            </div>
-            <div className="space-y-3">
-              {autoClockOuts.length === 0 && <Empty text="Keine GPS- oder Auto-Stopp-Meldungen." />}
-              {autoClockOuts.map((entry: Row) => (
-                <div key={entry.id || `${entry.employee_name}-${entry.created_at}`} className="rounded-2xl border border-red-100 bg-red-50 p-4">
-                  <p className="font-black text-red-950">{entry.title || "Automatische Zeitmeldung"}</p>
-                  <p className="text-sm font-bold text-red-700">{entry.employee_name || "Mitarbeiter"} · {entry.work_site_name || entry.site || "Objekt"}</p>
-                  <p className="mt-1 text-sm text-red-700">{entry.message || entry.reason || "GPS-Bereich verlassen oder Planzeit erreicht."}</p>
-                  <p className="mt-1 text-xs font-bold text-red-500">{messageDate(entry.created_at)}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button primary onClick={() => {
-                      p.openTimeCorrection?.({
-                        ...entry,
-                        reason: entry.reason || entry.title || "Automatische Zeitmeldung",
-                        notes: entry.message || entry.notes || "",
-                        site: entry.site || entry.object_name || entry.work_site_name || "",
-                        work_site_name: entry.work_site_name || entry.site || entry.object_name || "",
-                        work_date: dateOnly(entry.work_date || entry.created_at),
-                      });
-                      if (entry.notification_type) p.closeNotification?.(entry);
-                    }}>Zeit korrigieren</Button>
-                    <Button onClick={() => p.setTab("zeiten")}>Zeiten öffnen</Button>
-                    {entry.notification_type && <Button onClick={() => p.closeNotification(entry)}>Nur erledigen</Button>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-      </div>
+      </Card>
     </div>
   );
 }
