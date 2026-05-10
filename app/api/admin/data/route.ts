@@ -18,6 +18,10 @@ const allowedTables = new Set([
   "chat_messages",
   "cleaning_plans",
   "cleaning_plan_items",
+  "calculations",
+  "calculation_items",
+  "offers",
+  "offer_items",
 ]);
 
 type AdminResult = {
@@ -132,6 +136,10 @@ const objectLeaderReadableTables = new Set([
   "chat_messages",
   "cleaning_plans",
   "cleaning_plan_items",
+  "calculations",
+  "calculation_items",
+  "offers",
+  "offer_items",
   "equipment_items",
 ]);
 
@@ -146,6 +154,10 @@ const objectLeaderWritableTables = new Set([
   "chat_messages",
   "cleaning_plans",
   "cleaning_plan_items",
+  "calculations",
+  "calculation_items",
+  "offers",
+  "offer_items",
 ]);
 
 function ensurePermission(profile: Record<string, unknown> | null, action: string, table: string) {
@@ -157,7 +169,7 @@ function ensurePermission(profile: Record<string, unknown> | null, action: strin
 
   if (action === "select" && objectLeaderReadableTables.has(table)) return;
   if ((action === "insert" || action === "update") && objectLeaderWritableTables.has(table)) return;
-  if (action === "delete" && (table === "cleaning_plans" || table === "cleaning_plan_items")) return;
+  if (action === "delete" && (table === "cleaning_plans" || table === "cleaning_plan_items" || table === "calculations" || table === "calculation_items" || table === "offers" || table === "offer_items")) return;
 
   throw new Error("Für diese Aktion fehlt die Berechtigung.");
 }

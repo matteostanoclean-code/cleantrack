@@ -14,6 +14,8 @@ type Tab =
   | "meldungen"
   | "material"
   | "reinigungsplaene"
+  | "kalkulation"
+  | "angebote"
   | "geraete"
   | "schluessel"
   | "zeiten"
@@ -81,6 +83,8 @@ function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
 const emptyCleaningPlan = { id: "", name: "", customer_id: "", customer_name: "", work_site_id: "", site_name: "", description: "", comments: "", status: "draft", language: "de", template_type: "standard" };
 const emptyCleaningPlanItem = { id: "", plan_id: "", area: "", task_title: "", task_description: "", interval_type: "daily", weekdays: [] as string[], quantity: "1", unit: "x", notes: "", sort_order: "0", active: true };
+const emptyCalculation = { id: "", name: "", cleaning_plan_id: "", customer_id: "", customer_name: "", work_site_id: "", site_name: "", status: "draft", notes: "", hourly_rate: "0", overhead_percent: "20", profit_percent: "20" };
+const emptyOffer = { id: "", offer_number: "", title: "", calculation_id: "", customer_id: "", customer_name: "", work_site_id: "", site_name: "", status: "draft", intro_text: "Sehr geehrte Damen und Herren,\n\nvielen Dank für Ihre Anfrage. Gerne bieten wir Ihnen die folgenden Reinigungsleistungen an.", footer_text: "Die genannten Preise verstehen sich zzgl. der gesetzlichen Mehrwertsteuer.\n\nMit freundlichen Grüßen\nMatteo Stano Clean", monthly_price: "0", notes: "" };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_id: "", customer_name: "", customer_address: "", work_site_id: "", object_name: "", object_address: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
 const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
@@ -886,6 +890,10 @@ export default function AdminPage() {
   const [materials, setMaterials] = useState<Row[]>([]);
   const [cleaningPlans, setCleaningPlans] = useState<Row[]>([]);
   const [cleaningPlanItems, setCleaningPlanItems] = useState<Row[]>([]);
+  const [calculations, setCalculations] = useState<Row[]>([]);
+  const [calculationItems, setCalculationItems] = useState<Row[]>([]);
+  const [offers, setOffers] = useState<Row[]>([]);
+  const [offerItems, setOfferItems] = useState<Row[]>([]);
   const [materialReports, setMaterialReports] = useState<Row[]>([]);
   const [qualityReports, setQualityReports] = useState<Row[]>([]);
   const [adminNotifications, setAdminNotifications] = useState<Row[]>([]);
@@ -905,6 +913,12 @@ export default function AdminPage() {
   const [cleaningPlanForm, setCleaningPlanForm] = useState(emptyCleaningPlan);
   const [cleaningPlanItemForm, setCleaningPlanItemForm] = useState(emptyCleaningPlanItem);
   const [selectedCleaningPlanId, setSelectedCleaningPlanId] = useState("");
+  const [calculationForm, setCalculationForm] = useState(emptyCalculation);
+  const [selectedCalculationId, setSelectedCalculationId] = useState("");
+  const [selectedPlanForCalculation, setSelectedPlanForCalculation] = useState("");
+  const [offerForm, setOfferForm] = useState(emptyOffer);
+  const [selectedOfferId, setSelectedOfferId] = useState("");
+  const [selectedCalculationForOffer, setSelectedCalculationForOffer] = useState("");
   const [deviceForm, setDeviceForm] = useState(emptyDevice);
   const [keyForm, setKeyForm] = useState(emptyKey);
   const [absenceForm, setAbsenceForm] = useState(emptyAbsence);
@@ -995,7 +1009,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows, chatRows, cleaningPlanRows, cleaningPlanItemRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows, chatRows, cleaningPlanRows, cleaningPlanItemRows, calculationRows, calculationItemRows, offerRows, offerItemRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
       selectTable("customers", "created_at", false, undefined, true),
       selectTable("work_sites", "name", true),
@@ -1012,6 +1026,10 @@ export default function AdminPage() {
       selectTable("chat_messages", "created_at", false, 500, true),
       selectTable("cleaning_plans", "created_at", false, 300, true),
       selectTable("cleaning_plan_items", "sort_order", true, 1000, true),
+      selectTable("calculations", "created_at", false, 300, true),
+      selectTable("calculation_items", "sort_order", true, 2000, true),
+      selectTable("offers", "created_at", false, 300, true),
+      selectTable("offer_items", "sort_order", true, 2000, true),
     ]);
     setEmployees(employeeRows);
     setCustomers(customerRows);
@@ -1022,6 +1040,12 @@ export default function AdminPage() {
     setMaterials(materialRows);
     setCleaningPlans(cleaningPlanRows);
     setCleaningPlanItems(cleaningPlanItemRows);
+    setCalculations(calculationRows);
+    setCalculationItems(calculationItemRows);
+    setOffers(offerRows);
+    setOfferItems(offerItemRows);
+    if (!selectedOfferId && offerRows[0]?.id) setSelectedOfferId(offerRows[0].id);
+    if (!selectedCalculationId && calculationRows[0]?.id) setSelectedCalculationId(calculationRows[0].id);
     if (!selectedCleaningPlanId && cleaningPlanRows[0]?.id) setSelectedCleaningPlanId(cleaningPlanRows[0].id);
     setMaterialReports(materialReportRows);
     setQualityReports(qualityReportRows);
@@ -1039,7 +1063,7 @@ export default function AdminPage() {
   const isObjectLeaderRole = currentRole === "objektleiter" || currentRole === "object_lead" || currentRole === "objectleader";
   const allowedTabs = useMemo(() => {
     if (isAdminRole) return navItems.map((item) => item.id);
-    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "reinigungsplaene", "zeiten", "abwesenheiten", "chat"] as Tab[];
+    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "reinigungsplaene", "kalkulation", "angebote", "zeiten", "abwesenheiten", "chat"] as Tab[];
     return [] as Tab[];
   }, [isAdminRole, isObjectLeaderRole]);
   const visibleNavItems = navItems.filter((item) => allowedTabs.includes(item.id));
@@ -1064,6 +1088,10 @@ export default function AdminPage() {
       materials: filterRows(materials, q),
       cleaningPlans: filterRows(cleaningPlans, q),
       cleaningPlanItems: filterRows(cleaningPlanItems, q),
+      calculations: filterRows(calculations, q),
+      calculationItems: filterRows(calculationItems, q),
+      offers: filterRows(offers, q),
+      offerItems: filterRows(offerItems, q),
       materialReports: filterRows(materialReports, q),
       qualityReports: filterRows(qualityReports, q),
       adminNotifications: filterRows(adminNotifications, q),
@@ -1073,7 +1101,7 @@ export default function AdminPage() {
       absences: filterRows(absences, q),
       chatMessages: filterRows(allChatMessages, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, cleaningPlans, cleaningPlanItems, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports, allChatMessages]);
+  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, cleaningPlans, cleaningPlanItems, calculations, calculationItems, offers, offerItems, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports, allChatMessages]);
 
   async function sendPushToEmployee(employeeName: string, title: string, messageText: string, url = "/mitarbeiter") {
     const cleanName = String(employeeName || "").trim();
@@ -1840,6 +1868,319 @@ const basePayload = {
     }
   }
 
+  function openCalculation(row?: Row) {
+    if (!row) {
+      setCalculationForm(emptyCalculation);
+      setSelectedCalculationId("");
+      return;
+    }
+
+    setCalculationForm({
+      ...emptyCalculation,
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      cleaning_plan_id: String(row.cleaning_plan_id || ""),
+      customer_id: String(row.customer_id || ""),
+      customer_name: String(row.customer_name || ""),
+      work_site_id: String(row.work_site_id || ""),
+      site_name: String(row.site_name || ""),
+      status: String(row.status || "draft"),
+      notes: String(row.notes || ""),
+      hourly_rate: String(row.hourly_rate ?? "0"),
+      overhead_percent: String(row.overhead_percent ?? "20"),
+      profit_percent: String(row.profit_percent ?? "20"),
+    });
+    setSelectedCalculationId(String(row.id || ""));
+  }
+
+  async function saveCalculation() {
+    if (!calculationForm.name.trim()) {
+      setMessage("Bitte einen Namen für die Kalkulation eintragen.");
+      return;
+    }
+
+    await insertOrUpdate("calculations", calculationForm.id, {
+      name: calculationForm.name,
+      cleaning_plan_id: calculationForm.cleaning_plan_id || null,
+      customer_id: calculationForm.customer_id || null,
+      customer_name: calculationForm.customer_name || null,
+      work_site_id: calculationForm.work_site_id || null,
+      site_name: calculationForm.site_name || null,
+      status: calculationForm.status || "draft",
+      notes: calculationForm.notes || null,
+      hourly_rate: numberOrFallback(calculationForm.hourly_rate, 0),
+      overhead_percent: numberOrFallback(calculationForm.overhead_percent, 20),
+      profit_percent: numberOrFallback(calculationForm.profit_percent, 20),
+    });
+
+    setCalculationForm(emptyCalculation);
+  }
+
+  async function createCalculationFromPlan(planId: string) {
+    const plan = cleaningPlans.find((item) => String(item.id) === String(planId));
+    if (!plan) {
+      setMessage("Bitte zuerst einen Reinigungsplan auswählen.");
+      return;
+    }
+
+    const planLines = cleaningPlanItems
+      .filter((item) => String(item.plan_id) === String(planId))
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+    if (planLines.length === 0) {
+      setMessage("Dieser Reinigungsplan hat noch keine Aufgaben.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const created = await adminCall({
+        action: "insert",
+        table: "calculations",
+        payload: [{
+          name: `Kalkulation ${plan.name || "Reinigungsplan"}`,
+          cleaning_plan_id: plan.id,
+          customer_id: plan.customer_id || null,
+          customer_name: plan.customer_name || null,
+          work_site_id: plan.work_site_id || null,
+          site_name: plan.site_name || null,
+          status: "draft",
+          hourly_rate: 0,
+          overhead_percent: 20,
+          profit_percent: 20,
+          notes: "Aus Reinigungsplan erstellt",
+        }],
+      });
+
+      const calculation = Array.isArray(created.data) ? created.data[0] : null;
+      const calculationId = calculation?.id;
+      if (!calculationId) throw new Error("Kalkulation wurde erstellt, aber die ID fehlt.");
+
+      await adminCall({
+        action: "insert",
+        table: "calculation_items",
+        payload: planLines.map((line, index) => ({
+          calculation_id: calculationId,
+          cleaning_plan_id: plan.id,
+          cleaning_plan_item_id: line.id,
+          area: line.area || "Allgemein",
+          task_title: line.task_title || "Aufgabe",
+          task_description: line.task_description || null,
+          interval_type: line.interval_type || "daily",
+          weekdays: Array.isArray(line.weekdays) ? line.weekdays : [],
+          quantity: numberOrFallback(line.quantity, 1),
+          unit: line.unit || "x",
+          minutes_per_visit: numberOrFallback(line.calculation_minutes, 0),
+          hourly_rate: 0,
+          material_cost: 0,
+          overhead_percent: 20,
+          profit_percent: 20,
+          sort_order: index + 1,
+          notes: line.notes || null,
+        })),
+      });
+
+      setSelectedCalculationId(String(calculationId));
+      setSelectedPlanForCalculation(String(planId));
+      setMessage("Kalkulation wurde aus dem Reinigungsplan erstellt.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kalkulation konnte nicht erstellt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateCalculationLine(row: Row, patch: Row) {
+    if (!row?.id) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({
+        action: "update",
+        table: "calculation_items",
+        id: row.id,
+        payload: patch,
+      });
+      setMessage("Kalkulationszeile gespeichert.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kalkulationszeile konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openOffer(row?: Row) {
+    if (!row) {
+      setOfferForm(emptyOffer);
+      setSelectedOfferId("");
+      return;
+    }
+
+    setOfferForm({
+      ...emptyOffer,
+      id: String(row.id || ""),
+      offer_number: String(row.offer_number || ""),
+      title: String(row.title || row.name || ""),
+      calculation_id: String(row.calculation_id || ""),
+      customer_id: String(row.customer_id || ""),
+      customer_name: String(row.customer_name || ""),
+      work_site_id: String(row.work_site_id || ""),
+      site_name: String(row.site_name || ""),
+      status: String(row.status || "draft"),
+      intro_text: String(row.intro_text || emptyOffer.intro_text),
+      footer_text: String(row.footer_text || emptyOffer.footer_text),
+      monthly_price: String(row.monthly_price ?? "0"),
+      notes: String(row.notes || ""),
+    });
+    setSelectedOfferId(String(row.id || ""));
+  }
+
+  async function saveOffer() {
+    if (!offerForm.title.trim()) {
+      setMessage("Bitte einen Titel für das Angebot eintragen.");
+      return;
+    }
+
+    await insertOrUpdate("offers", offerForm.id, {
+      offer_number: offerForm.offer_number || null,
+      title: offerForm.title,
+      calculation_id: offerForm.calculation_id || null,
+      customer_id: offerForm.customer_id || null,
+      customer_name: offerForm.customer_name || null,
+      work_site_id: offerForm.work_site_id || null,
+      site_name: offerForm.site_name || null,
+      status: offerForm.status || "draft",
+      intro_text: offerForm.intro_text || null,
+      footer_text: offerForm.footer_text || null,
+      monthly_price: numberOrFallback(offerForm.monthly_price, 0),
+      notes: offerForm.notes || null,
+    });
+
+    setOfferForm(emptyOffer);
+  }
+
+  async function createOfferFromCalculation(calculationId: string) {
+    const calculation = calculations.find((item) => String(item.id) === String(calculationId));
+    if (!calculation) {
+      setMessage("Bitte zuerst eine Kalkulation auswählen.");
+      return;
+    }
+
+    const lines = calculationItems
+      .filter((item) => String(item.calculation_id) === String(calculationId))
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+    if (lines.length === 0) {
+      setMessage("Diese Kalkulation hat noch keine Positionen.");
+      return;
+    }
+
+    function intervalFactor(row: Row) {
+      const interval = String(row.interval_type || "daily");
+      const weekdays = Array.isArray(row.weekdays) ? row.weekdays.length : 0;
+      if (interval === "daily") return 21.67;
+      if (interval === "weekly") return Math.max(1, weekdays || 1) * 4.33;
+      if (interval === "monthly") return 1;
+      if (interval === "quarterly") return 1 / 3;
+      if (interval === "half_yearly") return 1 / 6;
+      if (interval === "yearly") return 1 / 12;
+      return numberOrFallback(row.monthly_factor, 1);
+    }
+
+    function monthlyMinutes(row: Row) {
+      return numberOrFallback(row.minutes_per_visit, 0) * numberOrFallback(row.quantity, 1) * intervalFactor(row);
+    }
+
+    function linePrice(row: Row) {
+      const hours = monthlyMinutes(row) / 60;
+      const wage = numberOrFallback(row.hourly_rate || calculation.hourly_rate, 0);
+      const base = (hours * wage) + numberOrFallback(row.material_cost, 0);
+      const overhead = numberOrFallback(row.overhead_percent ?? calculation.overhead_percent, 20);
+      const profit = numberOrFallback(row.profit_percent ?? calculation.profit_percent, 20);
+      return base * (1 + overhead / 100) * (1 + profit / 100);
+    }
+
+    const totalPrice = lines.reduce((sum, row) => sum + linePrice(row), 0);
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const created = await adminCall({
+        action: "insert",
+        table: "offers",
+        payload: [{
+          offer_number: null,
+          title: `Angebot ${calculation.customer_name || calculation.site_name || calculation.name || ""}`.trim(),
+          calculation_id: calculation.id,
+          customer_id: calculation.customer_id || null,
+          customer_name: calculation.customer_name || null,
+          work_site_id: calculation.work_site_id || null,
+          site_name: calculation.site_name || null,
+          status: "draft",
+          intro_text: emptyOffer.intro_text,
+          footer_text: emptyOffer.footer_text,
+          monthly_price: totalPrice,
+          notes: "Aus Kalkulation erstellt",
+        }],
+      });
+
+      const offer = Array.isArray(created.data) ? created.data[0] : null;
+      const offerId = offer?.id;
+      if (!offerId) throw new Error("Angebot wurde erstellt, aber die ID fehlt.");
+
+      await adminCall({
+        action: "insert",
+        table: "offer_items",
+        payload: lines.map((line, index) => ({
+          offer_id: offerId,
+          calculation_id: calculation.id,
+          calculation_item_id: line.id,
+          area: line.area || "Allgemein",
+          title: line.task_title || "Leistung",
+          description: line.task_description || line.notes || "",
+          quantity: numberOrFallback(line.quantity, 1),
+          unit: line.unit || "x",
+          monthly_minutes: monthlyMinutes(line),
+          monthly_price: linePrice(line),
+          sort_order: index + 1,
+          active: true,
+        })),
+      });
+
+      setSelectedOfferId(String(offerId));
+      setSelectedCalculationForOffer(String(calculationId));
+      setMessage("Angebot wurde aus der Kalkulation erstellt.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Angebot konnte nicht erstellt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateOfferLine(row: Row, patch: Row) {
+    if (!row?.id) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({
+        action: "update",
+        table: "offer_items",
+        id: row.id,
+        payload: patch,
+      });
+      setMessage("Angebotsposition gespeichert.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Angebotsposition konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveMaterial() {
     const site = sites.find((item) => item.id === materialForm.work_site_id);
     await insertOrUpdate("material_products", materialForm.id, {
@@ -2433,7 +2774,7 @@ const basePayload = {
   function canCreateInTab(tabName: Tab) {
     if (isAdminRole) return true;
     if (isObjectLeaderRole) {
-      return ["planung", "aufgaben", "meldungen", "material", "reinigungsplaene", "zeiten", "abwesenheiten", "chat"].includes(tabName);
+      return ["planung", "aufgaben", "meldungen", "material", "reinigungsplaene", "kalkulation", "angebote", "zeiten", "abwesenheiten", "chat"].includes(tabName);
     }
     return false;
   }
@@ -2455,6 +2796,8 @@ const basePayload = {
     if (tab === "meldungen") return loadAll();
     if (tab === "material") return openMaterial();
     if (tab === "reinigungsplaene") return openCleaningPlan();
+    if (tab === "kalkulation") return setMessage("Wähle einen Reinigungsplan aus und klicke auf „Kalkulation erstellen“.");
+    if (tab === "angebote") return setMessage("Wähle eine Kalkulation aus und klicke auf „Angebot erstellen“.");
     if (tab === "geraete") return openDevice();
     if (tab === "schluessel") return openKey();
     if (tab === "abwesenheiten") return openAbsence();
@@ -2567,6 +2910,8 @@ const basePayload = {
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} chatMessages={filtered.chatMessages} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} updateTodoStatus={updateTodoStatus} loadChat={loadChat} />}
+          {tab === "angebote" && <Offers offers={filtered.offers} offerItems={filtered.offerItems} calculations={calculations} calculationItems={calculationItems} selectedOfferId={selectedOfferId} setSelectedOfferId={setSelectedOfferId} selectedCalculationId={selectedCalculationForOffer} setSelectedCalculationId={setSelectedCalculationForOffer} form={offerForm} setForm={setOfferForm} openOffer={openOffer} saveOffer={saveOffer} createFromCalculation={createOfferFromCalculation} updateLine={updateOfferLine} deleteOffer={(row: Row) => removeRow("offers", row.id, "Angebot")} deleteLine={(row: Row) => removeRow("offer_items", row.id, "Angebotsposition")} saving={saving} />}
+          {tab === "kalkulation" && <Calculations calculations={filtered.calculations} calculationItems={filtered.calculationItems} cleaningPlans={cleaningPlans} cleaningPlanItems={cleaningPlanItems} selectedCalculationId={selectedCalculationId} setSelectedCalculationId={setSelectedCalculationId} selectedPlanId={selectedPlanForCalculation} setSelectedPlanId={setSelectedPlanForCalculation} form={calculationForm} setForm={setCalculationForm} openCalculation={openCalculation} saveCalculation={saveCalculation} createFromPlan={createCalculationFromPlan} updateLine={updateCalculationLine} deleteCalculation={(row: Row) => removeRow("calculations", row.id, "Kalkulation")} deleteLine={(row: Row) => removeRow("calculation_items", row.id, "Kalkulationszeile")} saving={saving} />}
           {tab === "reinigungsplaene" && <CleaningPlans plans={filtered.cleaningPlans} items={filtered.cleaningPlanItems} sites={sites} customers={customerList} form={cleaningPlanForm} setForm={setCleaningPlanForm} itemForm={cleaningPlanItemForm} setItemForm={setCleaningPlanItemForm} selectedPlanId={selectedCleaningPlanId} setSelectedPlanId={setSelectedCleaningPlanId} openPlan={openCleaningPlan} savePlan={saveCleaningPlan} openItem={openCleaningPlanItem} saveItem={saveCleaningPlanItem} reorderItems={reorderCleaningPlanItems} deletePlan={(row: Row) => removeRow("cleaning_plans", row.id, "Reinigungsplan")} deleteItem={(row: Row) => removeRow("cleaning_plan_items", row.id, "Reinigungspunkt")} saving={saving} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
@@ -2603,6 +2948,8 @@ const navItems: { id: Tab; icon: string; label: string }[] = [
   { id: "meldungen", icon: "🔔", label: "Meldungen" },
   { id: "material", icon: "📦", label: "Material" },
   { id: "reinigungsplaene", icon: "🧽", label: "Reinigungspläne" },
+  { id: "kalkulation", icon: "🧮", label: "Kalkulation" },
+  { id: "angebote", icon: "📄", label: "Angebote" },
   { id: "geraete", icon: "🔧", label: "Geräte" },
   { id: "schluessel", icon: "🔑", label: "Schlüssel" },
   { id: "zeiten", icon: "⏱", label: "Zeiten" },
@@ -2621,6 +2968,8 @@ function getCreateButtonLabel(tab: Tab) {
   if (tab === "objekte") return "+ Objekt";
   if (tab === "material") return "+ Material";
   if (tab === "reinigungsplaene") return "+ Plan";
+  if (tab === "kalkulation") return "+ Kalkulation";
+  if (tab === "angebote") return "+ Angebot";
   if (tab === "geraete") return "+ Gerät";
   if (tab === "schluessel") return "+ Schlüssel";
   if (tab === "abwesenheiten") return "+ Abwesenheit";
@@ -3938,6 +4287,529 @@ function Meldungen(p: any) {
 }
 
 
+
+
+function Offers(p: any) {
+  const selectedOffer = p.offers.find((row: Row) => row.id === p.selectedOfferId) || p.offers[0] || null;
+  const offerId = selectedOffer?.id || p.selectedOfferId || "";
+  const lines = (p.offerItems || [])
+    .filter((line: Row) => String(line.offer_id || "") === String(offerId || ""))
+    .sort((a: Row, b: Row) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+  const selectedCalculation = p.calculations.find((calc: Row) => String(calc.id || "") === String(p.selectedCalculationId || ""));
+  const totalPrice = lines.reduce((sum: number, line: Row) => sum + numberOrFallback(line.monthly_price, 0), 0);
+  const totalMinutes = lines.reduce((sum: number, line: Row) => sum + numberOrFallback(line.monthly_minutes, 0), 0);
+
+  function saveLine(row: Row, form: HTMLFormElement) {
+    const data = new FormData(form);
+    p.updateLine(row, {
+      title: String(data.get("title") || row.title || ""),
+      description: String(data.get("description") || ""),
+      quantity: numberOrFallback(data.get("quantity"), 1),
+      unit: String(data.get("unit") || row.unit || "x"),
+      monthly_price: numberOrFallback(data.get("monthly_price"), 0),
+      active: true,
+    });
+  }
+
+  function printOffer() {
+    if (!selectedOffer) return;
+
+    const companyName = "Matteo Stano Clean";
+    const companyLogoUrl = `${window.location.origin}/logo.png`;
+    const title = selectedOffer.title || "Angebot";
+    const groupedAreas = Array.from(new Set<string>(lines.map((line: Row) => String(line.area || "Leistungen"))));
+
+    const rows = groupedAreas.map((area) => {
+      const areaLines = lines.filter((line: Row) => String(line.area || "Leistungen") === area);
+      return `
+        <tr class="area"><td colspan="4">${htmlEscape(area)}</td></tr>
+        ${areaLines.map((line: Row) => `
+          <tr>
+            <td>${htmlEscape(line.title || "")}</td>
+            <td>${htmlEscape(line.description || "")}</td>
+            <td class="center">${htmlEscape(`${line.quantity || 1} ${line.unit || "x"}`)}</td>
+            <td class="right">${htmlEscape(euro(line.monthly_price || 0))}</td>
+          </tr>
+        `).join("")}`;
+    }).join("");
+
+    const html = `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>${htmlEscape(title)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 16mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 0; font-size: 12px; line-height: 1.45; }
+    .top { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; border-bottom: 3px solid #2563eb; padding-bottom: 16px; margin-bottom: 22px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+    .meta { display: grid; grid-template-columns: 100px 1fr; gap: 4px 10px; margin-top: 12px; font-size: 12px; }
+    .brand { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 210px; }
+    .brand img { max-height: 60px; max-width: 170px; object-fit: contain; }
+    .brand-name { font-weight: 800; font-size: 14px; color: #0f172a; }
+    .text { white-space: pre-line; margin: 18px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 18px; table-layout: fixed; }
+    th { background: #0f172a; color: white; padding: 9px 8px; text-align: left; font-size: 11px; }
+    td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; }
+    tr.area td { background: #dbeafe; color: #1e3a8a; font-weight: 800; border-color: #93c5fd; }
+    .center { text-align: center; }
+    .right { text-align: right; font-weight: 800; }
+    .total { margin-top: 20px; margin-left: auto; width: 330px; border: 2px solid #2563eb; border-radius: 14px; padding: 14px; }
+    .total-row { display: flex; justify-content: space-between; gap: 12px; font-size: 16px; font-weight: 800; }
+    .hint { margin-top: 6px; color: #64748b; font-size: 11px; }
+    .footer { margin-top: 28px; white-space: pre-line; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <h1>${htmlEscape(title)}</h1>
+      <div class="meta">
+        <strong>Kunde</strong><span>${htmlEscape(selectedOffer.customer_name || "-")}</span>
+        <strong>Objekt</strong><span>${htmlEscape(selectedOffer.site_name || "-")}</span>
+        ${selectedOffer.offer_number ? `<strong>Angebot Nr.</strong><span>${htmlEscape(selectedOffer.offer_number)}</span>` : ""}
+      </div>
+    </div>
+    <div class="brand">
+      <img src="${companyLogoUrl}" alt="${htmlEscape(companyName)}" />
+      <div class="brand-name">${htmlEscape(companyName)}</div>
+    </div>
+  </div>
+
+  <div class="text">${htmlEscape(selectedOffer.intro_text || "")}</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 28%;">Leistung</th>
+        <th>Beschreibung</th>
+        <th style="width: 12%;">Menge</th>
+        <th style="width: 18%;">Monatspreis</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <div class="total">
+    <div class="total-row"><span>Monatspreis netto</span><span>${htmlEscape(euro(totalPrice))}</span></div>
+    <div class="hint">zzgl. gesetzlicher Mehrwertsteuer</div>
+  </div>
+
+  <div class="footer">${htmlEscape(selectedOffer.footer_text || "")}</div>
+  <script>window.onload = () => { window.print(); };</script>
+</body>
+</html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Popup wurde blockiert. Bitte Popups erlauben, um das Angebot als PDF zu speichern.");
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  }
+
+  return (
+    <div>
+      <PageHeader icon="📄" title="Angebote" sub="Ich erstelle aus Kalkulationen ein sauberes Kundenangebot mit PDF-Ausgabe.">
+        <Button onClick={() => p.openOffer()}>+ Manuell</Button>
+        <Button primary onClick={() => p.createFromCalculation(p.selectedCalculationId)} disabled={!p.selectedCalculationId || p.saving}>Angebot aus Kalkulation erstellen</Button>
+      </PageHeader>
+
+      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+        <div className="space-y-5">
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Aus Kalkulation erstellen</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Ich übernehme Positionen und Preis aus der Kalkulation.</p>
+            <div className="mt-4 grid gap-3">
+              <Field label="Kalkulation">
+                <Select value={p.selectedCalculationId} onChange={(e) => p.setSelectedCalculationId(e.target.value)}>
+                  <option value="">Kalkulation auswählen</option>
+                  {p.calculations.map((calc: Row) => (
+                    <option key={calc.id} value={calc.id}>{calc.name} · {calc.customer_name || "Kunde"} · {calc.site_name || "Objekt"}</option>
+                  ))}
+                </Select>
+              </Field>
+              {selectedCalculation && (
+                <div className="rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-800">
+                  {selectedCalculation.name} · {(p.calculationItems || []).filter((item: Row) => item.calculation_id === selectedCalculation.id).length} Positionen
+                </div>
+              )}
+              <Button primary onClick={() => p.createFromCalculation(p.selectedCalculationId)} disabled={!p.selectedCalculationId || p.saving}>Angebot erstellen</Button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Angebote</h3>
+            <div className="mt-4 space-y-3">
+              {p.offers.length === 0 && <Empty text="Noch kein Angebot erstellt." />}
+              {p.offers.map((offer: Row) => {
+                const selected = selectedOffer?.id === offer.id;
+                const offerLines = (p.offerItems || []).filter((line: Row) => line.offer_id === offer.id);
+                return (
+                  <button key={offer.id} type="button" onClick={() => p.openOffer(offer)} className={`w-full rounded-2xl border p-4 text-left ${selected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                    <p className="font-black text-slate-950">{offer.title}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-500">{offer.customer_name || "Kunde"} · {offer.site_name || "Objekt"}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Status color={offer.status === "sent" ? "blue" : offer.status === "accepted" ? "green" : offer.status === "rejected" ? "red" : "yellow"}>{offer.status || "draft"}</Status>
+                      <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{offerLines.length} Positionen</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Angebot bearbeiten</h3>
+            <div className="mt-4 grid gap-3">
+              <Field label="Angebotsnummer">
+                <Input value={p.form.offer_number} onChange={(e) => p.setForm({ ...p.form, offer_number: e.target.value })} placeholder="optional" />
+              </Field>
+              <Field label="Titel">
+                <Input value={p.form.title} onChange={(e) => p.setForm({ ...p.form, title: e.target.value })} />
+              </Field>
+              <Field label="Status">
+                <Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}>
+                  <option value="draft">Entwurf</option>
+                  <option value="sent">Versendet</option>
+                  <option value="accepted">Angenommen</option>
+                  <option value="rejected">Abgelehnt</option>
+                  <option value="archived">Archiv</option>
+                </Select>
+              </Field>
+              <Field label="Einleitung">
+                <Textarea value={p.form.intro_text} onChange={(e) => p.setForm({ ...p.form, intro_text: e.target.value })} />
+              </Field>
+              <Field label="Schlusstext">
+                <Textarea value={p.form.footer_text} onChange={(e) => p.setForm({ ...p.form, footer_text: e.target.value })} />
+              </Field>
+              <Button onClick={p.saveOffer} disabled={p.saving}>{p.form.id ? "Angebot speichern" : "+ Angebot speichern"}</Button>
+            </div>
+          </Card>
+        </div>
+
+        <div className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Metric title="Positionen" value={lines.length} hint="im Angebot" />
+            <Metric title="Monatsstunden" value={`${prettyHours(totalMinutes)} h`} hint="aus Kalkulation" />
+            <Metric title="Monatspreis" value={euro(totalPrice)} hint="netto" />
+          </div>
+
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-2xl font-black text-slate-950">{selectedOffer?.title || "Kein Angebot ausgewählt"}</h3>
+                <p className="mt-1 text-sm font-bold text-slate-500">{selectedOffer?.customer_name || "Kunde"} · {selectedOffer?.site_name || "Objekt"}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedOffer && <Button onClick={() => p.openOffer(selectedOffer)}>Bearbeiten</Button>}
+                {selectedOffer && <Button primary onClick={printOffer}>PDF Angebot</Button>}
+                {selectedOffer && <Button danger onClick={() => p.deleteOffer(selectedOffer)}>Löschen</Button>}
+              </div>
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <div className="border-b border-slate-200 p-5">
+              <h3 className="text-xl font-black text-slate-950">Angebotspositionen</h3>
+              <p className="text-sm font-semibold text-slate-500">Diese Texte und Preise erscheinen im Kundenangebot.</p>
+            </div>
+
+            {lines.length === 0 ? <div className="p-5"><Empty text="Noch keine Angebotspositionen." /></div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1050px] text-sm">
+                  <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Bereich</th>
+                      <th className="px-4 py-3">Leistung</th>
+                      <th className="px-4 py-3">Beschreibung</th>
+                      <th className="px-4 py-3">Menge</th>
+                      <th className="px-4 py-3">Monatspreis</th>
+                      <th className="px-4 py-3">Aktion</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lines.map((line: Row) => (
+                      <tr key={line.id} className="bg-white align-top hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-700">{line.area || "Allgemein"}</td>
+                        <td className="px-4 py-3"><input form={`offer-line-${line.id}`} name="title" defaultValue={line.title || ""} className="w-52 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3"><textarea form={`offer-line-${line.id}`} name="description" defaultValue={line.description || ""} className="h-20 w-80 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <input form={`offer-line-${line.id}`} name="quantity" defaultValue={line.quantity || 1} className="w-20 rounded-xl border border-slate-200 px-3 py-2 font-bold" />
+                            <input form={`offer-line-${line.id}`} name="unit" defaultValue={line.unit || "x"} className="w-16 rounded-xl border border-slate-200 px-3 py-2 font-bold" />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3"><input form={`offer-line-${line.id}`} name="monthly_price" defaultValue={line.monthly_price || 0} className="w-28 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3">
+                          <form id={`offer-line-${line.id}`} onSubmit={(e) => { e.preventDefault(); saveLine(line, e.currentTarget); }} className="flex flex-wrap gap-2">
+                            <Button primary type="submit">Speichern</Button>
+                            <Button danger onClick={() => p.deleteLine(line)}>Löschen</Button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Calculations(p: any) {
+  const selectedCalculation = p.calculations.find((row: Row) => row.id === p.selectedCalculationId) || p.calculations[0] || null;
+  const calculationId = selectedCalculation?.id || p.selectedCalculationId || "";
+  const lines = (p.calculationItems || [])
+    .filter((line: Row) => String(line.calculation_id || "") === String(calculationId || ""))
+    .sort((a: Row, b: Row) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+  const selectedPlan = p.cleaningPlans.find((plan: Row) => String(plan.id || "") === String(p.selectedPlanId || ""));
+  const statusText = selectedCalculation?.status === "active" ? "aktiv" : selectedCalculation?.status === "archived" ? "Archiv" : "Entwurf";
+
+  function intervalFactor(row: Row) {
+    const interval = String(row.interval_type || "daily");
+    const weekdays = Array.isArray(row.weekdays) ? row.weekdays.length : 0;
+    if (interval === "daily") return 21.67;
+    if (interval === "weekly") return Math.max(1, weekdays || 1) * 4.33;
+    if (interval === "monthly") return 1;
+    if (interval === "quarterly") return 1 / 3;
+    if (interval === "half_yearly") return 1 / 6;
+    if (interval === "yearly") return 1 / 12;
+    return numberOrFallback(row.monthly_factor, 1);
+  }
+
+  function lineMonthlyMinutes(row: Row) {
+    return numberOrFallback(row.minutes_per_visit, 0) * numberOrFallback(row.quantity, 1) * intervalFactor(row);
+  }
+
+  function lineCost(row: Row) {
+    const hours = lineMonthlyMinutes(row) / 60;
+    return (hours * numberOrFallback(row.hourly_rate || selectedCalculation?.hourly_rate, 0)) + numberOrFallback(row.material_cost, 0);
+  }
+
+  function linePrice(row: Row) {
+    const base = lineCost(row);
+    const overhead = numberOrFallback(row.overhead_percent ?? selectedCalculation?.overhead_percent, 20);
+    const profit = numberOrFallback(row.profit_percent ?? selectedCalculation?.profit_percent, 20);
+    return base * (1 + overhead / 100) * (1 + profit / 100);
+  }
+
+  const totals = lines.reduce((sum: Row, line: Row) => {
+    const minutes = lineMonthlyMinutes(line);
+    const cost = lineCost(line);
+    const price = linePrice(line);
+    return {
+      minutes: sum.minutes + minutes,
+      cost: sum.cost + cost,
+      price: sum.price + price,
+    };
+  }, { minutes: 0, cost: 0, price: 0 });
+
+  function saveLine(row: Row, form: HTMLFormElement) {
+    const data = new FormData(form);
+    p.updateLine(row, {
+      minutes_per_visit: numberOrFallback(data.get("minutes_per_visit"), 0),
+      quantity: numberOrFallback(data.get("quantity"), 1),
+      unit: String(data.get("unit") || row.unit || "x"),
+      hourly_rate: numberOrFallback(data.get("hourly_rate"), 0),
+      material_cost: numberOrFallback(data.get("material_cost"), 0),
+      overhead_percent: numberOrFallback(data.get("overhead_percent"), 20),
+      profit_percent: numberOrFallback(data.get("profit_percent"), 20),
+      notes: String(data.get("notes") || ""),
+    });
+  }
+
+  function copyOfferText() {
+    if (!selectedCalculation) return;
+    const text = [
+      `Kalkulation: ${selectedCalculation.name || "-"}`,
+      `Kunde: ${selectedCalculation.customer_name || "-"}`,
+      `Objekt: ${selectedCalculation.site_name || "-"}`,
+      "",
+      ...lines.map((line: Row) => `- ${line.area || "Allgemein"}: ${line.task_title || "Aufgabe"} (${prettyHours(lineMonthlyMinutes(line))} Std./Monat)`),
+      "",
+      `Monatsstunden: ${prettyHours(totals.minutes)} Std.`,
+      `Kosten: ${euro(totals.cost)}`,
+      `Verkaufspreis: ${euro(totals.price)}`,
+    ].join("\n");
+
+    navigator.clipboard?.writeText(text);
+  }
+
+  return (
+    <div>
+      <PageHeader icon="🧮" title="Kalkulation" sub="Ich übernehme Reinigungspläne, berechne Monatsstunden, Kosten und Verkaufspreis.">
+        <Button onClick={() => p.openCalculation()}>+ Manuell</Button>
+        <Button primary onClick={() => p.createFromPlan(p.selectedPlanId)} disabled={!p.selectedPlanId || p.saving}>Kalkulation aus Plan erstellen</Button>
+      </PageHeader>
+
+      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+        <div className="space-y-5">
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Aus Reinigungsplan erstellen</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Ich wähle einen bestehenden Reinigungsplan und übernehme alle Aufgaben.</p>
+            <div className="mt-4 grid gap-3">
+              <Field label="Reinigungsplan">
+                <Select value={p.selectedPlanId} onChange={(e) => p.setSelectedPlanId(e.target.value)}>
+                  <option value="">Plan auswählen</option>
+                  {p.cleaningPlans.map((plan: Row) => (
+                    <option key={plan.id} value={plan.id}>{plan.name} · {plan.customer_name || "Kunde"} · {plan.site_name || "Objekt"}</option>
+                  ))}
+                </Select>
+              </Field>
+              {selectedPlan && (
+                <div className="rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-800">
+                  {selectedPlan.name} · {(p.cleaningPlanItems || []).filter((item: Row) => item.plan_id === selectedPlan.id).length} Punkte
+                </div>
+              )}
+              <Button primary onClick={() => p.createFromPlan(p.selectedPlanId)} disabled={!p.selectedPlanId || p.saving}>Kalkulation erstellen</Button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Kalkulationen</h3>
+            <div className="mt-4 space-y-3">
+              {p.calculations.length === 0 && <Empty text="Noch keine Kalkulation erstellt." />}
+              {p.calculations.map((calc: Row) => {
+                const selected = selectedCalculation?.id === calc.id;
+                const calcLines = (p.calculationItems || []).filter((line: Row) => line.calculation_id === calc.id);
+                return (
+                  <button key={calc.id} type="button" onClick={() => p.openCalculation(calc)} className={`w-full rounded-2xl border p-4 text-left ${selected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                    <p className="font-black text-slate-950">{calc.name}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-500">{calc.customer_name || "Kunde"} · {calc.site_name || "Objekt"}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Status color={calc.status === "active" ? "green" : calc.status === "archived" ? "gray" : "yellow"}>{calc.status === "active" ? "aktiv" : calc.status === "archived" ? "Archiv" : "Entwurf"}</Status>
+                      <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{calcLines.length} Positionen</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Kopfdaten</h3>
+            <div className="mt-4 grid gap-3">
+              <Field label="Name">
+                <Input value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} placeholder="z. B. Kalkulation EUROVIA" />
+              </Field>
+              <Field label="Stundenlohn Basis">
+                <Input value={p.form.hourly_rate} onChange={(e) => p.setForm({ ...p.form, hourly_rate: e.target.value })} placeholder="z. B. 18" />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Gemeinkosten %">
+                  <Input value={p.form.overhead_percent} onChange={(e) => p.setForm({ ...p.form, overhead_percent: e.target.value })} />
+                </Field>
+                <Field label="Gewinn %">
+                  <Input value={p.form.profit_percent} onChange={(e) => p.setForm({ ...p.form, profit_percent: e.target.value })} />
+                </Field>
+              </div>
+              <Field label="Notiz">
+                <Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} />
+              </Field>
+              <Button onClick={p.saveCalculation} disabled={p.saving}>{p.form.id ? "Kopfdaten speichern" : "+ Manuelle Kalkulation speichern"}</Button>
+            </div>
+          </Card>
+        </div>
+
+        <div className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-4">
+            <Metric title="Status" value={statusText} hint="Kalkulation" />
+            <Metric title="Monatsstunden" value={`${prettyHours(totals.minutes)} h`} hint="aus Intervallen" />
+            <Metric title="Kosten" value={euro(totals.cost)} hint="intern" />
+            <Metric title="Verkaufspreis" value={euro(totals.price)} hint="Angebotsgrundlage" />
+          </div>
+
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-2xl font-black text-slate-950">{selectedCalculation?.name || "Keine Kalkulation ausgewählt"}</h3>
+                <p className="mt-1 text-sm font-bold text-slate-500">{selectedCalculation?.customer_name || "Kunde"} · {selectedCalculation?.site_name || "Objekt"}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedCalculation && <Button onClick={() => p.openCalculation(selectedCalculation)}>Kopfdaten bearbeiten</Button>}
+                {selectedCalculation && <Button onClick={copyOfferText}>Text kopieren</Button>}
+                {selectedCalculation && <Button danger onClick={() => p.deleteCalculation(selectedCalculation)}>Löschen</Button>}
+              </div>
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <div className="border-b border-slate-200 p-5">
+              <h3 className="text-xl font-black text-slate-950">Positionen</h3>
+              <p className="text-sm font-semibold text-slate-500">Minuten eintragen, danach speichert jede Zeile ihre Berechnung.</p>
+            </div>
+
+            {lines.length === 0 ? <div className="p-5"><Empty text="Noch keine Positionen in dieser Kalkulation." /></div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1200px] text-sm">
+                  <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Bereich</th>
+                      <th className="px-4 py-3">Aufgabe</th>
+                      <th className="px-4 py-3">Intervall</th>
+                      <th className="px-4 py-3">Min./Ausführung</th>
+                      <th className="px-4 py-3">Menge</th>
+                      <th className="px-4 py-3">Lohn €/h</th>
+                      <th className="px-4 py-3">Material €</th>
+                      <th className="px-4 py-3">GK %</th>
+                      <th className="px-4 py-3">Gewinn %</th>
+                      <th className="px-4 py-3">Std./Monat</th>
+                      <th className="px-4 py-3">Preis/Monat</th>
+                      <th className="px-4 py-3">Aktion</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lines.map((line: Row) => (
+                      <tr key={line.id} className="bg-white align-top hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-700">{line.area || "Allgemein"}</td>
+                        <td className="px-4 py-3">
+                          <p className="font-black text-slate-950">{line.task_title}</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-400">{line.task_description || line.notes || ""}</p>
+                        </td>
+                        <td className="px-4 py-3 font-bold text-slate-600">{String(line.interval_type || "daily")}</td>
+                        <td className="px-4 py-3"><input form={`calc-line-${line.id}`} name="minutes_per_visit" defaultValue={line.minutes_per_visit || 0} className="w-24 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <input form={`calc-line-${line.id}`} name="quantity" defaultValue={line.quantity || 1} className="w-20 rounded-xl border border-slate-200 px-3 py-2 font-bold" />
+                            <input form={`calc-line-${line.id}`} name="unit" defaultValue={line.unit || "x"} className="w-16 rounded-xl border border-slate-200 px-3 py-2 font-bold" />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3"><input form={`calc-line-${line.id}`} name="hourly_rate" defaultValue={line.hourly_rate || selectedCalculation?.hourly_rate || 0} className="w-24 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3"><input form={`calc-line-${line.id}`} name="material_cost" defaultValue={line.material_cost || 0} className="w-24 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3"><input form={`calc-line-${line.id}`} name="overhead_percent" defaultValue={line.overhead_percent ?? selectedCalculation?.overhead_percent ?? 20} className="w-20 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3"><input form={`calc-line-${line.id}`} name="profit_percent" defaultValue={line.profit_percent ?? selectedCalculation?.profit_percent ?? 20} className="w-20 rounded-xl border border-slate-200 px-3 py-2 font-bold" /></td>
+                        <td className="px-4 py-3 font-black text-slate-950">{prettyHours(lineMonthlyMinutes(line))} h</td>
+                        <td className="px-4 py-3 font-black text-blue-700">{euro(linePrice(line))}</td>
+                        <td className="px-4 py-3">
+                          <form id={`calc-line-${line.id}`} onSubmit={(e) => { e.preventDefault(); saveLine(line, e.currentTarget); }} className="flex flex-wrap gap-2">
+                            <input type="hidden" name="notes" defaultValue={line.notes || ""} />
+                            <Button primary type="submit">Speichern</Button>
+                            <Button danger onClick={() => p.deleteLine(line)}>Löschen</Button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CleaningPlans(p: any) {
   const [draggedItemId, setDraggedItemId] = useState("");
   const selectedPlan = p.plans.find((plan: Row) => plan.id === p.selectedPlanId) || p.plans[0] || null;
@@ -3998,12 +4870,13 @@ function CleaningPlans(p: any) {
     if (!selectedPlan) return;
 
     const title = selectedPlan.name || "Reinigungsplan";
-    const todayText = new Date().toLocaleDateString("de-DE");
+    const companyName = "Matteo Stano Clean";
+    const companyLogoUrl = `${window.location.origin}/logo.png`;
     const rows = areas.map((area) => {
       const items = planItems.filter((item: Row) => String(item.area || "Allgemein") === area);
       if (items.length === 0) return "";
       return `
-        <tr class="area"><td colspan="${internal ? 10 : 9}">${htmlEscape(area)}</td></tr>
+        <tr class="area"><td colspan="9">${htmlEscape(area)}</td></tr>
         ${items.map((item: Row) => `
           <tr>
             <td>${htmlEscape(item.task_title || "")}</td>
@@ -4015,7 +4888,6 @@ function CleaningPlans(p: any) {
             <td class="center">${mark(item, "half_yearly")}</td>
             <td class="center">${mark(item, "yearly")}</td>
             <td>${htmlEscape(item.notes || intervalLabel(item.interval_type))}</td>
-            ${internal ? `<td>${htmlEscape([item.calculation_minutes ? `${item.calculation_minutes} Min.` : "", item.calculation_group || ""].filter(Boolean).join(" · "))}</td>` : ""}
           </tr>
         `).join("")}`;
     }).join("");
@@ -4040,6 +4912,9 @@ function CleaningPlans(p: any) {
     tr.area td { background: #dbeafe; color: #1e3a8a; font-weight: 800; font-size: 12px; border-color: #93c5fd; }
     .center { text-align: center; font-weight: 800; font-size: 13px; }
     small { color: #64748b; font-size: 8.5px; font-weight: 600; }
+    .brand { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 220px; }
+    .brand img { max-height: 58px; max-width: 170px; object-fit: contain; }
+    .brand-name { font-weight: 800; font-size: 14px; color: #0f172a; }
     .footer { margin-top: 12px; color: #64748b; font-size: 9px; display: flex; justify-content: space-between; }
     @media print { button { display: none; } }
   </style>
@@ -4052,10 +4927,12 @@ function CleaningPlans(p: any) {
       <div class="meta">
         <strong>Kunde</strong><span>${htmlEscape(selectedPlan.customer_name || "-")}</span>
         <strong>Objekt</strong><span>${htmlEscape(selectedPlan.site_name || "-")}</span>
-        <strong>Datum</strong><span>${todayText}</span>
       </div>
     </div>
-    <div style="text-align:right;font-weight:800;font-size:16px;">CleanTrack</div>
+    <div class="brand">
+      <img src="${companyLogoUrl}" alt="${htmlEscape(companyName)}" />
+      <div class="brand-name">${htmlEscape(companyName)}</div>
+    </div>
   </div>
 
   ${selectedPlan.description ? `<div class="box"><strong>Informationen zur Arbeitsstelle:</strong><br>${htmlEscape(selectedPlan.description)}</div>` : ""}
@@ -4073,15 +4950,14 @@ function CleaningPlans(p: any) {
         <th>Halbjährl.</th>
         <th>Jährlich</th>
         <th style="width: 15%;">Bemerkung</th>
-        ${internal ? `<th style="width: 10%;">Kalkulation</th>` : ""}
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
 
   <div class="footer">
-    <span>Erstellt mit CleanTrack</span>
-    <span>${htmlEscape(title)} · ${todayText}</span>
+    <span>${htmlEscape(companyName)}</span>
+    <span>${htmlEscape(title)}</span>
   </div>
   <script>window.onload = () => { window.print(); };</script>
 </body>
