@@ -16,6 +16,8 @@ const allowedTables = new Set([
   "key_items",
   "customer_contacts",
   "chat_messages",
+  "cleaning_plans",
+  "cleaning_plan_items",
 ]);
 
 type AdminResult = {
@@ -128,6 +130,8 @@ const objectLeaderReadableTables = new Set([
   "admin_notifications",
   "customer_contacts",
   "chat_messages",
+  "cleaning_plans",
+  "cleaning_plan_items",
   "equipment_items",
 ]);
 
@@ -140,6 +144,8 @@ const objectLeaderWritableTables = new Set([
   "quality_reports",
   "admin_notifications",
   "chat_messages",
+  "cleaning_plans",
+  "cleaning_plan_items",
 ]);
 
 function ensurePermission(profile: Record<string, unknown> | null, action: string, table: string) {
@@ -151,6 +157,7 @@ function ensurePermission(profile: Record<string, unknown> | null, action: strin
 
   if (action === "select" && objectLeaderReadableTables.has(table)) return;
   if ((action === "insert" || action === "update") && objectLeaderWritableTables.has(table)) return;
+  if (action === "delete" && (table === "cleaning_plans" || table === "cleaning_plan_items")) return;
 
   throw new Error("Für diese Aktion fehlt die Berechtigung.");
 }
@@ -213,6 +220,25 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
     cleaned.max_minutes = numericValue(cleaned.max_minutes, Number(cleaned.planned_minutes || 0));
     if (Number(cleaned.planned_minutes || 0) <= 0 && Number(cleaned.max_minutes || 0) > 0) cleaned.planned_minutes = cleaned.max_minutes;
     if (Number(cleaned.max_minutes || 0) <= 0 && Number(cleaned.planned_minutes || 0) > 0) cleaned.max_minutes = cleaned.planned_minutes;
+  }
+
+  if (table === "cleaning_plans") {
+    if (isEmpty(cleaned.name)) cleaned.name = "Neuer Reinigungsplan";
+    if (isEmpty(cleaned.status)) cleaned.status = "draft";
+    if (isEmpty(cleaned.language)) cleaned.language = "de";
+    if (isEmpty(cleaned.template_type)) cleaned.template_type = "standard";
+    if (isEmpty(cleaned.customer_id)) cleaned.customer_id = null;
+    if (isEmpty(cleaned.work_site_id)) cleaned.work_site_id = null;
+  }
+
+  if (table === "cleaning_plan_items") {
+    if (isEmpty(cleaned.area)) cleaned.area = "Allgemein";
+    if (isEmpty(cleaned.task_title)) cleaned.task_title = "Neue Aufgabe";
+    if (isEmpty(cleaned.interval_type)) cleaned.interval_type = "daily";
+    if (!Array.isArray(cleaned.weekdays)) cleaned.weekdays = [];
+    cleaned.quantity = numericValue(cleaned.quantity, 1);
+    cleaned.sort_order = numericValue(cleaned.sort_order, 0);
+    if (!("active" in cleaned)) cleaned.active = true;
   }
 
   if (table === "material_products") {

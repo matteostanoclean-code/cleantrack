@@ -13,6 +13,7 @@ type Tab =
   | "aufgaben"
   | "meldungen"
   | "material"
+  | "reinigungsplaene"
   | "geraete"
   | "schluessel"
   | "zeiten"
@@ -78,6 +79,8 @@ function createEmptyTaskForm(mode: "einsatz" | "task" = "einsatz") {
   };
 }
 const emptyMaterial = { id: "", name: "", category: "", unit: "Stück", current_stock: "0", min_stock: "0", supplier: "", work_site_id: "", object_name: "", image_url: "", notes: "" };
+const emptyCleaningPlan = { id: "", name: "", customer_id: "", customer_name: "", work_site_id: "", site_name: "", description: "", comments: "", status: "draft", language: "de", template_type: "standard" };
+const emptyCleaningPlanItem = { id: "", plan_id: "", area: "", task_title: "", task_description: "", interval_type: "daily", weekdays: [] as string[], quantity: "1", unit: "x", notes: "", sort_order: "0", active: true };
 const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigned_to: "", status: "Aktiv", image_url: "", notes: "" };
 const emptyKey = { id: "", key_name: "", key_number: "", customer_id: "", customer_name: "", customer_address: "", work_site_id: "", object_name: "", object_address: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
 const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
@@ -881,6 +884,8 @@ export default function AdminPage() {
   const [entries, setEntries] = useState<Row[]>([]);
   const [absences, setAbsences] = useState<Row[]>([]);
   const [materials, setMaterials] = useState<Row[]>([]);
+  const [cleaningPlans, setCleaningPlans] = useState<Row[]>([]);
+  const [cleaningPlanItems, setCleaningPlanItems] = useState<Row[]>([]);
   const [materialReports, setMaterialReports] = useState<Row[]>([]);
   const [qualityReports, setQualityReports] = useState<Row[]>([]);
   const [adminNotifications, setAdminNotifications] = useState<Row[]>([]);
@@ -897,6 +902,9 @@ export default function AdminPage() {
   const [siteForm, setSiteForm] = useState(emptySite);
   const [taskForm, setTaskForm] = useState(emptyTask);
   const [materialForm, setMaterialForm] = useState(emptyMaterial);
+  const [cleaningPlanForm, setCleaningPlanForm] = useState(emptyCleaningPlan);
+  const [cleaningPlanItemForm, setCleaningPlanItemForm] = useState(emptyCleaningPlanItem);
+  const [selectedCleaningPlanId, setSelectedCleaningPlanId] = useState("");
   const [deviceForm, setDeviceForm] = useState(emptyDevice);
   const [keyForm, setKeyForm] = useState(emptyKey);
   const [absenceForm, setAbsenceForm] = useState(emptyAbsence);
@@ -987,7 +995,7 @@ export default function AdminPage() {
   }
 
   async function loadAll() {
-    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows, chatRows] = await Promise.all([
+    const [employeeRows, customerRows, siteRows, taskRows, entryRows, absenceRows, materialRows, materialReportRows, qualityReportRows, notificationRows, deviceRows, keyRows, contactRows, chatRows, cleaningPlanRows, cleaningPlanItemRows] = await Promise.all([
       selectTable("employee_profiles", "name", true),
       selectTable("customers", "created_at", false, undefined, true),
       selectTable("work_sites", "name", true),
@@ -1002,6 +1010,8 @@ export default function AdminPage() {
       selectTable("key_items", "key_name", true),
       selectTable("customer_contacts", "name", true),
       selectTable("chat_messages", "created_at", false, 500, true),
+      selectTable("cleaning_plans", "created_at", false, 300, true),
+      selectTable("cleaning_plan_items", "sort_order", true, 1000, true),
     ]);
     setEmployees(employeeRows);
     setCustomers(customerRows);
@@ -1010,6 +1020,9 @@ export default function AdminPage() {
     setEntries(entryRows);
     setAbsences(absenceRows);
     setMaterials(materialRows);
+    setCleaningPlans(cleaningPlanRows);
+    setCleaningPlanItems(cleaningPlanItemRows);
+    if (!selectedCleaningPlanId && cleaningPlanRows[0]?.id) setSelectedCleaningPlanId(cleaningPlanRows[0].id);
     setMaterialReports(materialReportRows);
     setQualityReports(qualityReportRows);
     setAdminNotifications(notificationRows);
@@ -1026,7 +1039,7 @@ export default function AdminPage() {
   const isObjectLeaderRole = currentRole === "objektleiter" || currentRole === "object_lead" || currentRole === "objectleader";
   const allowedTabs = useMemo(() => {
     if (isAdminRole) return navItems.map((item) => item.id);
-    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "zeiten", "abwesenheiten", "chat"] as Tab[];
+    if (isObjectLeaderRole) return ["dashboard", "planung", "objekte", "aufgaben", "meldungen", "material", "reinigungsplaene", "zeiten", "abwesenheiten", "chat"] as Tab[];
     return [] as Tab[];
   }, [isAdminRole, isObjectLeaderRole]);
   const visibleNavItems = navItems.filter((item) => allowedTabs.includes(item.id));
@@ -1049,6 +1062,8 @@ export default function AdminPage() {
       assignments: filterRows(assignmentRows, q),
       actionTasks: filterRows(actionTaskRows, q),
       materials: filterRows(materials, q),
+      cleaningPlans: filterRows(cleaningPlans, q),
+      cleaningPlanItems: filterRows(cleaningPlanItems, q),
       materialReports: filterRows(materialReports, q),
       qualityReports: filterRows(qualityReports, q),
       adminNotifications: filterRows(adminNotifications, q),
@@ -1058,7 +1073,7 @@ export default function AdminPage() {
       absences: filterRows(absences, q),
       chatMessages: filterRows(allChatMessages, q),
     };
-  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports, allChatMessages]);
+  }, [search, employees, sites, customerList, contacts, tasks, assignmentRows, actionTaskRows, materials, cleaningPlans, cleaningPlanItems, materialReports, adminNotifications, devices, keys, entries, absences, qualityReports, allChatMessages]);
 
   async function sendPushToEmployee(employeeName: string, title: string, messageText: string, url = "/mitarbeiter") {
     const cleanName = String(employeeName || "").trim();
@@ -1698,6 +1713,110 @@ const basePayload = {
     setModal("material");
   }
 
+  function openCleaningPlan(row?: Row) {
+    if (!row) {
+      setCleaningPlanForm(emptyCleaningPlan);
+      setSelectedCleaningPlanId("");
+      setMessage("Neuen Reinigungsplan ausfüllen und speichern.");
+      return;
+    }
+
+    setCleaningPlanForm({
+      ...emptyCleaningPlan,
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      customer_id: String(row.customer_id || ""),
+      customer_name: String(row.customer_name || ""),
+      work_site_id: String(row.work_site_id || ""),
+      site_name: String(row.site_name || row.object_name || ""),
+      description: String(row.description || ""),
+      comments: String(row.comments || ""),
+      status: String(row.status || "draft"),
+      language: String(row.language || "de"),
+      template_type: String(row.template_type || "standard"),
+    });
+    setSelectedCleaningPlanId(String(row.id || ""));
+  }
+
+  async function saveCleaningPlan() {
+    if (!cleaningPlanForm.name.trim()) {
+      setMessage("Bitte einen Namen für den Reinigungsplan eintragen.");
+      return;
+    }
+
+    const site = sites.find((item) => item.id === cleaningPlanForm.work_site_id);
+    const customer = customerList.find((item) => item.id === cleaningPlanForm.customer_id || item.name === cleaningPlanForm.customer_name);
+
+    await insertOrUpdate("cleaning_plans", cleaningPlanForm.id, {
+      name: cleaningPlanForm.name,
+      customer_id: cleaningPlanForm.customer_id || site?.customer_id || null,
+      customer_name: customer?.name || site?.customer_name || cleaningPlanForm.customer_name || null,
+      work_site_id: cleaningPlanForm.work_site_id || null,
+      site_name: site?.name || cleaningPlanForm.site_name || null,
+      description: cleaningPlanForm.description || null,
+      comments: cleaningPlanForm.comments || null,
+      status: cleaningPlanForm.status || "draft",
+      language: cleaningPlanForm.language || "de",
+      template_type: cleaningPlanForm.template_type || "standard",
+    });
+
+    setCleaningPlanForm(emptyCleaningPlan);
+    setMessage("Reinigungsplan gespeichert.");
+  }
+
+  function openCleaningPlanItem(planId: string, row?: Row) {
+    setSelectedCleaningPlanId(planId);
+    if (!row) {
+      setCleaningPlanItemForm({ ...emptyCleaningPlanItem, plan_id: planId, sort_order: String(cleaningPlanItems.filter((item) => item.plan_id === planId).length + 1) });
+      return;
+    }
+
+    setCleaningPlanItemForm({
+      ...emptyCleaningPlanItem,
+      id: String(row.id || ""),
+      plan_id: String(row.plan_id || planId),
+      area: String(row.area || ""),
+      task_title: String(row.task_title || row.title || ""),
+      task_description: String(row.task_description || row.description || ""),
+      interval_type: String(row.interval_type || "daily"),
+      weekdays: Array.isArray(row.weekdays) ? row.weekdays : [],
+      quantity: String(row.quantity ?? "1"),
+      unit: String(row.unit || "x"),
+      notes: String(row.notes || ""),
+      sort_order: String(row.sort_order ?? "0"),
+      active: row.active !== false,
+    });
+  }
+
+  async function saveCleaningPlanItem() {
+    const planId = cleaningPlanItemForm.plan_id || selectedCleaningPlanId;
+    if (!planId) {
+      setMessage("Bitte zuerst einen Reinigungsplan auswählen.");
+      return;
+    }
+    if (!cleaningPlanItemForm.area.trim() || !cleaningPlanItemForm.task_title.trim()) {
+      setMessage("Bitte Bereich und Aufgabe eintragen.");
+      return;
+    }
+
+    await insertOrUpdate("cleaning_plan_items", cleaningPlanItemForm.id, {
+      plan_id: planId,
+      area: cleaningPlanItemForm.area,
+      task_title: cleaningPlanItemForm.task_title,
+      task_description: cleaningPlanItemForm.task_description || null,
+      interval_type: cleaningPlanItemForm.interval_type || "daily",
+      weekdays: cleaningPlanItemForm.weekdays || [],
+      quantity: numberOrFallback(cleaningPlanItemForm.quantity, 1),
+      unit: cleaningPlanItemForm.unit || "x",
+      notes: cleaningPlanItemForm.notes || null,
+      sort_order: numberOrFallback(cleaningPlanItemForm.sort_order, 0),
+      active: cleaningPlanItemForm.active !== false,
+    });
+
+    setCleaningPlanItemForm({ ...emptyCleaningPlanItem, plan_id: planId, sort_order: String(cleaningPlanItems.filter((item) => item.plan_id === planId).length + 1) });
+    setMessage("Reinigungspunkt gespeichert.");
+  }
+
   async function saveMaterial() {
     const site = sites.find((item) => item.id === materialForm.work_site_id);
     await insertOrUpdate("material_products", materialForm.id, {
@@ -2291,7 +2410,7 @@ const basePayload = {
   function canCreateInTab(tabName: Tab) {
     if (isAdminRole) return true;
     if (isObjectLeaderRole) {
-      return ["planung", "aufgaben", "meldungen", "material", "zeiten", "abwesenheiten", "chat"].includes(tabName);
+      return ["planung", "aufgaben", "meldungen", "material", "reinigungsplaene", "zeiten", "abwesenheiten", "chat"].includes(tabName);
     }
     return false;
   }
@@ -2312,6 +2431,7 @@ const basePayload = {
     if (tab === "planung" || tab === "aufgaben") return openTask();
     if (tab === "meldungen") return loadAll();
     if (tab === "material") return openMaterial();
+    if (tab === "reinigungsplaene") return openCleaningPlan();
     if (tab === "geraete") return openDevice();
     if (tab === "schluessel") return openKey();
     if (tab === "abwesenheiten") return openAbsence();
@@ -2424,6 +2544,7 @@ const basePayload = {
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} chatMessages={filtered.chatMessages} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} updateTodoStatus={updateTodoStatus} loadChat={loadChat} />}
+          {tab === "reinigungsplaene" && <CleaningPlans plans={filtered.cleaningPlans} items={filtered.cleaningPlanItems} sites={sites} customers={customerList} form={cleaningPlanForm} setForm={setCleaningPlanForm} itemForm={cleaningPlanItemForm} setItemForm={setCleaningPlanItemForm} selectedPlanId={selectedCleaningPlanId} setSelectedPlanId={setSelectedCleaningPlanId} openPlan={openCleaningPlan} savePlan={saveCleaningPlan} openItem={openCleaningPlanItem} saveItem={saveCleaningPlanItem} deletePlan={(row: Row) => removeRow("cleaning_plans", row.id, "Reinigungsplan")} deleteItem={(row: Row) => removeRow("cleaning_plan_items", row.id, "Reinigungspunkt")} saving={saving} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
@@ -2458,6 +2579,7 @@ const navItems: { id: Tab; icon: string; label: string }[] = [
   { id: "aufgaben", icon: "✓", label: "Aufgaben" },
   { id: "meldungen", icon: "🔔", label: "Meldungen" },
   { id: "material", icon: "📦", label: "Material" },
+  { id: "reinigungsplaene", icon: "🧽", label: "Reinigungspläne" },
   { id: "geraete", icon: "🔧", label: "Geräte" },
   { id: "schluessel", icon: "🔑", label: "Schlüssel" },
   { id: "zeiten", icon: "⏱", label: "Zeiten" },
@@ -2475,6 +2597,7 @@ function getCreateButtonLabel(tab: Tab) {
   if (tab === "kontakte") return "+ Kontakt";
   if (tab === "objekte") return "+ Objekt";
   if (tab === "material") return "+ Material";
+  if (tab === "reinigungsplaene") return "+ Plan";
   if (tab === "geraete") return "+ Gerät";
   if (tab === "schluessel") return "+ Schlüssel";
   if (tab === "abwesenheiten") return "+ Abwesenheit";
@@ -3787,6 +3910,252 @@ function Meldungen(p: any) {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+
+function CleaningPlans(p: any) {
+  const selectedPlan = p.plans.find((plan: Row) => plan.id === p.selectedPlanId) || p.plans[0] || null;
+  const planId = selectedPlan?.id || p.selectedPlanId || "";
+  const planItems = (p.items || [])
+    .filter((item: Row) => item.plan_id === planId)
+    .sort((a: Row, b: Row) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+  const areas = Array.from(new Set<string>(planItems.map((item: Row) => String(item.area || "Allgemein"))));
+  const weekdayLabels: Record<string, string> = { mo: "Mo", di: "Di", mi: "Mi", do: "Do", fr: "Fr", sa: "Sa", so: "So" };
+  const weekdayKeys = Object.keys(weekdayLabels);
+
+  function toggleDay(day: string) {
+    const current = Array.isArray(p.itemForm.weekdays) ? p.itemForm.weekdays : [];
+    const next = current.includes(day) ? current.filter((item: string) => item !== day) : [...current, day];
+    p.setItemForm({ ...p.itemForm, weekdays: next });
+  }
+
+  function intervalLabel(value: string) {
+    if (value === "daily") return "Täglich";
+    if (value === "weekly") return "Wöchentlich";
+    if (value === "monthly") return "Monatlich";
+    if (value === "quarterly") return "Vierteljährlich";
+    if (value === "half_yearly") return "Halbjährlich";
+    if (value === "yearly") return "Jährlich";
+    return "Individuell";
+  }
+
+  function mark(item: Row, interval: string) {
+    if (item.interval_type === interval) return "✓";
+    return "";
+  }
+
+  return (
+    <div>
+      <PageHeader icon="🧽" title="Reinigungspläne" sub="Ich erstelle Vorlagen für Objekte. Später übernehme ich diese Punkte in Kalkulation und Angebot.">
+        <Button onClick={() => p.openPlan()}>+ Plan</Button>
+        <Button onClick={() => planId && p.openItem(planId)}>+ Aufgabe</Button>
+      </PageHeader>
+
+      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+        <div className="space-y-5">
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Plan erstellen</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Grunddaten für den Reinigungsplan.</p>
+
+            <div className="mt-5 grid gap-4">
+              <Field label="Planname">
+                <Input value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} placeholder="z. B. Unterhaltsreinigung Büro" />
+              </Field>
+
+              <Field label="Kunde">
+                <Select value={p.form.customer_id} onChange={(e) => {
+                  const customer = p.customers.find((item: Row) => item.id === e.target.value);
+                  p.setForm({ ...p.form, customer_id: e.target.value, customer_name: customer?.name || "" });
+                }}>
+                  <option value="">Kunde auswählen</option>
+                  {p.customers.map((customer: Row) => <option key={customer.id || customer.name} value={customer.id}>{customer.name || customer.customer_name}</option>)}
+                </Select>
+              </Field>
+
+              <Field label="Objekt">
+                <Select value={p.form.work_site_id} onChange={(e) => {
+                  const site = p.sites.find((item: Row) => item.id === e.target.value);
+                  p.setForm({ ...p.form, work_site_id: e.target.value, site_name: site?.name || "", customer_id: site?.customer_id || p.form.customer_id, customer_name: site?.customer_name || p.form.customer_name });
+                }}>
+                  <option value="">Objekt auswählen</option>
+                  {p.sites.map((site: Row) => <option key={site.id || site.name} value={site.id}>{site.name}</option>)}
+                </Select>
+              </Field>
+
+              <Field label="Status">
+                <Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}>
+                  <option value="draft">Entwurf</option>
+                  <option value="active">Aktiv</option>
+                  <option value="archived">Archiv</option>
+                </Select>
+              </Field>
+
+              <Field label="Informationen über die Arbeitsstelle">
+                <Textarea value={p.form.description} onChange={(e) => p.setForm({ ...p.form, description: e.target.value })} placeholder="Besonderheiten, Zugang, Hinweise..." />
+              </Field>
+
+              <Field label="Kommentare">
+                <Textarea value={p.form.comments} onChange={(e) => p.setForm({ ...p.form, comments: e.target.value })} placeholder="Interne Notizen..." />
+              </Field>
+
+              <Button primary onClick={p.savePlan} disabled={p.saving}>{p.form.id ? "Plan speichern" : "+ Plan anlegen"}</Button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-950">Meine Pläne</h3>
+              <Status color={p.plans.length ? "blue" : "gray"}>{p.plans.length}</Status>
+            </div>
+            <div className="space-y-3">
+              {p.plans.length === 0 && <Empty text="Noch keine Reinigungspläne angelegt." />}
+              {p.plans.map((plan: Row) => (
+                <button key={plan.id} type="button" onClick={() => p.openPlan(plan)} className={`w-full rounded-2xl border p-4 text-left transition ${selectedPlan?.id === plan.id ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                  <p className="font-black text-slate-950">{plan.name}</p>
+                  <p className="mt-1 text-sm font-bold text-slate-500">{plan.customer_name || "Kein Kunde"} · {plan.site_name || "Kein Objekt"}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Status color={plan.status === "active" ? "green" : plan.status === "archived" ? "gray" : "yellow"}>{plan.status === "active" ? "aktiv" : plan.status === "archived" ? "Archiv" : "Entwurf"}</Status>
+                    <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{(p.items || []).filter((item: Row) => item.plan_id === plan.id).length} Punkte</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        <div className="space-y-5">
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-2xl font-black text-slate-950">{selectedPlan?.name || "Noch kein Plan ausgewählt"}</h3>
+                <p className="mt-1 text-sm font-bold text-slate-500">{selectedPlan?.customer_name || "Kunde"} · {selectedPlan?.site_name || "Objekt"}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedPlan && <Button onClick={() => p.openPlan(selectedPlan)}>Bearbeiten</Button>}
+                {selectedPlan && <Button danger onClick={() => p.deletePlan(selectedPlan)}>Löschen</Button>}
+              </div>
+            </div>
+
+            {selectedPlan?.description && <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">{selectedPlan.description}</p>}
+            {selectedPlan?.comments && <p className="mt-3 rounded-2xl bg-blue-50 p-4 text-sm font-semibold text-blue-800">{selectedPlan.comments}</p>}
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-black text-slate-950">Reinigungspunkt hinzufügen</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Diese Punkte sind später die Vorlage für Kalkulation und Angebot.</p>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <Field label="Bereich / Raum">
+                <Input value={p.itemForm.area} onChange={(e) => p.setItemForm({ ...p.itemForm, area: e.target.value })} placeholder="z. B. Büros" />
+              </Field>
+              <Field label="Aufgabe">
+                <Input value={p.itemForm.task_title} onChange={(e) => p.setItemForm({ ...p.itemForm, task_title: e.target.value })} placeholder="z. B. Tische abwischen" />
+              </Field>
+              <Field label="Beschreibung" wide>
+                <Textarea value={p.itemForm.task_description} onChange={(e) => p.setItemForm({ ...p.itemForm, task_description: e.target.value })} placeholder="Wie soll die Leistung ausgeführt werden?" />
+              </Field>
+              <Field label="Intervall">
+                <Select value={p.itemForm.interval_type} onChange={(e) => p.setItemForm({ ...p.itemForm, interval_type: e.target.value })}>
+                  <option value="daily">Täglich</option>
+                  <option value="weekly">Wöchentlich</option>
+                  <option value="monthly">Monatlich</option>
+                  <option value="quarterly">Vierteljährlich</option>
+                  <option value="half_yearly">Halbjährlich</option>
+                  <option value="yearly">Jährlich</option>
+                  <option value="custom">Individuell</option>
+                </Select>
+              </Field>
+              <Field label="Menge / Einheit">
+                <div className="grid grid-cols-2 gap-2">
+                  <Input value={p.itemForm.quantity} onChange={(e) => p.setItemForm({ ...p.itemForm, quantity: e.target.value })} />
+                  <Input value={p.itemForm.unit} onChange={(e) => p.setItemForm({ ...p.itemForm, unit: e.target.value })} placeholder="x, m², Stk." />
+                </div>
+              </Field>
+              <Field label="Wochentage" wide>
+                <div className="flex flex-wrap gap-2">
+                  {weekdayKeys.map((day) => {
+                    const active = Array.isArray(p.itemForm.weekdays) && p.itemForm.weekdays.includes(day);
+                    return <button key={day} type="button" onClick={() => toggleDay(day)} className={`rounded-xl border px-3 py-2 text-sm font-black ${active ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600"}`}>{weekdayLabels[day]}</button>;
+                  })}
+                </div>
+              </Field>
+              <Field label="Bemerkung" wide>
+                <Input value={p.itemForm.notes} onChange={(e) => p.setItemForm({ ...p.itemForm, notes: e.target.value })} placeholder="Optional" />
+              </Field>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button primary onClick={p.saveItem} disabled={p.saving || !planId}>{p.itemForm.id ? "Punkt speichern" : "+ Punkt hinzufügen"}</Button>
+              <Button onClick={() => p.setItemForm({ ...emptyCleaningPlanItem, plan_id: planId })}>Leeren</Button>
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
+              <div>
+                <h3 className="text-xl font-black text-slate-950">Plan-Vorschau</h3>
+                <p className="text-sm font-semibold text-slate-500">Grafische Tabellenansicht wie später im Angebot.</p>
+              </div>
+              <Status color={planItems.length ? "green" : "gray"}>{planItems.length} Punkte</Status>
+            </div>
+
+            {planItems.length === 0 ? <div className="p-5"><Empty text="Noch keine Reinigungspunkte in diesem Plan." /></div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Bereich</th>
+                      <th className="px-4 py-3">Aufgabe</th>
+                      <th className="px-4 py-3">Beschreibung</th>
+                      <th className="px-4 py-3 text-center">Täglich</th>
+                      <th className="px-4 py-3 text-center">Wöchentlich</th>
+                      <th className="px-4 py-3 text-center">Monatlich</th>
+                      <th className="px-4 py-3 text-center">Halbjährlich</th>
+                      <th className="px-4 py-3 text-center">Jährlich</th>
+                      <th className="px-4 py-3">Bemerkung</th>
+                      <th className="px-4 py-3">Aktion</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {areas.map((area) => (
+                      <React.Fragment key={area}>
+                        <tr className="bg-blue-50">
+                          <td colSpan={10} className="px-4 py-3 font-black text-blue-900">{area}</td>
+                        </tr>
+                        {planItems.filter((item: Row) => String(item.area || "Allgemein") === area).map((item: Row) => (
+                          <tr key={item.id} className="bg-white hover:bg-slate-50">
+                            <td className="px-4 py-3 font-bold text-slate-700">{item.area}</td>
+                            <td className="px-4 py-3 font-black text-slate-950">{item.task_title}</td>
+                            <td className="px-4 py-3 text-slate-600">{item.task_description || "-"}</td>
+                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "daily")}</td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="font-black text-blue-700">{mark(item, "weekly")}</div>
+                              {Array.isArray(item.weekdays) && item.weekdays.length > 0 && <div className="mt-1 text-[11px] font-bold text-slate-400">{item.weekdays.map((day: string) => weekdayLabels[day] || day).join(", ")}</div>}
+                            </td>
+                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "monthly")}</td>
+                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "half_yearly")}</td>
+                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "yearly")}</td>
+                            <td className="px-4 py-3 text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-wrap gap-2">
+                                <Button onClick={() => p.openItem(planId, item)}>Bearbeiten</Button>
+                                <Button danger onClick={() => p.deleteItem(item)}>Löschen</Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
