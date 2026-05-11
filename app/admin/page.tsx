@@ -4881,7 +4881,7 @@ function CleaningPlans(p: any) {
     .filter((item: Row) => String(item.plan_id || "") === String(planId || ""))
     .sort((a: Row, b: Row) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
 
-  const areaOptions = ["Büros", "Flur", "Büros/Flur", "Küche", "Sanitär", "Treppenhaus", "Lager"];
+  const areaOptions = ["Büros", "Flur", "Büros/Flur", "Küche", "Sanitär", "Treppenhaus", "Lager", "Sonstiges"];
   const areas = Array.from(new Set<string>([
     ...areaOptions.filter((area) => planItems.some((item: Row) => String(item.area || "") === area)),
     ...planItems.map((item: Row) => String(item.area || "Allgemein")),
@@ -4972,7 +4972,7 @@ function CleaningPlans(p: any) {
             <td class="center">${mark(item, "quarterly")}</td>
             <td class="center">${mark(item, "half_yearly")}</td>
             <td class="center">${mark(item, "yearly")}</td>
-            <td>${htmlEscape(item.notes || intervalLabel(item.interval_type))}</td>
+            <td class="note">${htmlEscape(item.notes || intervalLabel(item.interval_type))}</td>
           </tr>
         `).join("")}`;
     }).join("");
@@ -4994,11 +4994,11 @@ function CleaningPlans(p: any) {
     .brand { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 220px; }
     .brand img { max-height: 58px; max-width: 170px; object-fit: contain; }
     .brand-name { font-weight: 800; font-size: 14px; color: #0f172a; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: fixed; }
-    th { background: #0f172a; color: white; padding: 8px 6px; text-align: left; font-size: 9.5px; }
-    td { border: 1px solid #cbd5e1; padding: 7px 6px; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: auto; }
+    th { background: #0f172a; color: white; padding: 7px 6px; text-align: left; font-size: 9px; white-space: nowrap; }
+    td { border: 1px solid #cbd5e1; padding: 5px 6px; vertical-align: top; word-break: normal; overflow-wrap: anywhere; }
     tr.area td { background: #dbeafe; color: #1e3a8a; font-weight: 800; font-size: 12px; border-color: #93c5fd; }
-    .center { text-align: center; font-weight: 800; font-size: 13px; }
+    .center { text-align: center; font-weight: 800; font-size: 12px; }\n    .note { font-size: 9.5px; line-height: 1.25; }
     small { color: #64748b; font-size: 8.5px; font-weight: 600; }
     .footer { margin-top: 12px; color: #64748b; font-size: 9px; display: flex; justify-content: space-between; }
     @media print { button { display: none; } }
@@ -5026,15 +5026,15 @@ function CleaningPlans(p: any) {
   <table>
     <thead>
       <tr>
-        <th style="width: 16%;">Aufgabe</th>
-        <th style="width: 24%;">Beschreibung</th>
-        <th>Täglich</th>
-        <th>Wöchentlich</th>
-        <th>Monatlich</th>
-        <th>Viertelj.</th>
-        <th>Halbjährl.</th>
-        <th>Jährlich</th>
-        <th style="width: 15%;">Bemerkung</th>
+        <th style="width: 20%;">Aufgabe</th>
+        <th style="width: 28%;">Beschreibung</th>
+        <th style="width: 6%;">Täglich</th>
+        <th style="width: 8%;">Wöchentlich</th>
+        <th style="width: 7%;">Monatlich</th>
+        <th style="width: 7%;">Viertelj.</th>
+        <th style="width: 8%;">Halbjährl.</th>
+        <th style="width: 6%;">Jährlich</th>
+        <th style="width: 10%;">Bemerkung</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -5177,15 +5177,15 @@ function CleaningPlans(p: any) {
                   <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-3 py-2">↕</th>
-                      <th className="px-3 py-2">Aufgabe</th>
-                      <th className="px-3 py-2">Beschreibung</th>
+                      <th className="w-[220px] px-3 py-2">Aufgabe</th>
+                      <th className="w-[260px] px-3 py-2">Beschreibung</th>
                       <th className="px-3 py-2 text-center">Täglich</th>
                       <th className="px-3 py-2 text-center">Wöchentlich</th>
                       <th className="px-3 py-2 text-center">Monatlich</th>
                       <th className="px-3 py-2 text-center">Viertelj.</th>
                       <th className="px-3 py-2 text-center">Halbjährlich</th>
                       <th className="px-3 py-2 text-center">Jährlich</th>
-                      <th className="px-3 py-2">Bemerkung</th>
+                      <th className="w-[130px] px-3 py-2">Bemerkung</th>
                       <th className="px-3 py-2">Aktion</th>
                     </tr>
                   </thead>
@@ -5216,7 +5216,7 @@ function CleaningPlans(p: any) {
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "quarterly")}</td>
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "half_yearly")}</td>
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "yearly")}</td>
-                            <td className="px-3 py-2 text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
+                            <td className="max-w-[130px] px-3 py-2 text-xs font-semibold leading-snug text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
                             <td className="px-3 py-2">
                               <div className="flex flex-wrap gap-2">
                                 <Button onClick={() => openExistingItem(item)}>Bearbeiten</Button>
