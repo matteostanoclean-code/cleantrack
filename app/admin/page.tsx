@@ -1046,7 +1046,6 @@ export default function AdminPage() {
     setOfferItems(offerItemRows);
     if (!selectedOfferId && offerRows[0]?.id) setSelectedOfferId(offerRows[0].id);
     if (!selectedCalculationId && calculationRows[0]?.id) setSelectedCalculationId(calculationRows[0].id);
-    if (!selectedCleaningPlanId && cleaningPlanRows[0]?.id) setSelectedCleaningPlanId(cleaningPlanRows[0].id);
     setMaterialReports(materialReportRows);
     setQualityReports(qualityReportRows);
     setAdminNotifications(notificationRows);
@@ -4813,10 +4812,16 @@ function Calculations(p: any) {
 
 function CleaningPlans(p: any) {
   const [draggedItemId, setDraggedItemId] = useState("");
-  const selectedPlan = p.plans.find((plan: Row) => plan.id === p.selectedPlanId) || p.plans[0] || null;
-  const planId = selectedPlan?.id || p.selectedPlanId || "";
+  const [showItemPopup, setShowItemPopup] = useState(false);
+
+  const selectedPlan =
+    p.plans.find((plan: Row) => String(plan.id || "") === String(p.selectedPlanId || "")) ||
+    p.plans[0] ||
+    null;
+
+  const planId = String(selectedPlan?.id || p.selectedPlanId || "");
   const planItems = (p.items || [])
-    .filter((item: Row) => item.plan_id === planId)
+    .filter((item: Row) => String(item.plan_id || "") === String(planId || ""))
     .sort((a: Row, b: Row) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
 
   const areaOptions = ["Büros", "Flur", "Büros/Flur", "Küche", "Sanitär", "Treppenhaus", "Lager"];
@@ -4826,6 +4831,28 @@ function CleaningPlans(p: any) {
   ]));
   const weekdayLabels: Record<string, string> = { mo: "Mo", di: "Di", mi: "Mi", do: "Do", fr: "Fr", sa: "Sa", so: "So" };
   const weekdayKeys = Object.keys(weekdayLabels);
+
+  function selectPlan(plan: Row) {
+    p.setSelectedPlanId(String(plan.id || ""));
+    p.openPlan(plan);
+  }
+
+  function openNewItem() {
+    if (!planId) return;
+    p.openItem(planId);
+    setShowItemPopup(true);
+  }
+
+  function openExistingItem(item: Row) {
+    if (!planId) return;
+    p.openItem(planId, item);
+    setShowItemPopup(true);
+  }
+
+  async function saveItemFromPopup() {
+    await p.saveItem();
+    setShowItemPopup(false);
+  }
 
   function toggleDay(day: string) {
     const current = Array.isArray(p.itemForm.weekdays) ? p.itemForm.weekdays : [];
@@ -4907,15 +4934,15 @@ function CleaningPlans(p: any) {
     .meta { display: grid; grid-template-columns: 120px 1fr; gap: 4px 10px; margin-top: 10px; font-size: 11px; }
     .badge { display: inline-block; background: #dbeafe; color: #1d4ed8; border-radius: 999px; padding: 6px 10px; font-weight: 700; }
     .box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; margin: 10px 0; }
+    .brand { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 220px; }
+    .brand img { max-height: 58px; max-width: 170px; object-fit: contain; }
+    .brand-name { font-weight: 800; font-size: 14px; color: #0f172a; }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: fixed; }
     th { background: #0f172a; color: white; padding: 8px 6px; text-align: left; font-size: 9.5px; }
     td { border: 1px solid #cbd5e1; padding: 7px 6px; vertical-align: top; }
     tr.area td { background: #dbeafe; color: #1e3a8a; font-weight: 800; font-size: 12px; border-color: #93c5fd; }
     .center { text-align: center; font-weight: 800; font-size: 13px; }
     small { color: #64748b; font-size: 8.5px; font-weight: 600; }
-    .brand { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 220px; }
-    .brand img { max-height: 58px; max-width: 170px; object-fit: contain; }
-    .brand-name { font-weight: 800; font-size: 14px; color: #0f172a; }
     .footer { margin-top: 12px; color: #64748b; font-size: 9px; display: flex; justify-content: space-between; }
     @media print { button { display: none; } }
   </style>
@@ -4976,20 +5003,18 @@ function CleaningPlans(p: any) {
 
   return (
     <div>
-      <PageHeader icon="🧽" title="Reinigungspläne" sub="Ich erstelle Vorlagen für Objekte. Später übernehme ich diese Punkte in Kalkulation und Angebot.">
+      <PageHeader icon="🧽" title="Reinigungspläne" sub="Vorlagen für Objekte, später als Grundlage für Kalkulation und Angebot.">
         <Button onClick={() => p.openPlan()}>+ Plan</Button>
-        <Button onClick={() => planId && p.openItem(planId)}>+ Aufgabe</Button>
+        <Button primary onClick={openNewItem} disabled={!selectedPlan}>+ Reinigungspunkt</Button>
         <Button onClick={() => printPlan(false)} disabled={!selectedPlan}>PDF Kunde</Button>
         <Button onClick={() => printPlan(true)} disabled={!selectedPlan}>PDF intern</Button>
       </PageHeader>
 
-      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-        <div className="space-y-5">
-          <Card className="p-5">
-            <h3 className="text-lg font-black text-slate-950">Plan erstellen</h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500">Grunddaten für den Reinigungsplan.</p>
-
-            <div className="mt-5 grid gap-4">
+      <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+        <div className="space-y-4">
+          <Card className="p-4">
+            <h3 className="text-base font-black text-slate-950">Plan</h3>
+            <div className="mt-4 grid gap-3">
               <Field label="Planname">
                 <Input value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} placeholder="z. B. Unterhaltsreinigung Büro" />
               </Field>
@@ -5014,15 +5039,20 @@ function CleaningPlans(p: any) {
                 </Select>
               </Field>
 
-              <Field label="Status">
-                <Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}>
-                  <option value="draft">Entwurf</option>
-                  <option value="active">Aktiv</option>
-                  <option value="archived">Archiv</option>
-                </Select>
-              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Status">
+                  <Select value={p.form.status} onChange={(e) => p.setForm({ ...p.form, status: e.target.value })}>
+                    <option value="draft">Entwurf</option>
+                    <option value="active">Aktiv</option>
+                    <option value="archived">Archiv</option>
+                  </Select>
+                </Field>
+                <Field label="Punkte">
+                  <Input value={String(planItems.length)} readOnly />
+                </Field>
+              </div>
 
-              <Field label="Informationen über die Arbeitsstelle">
+              <Field label="Arbeitsstelle">
                 <Textarea value={p.form.description} onChange={(e) => p.setForm({ ...p.form, description: e.target.value })} placeholder="Besonderheiten, Zugang, Hinweise..." />
               </Field>
 
@@ -5034,51 +5064,132 @@ function CleaningPlans(p: any) {
             </div>
           </Card>
 
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-black text-slate-950">Meine Pläne</h3>
+          <Card className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-black text-slate-950">Meine Pläne</h3>
               <Status color={p.plans.length ? "blue" : "gray"}>{p.plans.length}</Status>
             </div>
-            <div className="space-y-3">
-              {p.plans.length === 0 && <Empty text="Noch keine Reinigungspläne angelegt." />}
-              {p.plans.map((plan: Row) => (
-                <button key={plan.id} type="button" onClick={() => p.openPlan(plan)} className={`w-full rounded-2xl border p-4 text-left transition ${selectedPlan?.id === plan.id ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
-                  <p className="font-black text-slate-950">{plan.name}</p>
-                  <p className="mt-1 text-sm font-bold text-slate-500">{plan.customer_name || "Kein Kunde"} · {plan.site_name || "Kein Objekt"}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Status color={plan.status === "active" ? "green" : plan.status === "archived" ? "gray" : "yellow"}>{plan.status === "active" ? "aktiv" : plan.status === "archived" ? "Archiv" : "Entwurf"}</Status>
-                    <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{(p.items || []).filter((item: Row) => item.plan_id === plan.id).length} Punkte</span>
-                  </div>
-                </button>
-              ))}
+            <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+              {p.plans.length === 0 && <Empty text="Noch keine Pläne." />}
+              {p.plans.map((plan: Row) => {
+                const active = String(selectedPlan?.id || "") === String(plan.id || "");
+                const count = (p.items || []).filter((item: Row) => item.plan_id === plan.id).length;
+                return (
+                  <button key={plan.id} type="button" onClick={() => selectPlan(plan)} className={`w-full rounded-2xl border p-3 text-left transition ${active ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                    <p className="text-sm font-black text-slate-950">{plan.name}</p>
+                    <p className="mt-1 truncate text-xs font-bold text-slate-500">{plan.customer_name || "Kein Kunde"} · {plan.site_name || "Kein Objekt"}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Status color={plan.status === "active" ? "green" : plan.status === "archived" ? "gray" : "yellow"}>{plan.status === "active" ? "aktiv" : plan.status === "archived" ? "Archiv" : "Entwurf"}</Status>
+                      <span className="rounded-xl bg-slate-100 px-2 py-1 text-xs font-black text-slate-500">{count} Punkte</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </Card>
         </div>
 
-        <div className="space-y-5">
-          <Card className="p-5">
+        <div className="space-y-4">
+          <Card className="p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-2xl font-black text-slate-950">{selectedPlan?.name || "Noch kein Plan ausgewählt"}</h3>
+                <h3 className="text-xl font-black text-slate-950">{selectedPlan?.name || "Noch kein Plan ausgewählt"}</h3>
                 <p className="mt-1 text-sm font-bold text-slate-500">{selectedPlan?.customer_name || "Kunde"} · {selectedPlan?.site_name || "Objekt"}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                {selectedPlan && <Button onClick={() => p.openPlan(selectedPlan)}>Bearbeiten</Button>}
+                {selectedPlan && <Button primary onClick={openNewItem}>+ Reinigungspunkt</Button>}
+                {selectedPlan && <Button onClick={() => p.openPlan(selectedPlan)}>Plan bearbeiten</Button>}
                 {selectedPlan && <Button onClick={() => printPlan(false)}>PDF Kunde</Button>}
-                {selectedPlan && <Button onClick={() => printPlan(true)}>PDF intern</Button>}
                 {selectedPlan && <Button danger onClick={() => p.deletePlan(selectedPlan)}>Löschen</Button>}
               </div>
             </div>
-
-            {selectedPlan?.description && <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">{selectedPlan.description}</p>}
-            {selectedPlan?.comments && <p className="mt-3 rounded-2xl bg-blue-50 p-4 text-sm font-semibold text-blue-800">{selectedPlan.comments}</p>}
           </Card>
 
-          <Card className="p-5">
-            <h3 className="text-lg font-black text-slate-950">Reinigungspunkt hinzufügen</h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500">Diese Punkte sind später die Vorlage für Kalkulation und Angebot.</p>
+          <Card className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-950">Plan-Vorschau</h3>
+                <p className="text-sm font-semibold text-slate-500">Bereiche sind eigene Zeilen. Aufgaben ziehe ich per Drag & Drop.</p>
+              </div>
+              <Status color={planItems.length ? "green" : "gray"}>{planItems.length} Punkte</Status>
+            </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {planItems.length === 0 ? <div className="p-4"><Empty text="Noch keine Reinigungspunkte in diesem Plan." /></div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">↕</th>
+                      <th className="px-3 py-2">Aufgabe</th>
+                      <th className="px-3 py-2">Beschreibung</th>
+                      <th className="px-3 py-2 text-center">Täglich</th>
+                      <th className="px-3 py-2 text-center">Wöchentlich</th>
+                      <th className="px-3 py-2 text-center">Monatlich</th>
+                      <th className="px-3 py-2 text-center">Viertelj.</th>
+                      <th className="px-3 py-2 text-center">Halbjährlich</th>
+                      <th className="px-3 py-2 text-center">Jährlich</th>
+                      <th className="px-3 py-2">Bemerkung</th>
+                      <th className="px-3 py-2">Aktion</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {areas.map((area) => (
+                      <React.Fragment key={area}>
+                        <tr className="bg-blue-50">
+                          <td colSpan={11} className="px-3 py-2 text-sm font-black text-blue-900">{area}</td>
+                        </tr>
+                        {planItems.filter((item: Row) => String(item.area || "Allgemein") === area).map((item: Row) => (
+                          <tr
+                            key={item.id}
+                            draggable
+                            onDragStart={() => setDraggedItemId(String(item.id))}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={() => handleDrop(String(item.id))}
+                            className={`cursor-move bg-white hover:bg-slate-50 ${draggedItemId === String(item.id) ? "opacity-50" : ""}`}
+                          >
+                            <td className="px-3 py-2 text-base font-black text-slate-400">☰</td>
+                            <td className="px-3 py-2 font-black text-slate-950">{item.task_title}</td>
+                            <td className="px-3 py-2 text-slate-600">{item.task_description || "-"}</td>
+                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "daily")}</td>
+                            <td className="px-3 py-2 text-center">
+                              <div className="font-black text-blue-700">{mark(item, "weekly")}</div>
+                              {Array.isArray(item.weekdays) && item.weekdays.length > 0 && <div className="mt-1 text-[11px] font-bold text-slate-400">{weekText(item)}</div>}
+                            </td>
+                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "monthly")}</td>
+                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "quarterly")}</td>
+                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "half_yearly")}</td>
+                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "yearly")}</td>
+                            <td className="px-3 py-2 text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-2">
+                                <Button onClick={() => openExistingItem(item)}>Bearbeiten</Button>
+                                <Button danger onClick={() => p.deleteItem(item)}>Löschen</Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {showItemPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black text-slate-950">{p.itemForm.id ? "Reinigungspunkt bearbeiten" : "Reinigungspunkt hinzufügen"}</h3>
+                <p className="text-sm font-semibold text-slate-500">{selectedPlan?.name || "Reinigungsplan"}</p>
+              </div>
+              <Button onClick={() => setShowItemPopup(false)}>Schließen</Button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
               <Field label="Bereich / Raum">
                 <Select value={p.itemForm.area} onChange={(e) => p.setItemForm({ ...p.itemForm, area: e.target.value })}>
                   <option value="">Bereich auswählen</option>
@@ -5121,84 +5232,13 @@ function CleaningPlans(p: any) {
               </Field>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button primary onClick={p.saveItem} disabled={p.saving || !planId}>{p.itemForm.id ? "Punkt speichern" : "+ Punkt hinzufügen"}</Button>
-              <Button onClick={() => p.setItemForm({ ...emptyCleaningPlanItem, plan_id: planId })}>Leeren</Button>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button onClick={() => setShowItemPopup(false)}>Abbrechen</Button>
+              <Button primary onClick={saveItemFromPopup} disabled={p.saving || !planId}>{p.itemForm.id ? "Punkt speichern" : "+ Punkt hinzufügen"}</Button>
             </div>
-          </Card>
-
-          <Card className="overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
-              <div>
-                <h3 className="text-xl font-black text-slate-950">Plan-Vorschau</h3>
-                <p className="text-sm font-semibold text-slate-500">Bereiche sind eigene Zeilen. Aufgaben ziehe ich per Drag & Drop in die gewünschte Reihenfolge.</p>
-              </div>
-              <Status color={planItems.length ? "green" : "gray"}>{planItems.length} Punkte</Status>
-            </div>
-
-            {planItems.length === 0 ? <div className="p-5"><Empty text="Noch keine Reinigungspunkte in diesem Plan." /></div> : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] text-sm">
-                  <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">↕</th>
-                      <th className="px-4 py-3">Aufgabe</th>
-                      <th className="px-4 py-3">Beschreibung</th>
-                      <th className="px-4 py-3 text-center">Täglich</th>
-                      <th className="px-4 py-3 text-center">Wöchentlich</th>
-                      <th className="px-4 py-3 text-center">Monatlich</th>
-                      <th className="px-4 py-3 text-center">Viertelj.</th>
-                      <th className="px-4 py-3 text-center">Halbjährlich</th>
-                      <th className="px-4 py-3 text-center">Jährlich</th>
-                      <th className="px-4 py-3">Bemerkung</th>
-                      <th className="px-4 py-3">Aktion</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {areas.map((area) => (
-                      <React.Fragment key={area}>
-                        <tr className="bg-blue-50">
-                          <td colSpan={11} className="px-4 py-3 font-black text-blue-900">{area}</td>
-                        </tr>
-                        {planItems.filter((item: Row) => String(item.area || "Allgemein") === area).map((item: Row) => (
-                          <tr
-                            key={item.id}
-                            draggable
-                            onDragStart={() => setDraggedItemId(String(item.id))}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={() => handleDrop(String(item.id))}
-                            className={`cursor-move bg-white hover:bg-slate-50 ${draggedItemId === String(item.id) ? "opacity-50" : ""}`}
-                          >
-                            <td className="px-4 py-3 text-lg font-black text-slate-400">☰</td>
-                            <td className="px-4 py-3 font-black text-slate-950">{item.task_title}</td>
-                            <td className="px-4 py-3 text-slate-600">{item.task_description || "-"}</td>
-                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "daily")}</td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="font-black text-blue-700">{mark(item, "weekly")}</div>
-                              {Array.isArray(item.weekdays) && item.weekdays.length > 0 && <div className="mt-1 text-[11px] font-bold text-slate-400">{weekText(item)}</div>}
-                            </td>
-                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "monthly")}</td>
-                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "quarterly")}</td>
-                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "half_yearly")}</td>
-                            <td className="px-4 py-3 text-center font-black text-blue-700">{mark(item, "yearly")}</td>
-                            <td className="px-4 py-3 text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-2">
-                                <Button onClick={() => p.openItem(planId, item)}>Bearbeiten</Button>
-                                <Button danger onClick={() => p.deleteItem(item)}>Löschen</Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
