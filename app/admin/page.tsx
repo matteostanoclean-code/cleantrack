@@ -2011,9 +2011,32 @@ const basePayload = {
     }
   }
 
+  function nextOfferNumber() {
+    const year = new Date().getFullYear();
+    const prefix = `ANG-${year}-`;
+    const maxNumber = offers.reduce((max, offer) => {
+      const current = String(offer.offer_number || "");
+      if (!current.startsWith(prefix)) return max;
+      const value = Number(current.replace(prefix, ""));
+      return Number.isFinite(value) ? Math.max(max, value) : max;
+    }, 0);
+
+    return `${prefix}${String(maxNumber + 1).padStart(4, "0")}`;
+  }
+
+  function offerStatusPayload(status: string) {
+    const now = new Date().toISOString();
+    return {
+      status,
+      sent_at: status === "sent" ? now : null,
+      accepted_at: status === "accepted" ? now : null,
+      rejected_at: status === "rejected" ? now : null,
+    };
+  }
+
   function openOffer(row?: Row) {
     if (!row) {
-      setOfferForm(emptyOffer);
+      setOfferForm({ ...emptyOffer, offer_number: nextOfferNumber() });
       setSelectedOfferId("");
       return;
     }
@@ -2043,15 +2066,17 @@ const basePayload = {
       return;
     }
 
+    const status = offerForm.status || "draft";
+
     await insertOrUpdate("offers", offerForm.id, {
-      offer_number: offerForm.offer_number || null,
+      offer_number: offerForm.offer_number || nextOfferNumber(),
       title: offerForm.title,
       calculation_id: offerForm.calculation_id || null,
       customer_id: offerForm.customer_id || null,
       customer_name: offerForm.customer_name || null,
       work_site_id: offerForm.work_site_id || null,
       site_name: offerForm.site_name || null,
-      status: offerForm.status || "draft",
+      ...offerStatusPayload(status),
       intro_text: offerForm.intro_text || null,
       footer_text: offerForm.footer_text || null,
       monthly_price: numberOrFallback(offerForm.monthly_price, 0),
@@ -2112,14 +2137,14 @@ const basePayload = {
         action: "insert",
         table: "offers",
         payload: [{
-          offer_number: null,
+          offer_number: nextOfferNumber(),
           title: `Angebot ${calc.customer_name || calc.site_name || calc.name || ""}`.trim(),
           calculation_id: calc.id,
           customer_id: calc.customer_id || null,
           customer_name: calc.customer_name || null,
           work_site_id: calc.work_site_id || null,
           site_name: calc.site_name || null,
-          status: "draft",
+          ...offerStatusPayload("draft"),
           intro_text: emptyOffer.intro_text,
           footer_text: emptyOffer.footer_text,
           monthly_price: totalPrice,
@@ -2176,6 +2201,27 @@ const basePayload = {
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Angebotsposition konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateOfferStatus(row: Row, status: string) {
+    if (!row?.id) return;
+
+    setSaving(true);
+    setMessage("");
+    try {
+      await adminCall({
+        action: "update",
+        table: "offers",
+        id: row.id,
+        payload: offerStatusPayload(status),
+      });
+      setMessage("Angebotsstatus gespeichert.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Angebotsstatus konnte nicht gespeichert werden.");
     } finally {
       setSaving(false);
     }
@@ -2822,46 +2868,54 @@ const basePayload = {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-72 flex-col border-r border-slate-200 bg-white px-4 py-5 shadow-sm lg:flex">
-        <div className="mb-6 flex items-center gap-3 px-2">
-          <img src="/logo.png" alt="CleanTrack" className="h-12 w-12 rounded-2xl object-contain ring-1 ring-slate-200" />
-          <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">CleanTrack</p>
-            <h1 className="truncate text-lg font-black text-slate-950">Verwaltung</h1>
+    <main className="min-h-screen bg-[#f3f6fb] text-slate-900">
+      <aside className="group/sidebar fixed left-0 top-0 z-40 hidden h-screen w-16 flex-col border-r border-slate-800 bg-[#0d1428] px-2 py-4 shadow-2xl transition-all duration-300 ease-out hover:w-72 lg:flex">
+        <div className="mb-5 flex h-12 items-center gap-3 overflow-hidden rounded-2xl px-1">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white ring-1 ring-white/10">
+            <img src="/logo.png" alt="CleanTrack" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="min-w-0 opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">
+            <p className="text-[10px] font-black uppercase tracking-[0.32em] text-blue-300">CleanTrack</p>
+            <h1 className="truncate text-base font-black text-white">Verwaltung</h1>
             <p className="truncate text-xs font-semibold text-slate-400">Matteo Stano Clean</p>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto pr-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden pr-0.5">
           {visibleNavItems.map((item) => (
             <button
               key={item.id}
               type="button"
+              title={item.label}
               onClick={() => setTab(item.id)}
               className={
                 tab === item.id
-                  ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-4 py-3 text-left text-sm font-black text-white shadow-sm"
-                  : "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                  ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-2.5 py-2.5 text-left text-sm font-black text-white shadow-lg shadow-blue-950/20"
+                  : "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left text-sm font-bold text-slate-400 transition hover:bg-white/10 hover:text-white"
               }
             >
-              <span className={tab === item.id ? "flex h-8 w-8 items-center justify-center rounded-xl bg-white/20" : "flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100"}>{item.icon}</span>
-              <span>{item.label}</span>
+              <span className={tab === item.id ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-base" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/5 text-base"}>{item.icon}</span>
+              <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">{item.label}</span>
             </button>
           ))}
         </nav>
 
-        <div className="mt-5 rounded-3xl bg-slate-950 p-4 text-white">
-          <p className="text-xs font-bold text-slate-300">Heute</p>
-          <p className="mt-1 text-2xl font-black">{openTasks}</p>
-          <p className="text-xs font-semibold text-slate-300">offene Aufgaben</p>
-          <button type="button" onClick={() => setTab("aufgaben")} className="mt-4 w-full rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-950 hover:bg-blue-50">
+        <div className="mt-4 overflow-hidden rounded-3xl bg-white/5 p-2 text-white ring-1 ring-white/10 transition-all group-hover/sidebar:p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-sm font-black">!</div>
+            <div className="min-w-0 opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">
+              <p className="text-xs font-bold text-slate-300">Heute</p>
+              <p className="text-2xl font-black leading-none">{openTasks}</p>
+              <p className="text-xs font-semibold text-slate-300">offene Aufgaben</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => setTab("aufgaben")} className="mt-3 hidden w-full rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-950 hover:bg-blue-50 group-hover/sidebar:block">
             Aufgaben öffnen
           </button>
         </div>
       </aside>
 
-      <div className="lg:pl-72">
+      <div className="lg:pl-16">
         <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur lg:hidden">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -2878,28 +2932,28 @@ const basePayload = {
           <p className="mt-3 text-sm font-semibold text-slate-400 lg:hidden">Navigation läuft über die linke Seitenleiste am Desktop.</p>
         </div>
 
-        <header className="sticky top-0 z-10 hidden border-b border-slate-200 bg-white/95 px-8 py-5 shadow-sm backdrop-blur lg:block">
+        <header className="sticky top-0 z-30 hidden border-b border-slate-200/80 bg-white/90 px-5 py-3 shadow-sm backdrop-blur-xl lg:block">
           <div className="flex items-center justify-between gap-5">
             <div className="min-w-0">
               <div className="mb-1 flex items-center gap-2 text-sm font-black text-blue-600">
                 <span>{currentNav.icon}</span>
                 <span>Adminbereich</span>
               </div>
-              <h2 className="truncate text-3xl font-black tracking-tight text-slate-950">{currentNav.label}</h2>
+              <h2 className="truncate text-2xl font-black tracking-tight text-slate-950">{currentNav.label}</h2>
             </div>
             <div className="flex items-center gap-3">
-              <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-80 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500" placeholder="Suchen..." />
-              <button type="button" onClick={loadAll} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50">
+              <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-80 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold outline-none transition focus:border-blue-500 focus:bg-white" placeholder="Suchen..." />
+              <button type="button" onClick={loadAll} className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">
                 Aktualisieren
               </button>
-              <button type="button" onClick={runPrimaryAction} disabled={!canUsePrimaryAction} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+              <button type="button" onClick={runPrimaryAction} disabled={!canUsePrimaryAction} className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
                 {createButtonLabel}
               </button>
             </div>
           </div>
         </header>
 
-        <section className="mx-auto max-w-[1500px] px-4 py-6 lg:px-8">
+        <section className="mx-auto max-w-none px-4 py-5 lg:px-5">
           {message && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 font-bold text-blue-800">{message}</div>}
 
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
@@ -2910,7 +2964,7 @@ const basePayload = {
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} chatMessages={filtered.chatMessages} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} updateTodoStatus={updateTodoStatus} loadChat={loadChat} />}
-          {tab === "angebote" && <Offers offers={filtered.offers} offerItems={filtered.offerItems} calculations={calculations} calculationItems={calculationItems} selectedOfferId={selectedOfferId} setSelectedOfferId={setSelectedOfferId} selectedCalculationId={selectedCalculationForOffer} setSelectedCalculationId={setSelectedCalculationForOffer} form={offerForm} setForm={setOfferForm} openOffer={openOffer} saveOffer={saveOffer} createFromCalculation={createOfferFromCalculation} updateLine={updateOfferLine} deleteOffer={(row: Row) => removeRow("offers", row.id, "Angebot")} deleteLine={(row: Row) => removeRow("offer_items", row.id, "Angebotsposition")} saving={saving} />}
+          {tab === "angebote" && <Offers offers={filtered.offers} offerItems={filtered.offerItems} calculations={calculations} calculationItems={calculationItems} selectedOfferId={selectedOfferId} setSelectedOfferId={setSelectedOfferId} selectedCalculationId={selectedCalculationForOffer} setSelectedCalculationId={setSelectedCalculationForOffer} form={offerForm} setForm={setOfferForm} openOffer={openOffer} saveOffer={saveOffer} createFromCalculation={createOfferFromCalculation} updateLine={updateOfferLine} updateStatus={updateOfferStatus} deleteOffer={(row: Row) => removeRow("offers", row.id, "Angebot")} deleteLine={(row: Row) => removeRow("offer_items", row.id, "Angebotsposition")} saving={saving} />}
           {tab === "kalkulation" && <Calculations calculations={filtered.calculations} calculationItems={filtered.calculationItems} cleaningPlans={cleaningPlans} cleaningPlanItems={cleaningPlanItems} selectedCalculationId={selectedCalculationId} setSelectedCalculationId={setSelectedCalculationId} selectedPlanId={selectedPlanForCalculation} setSelectedPlanId={setSelectedPlanForCalculation} form={calculationForm} setForm={setCalculationForm} openCalculation={openCalculation} saveCalculation={saveCalculation} createFromPlan={createCalculationFromPlan} updateLine={updateCalculationLine} deleteCalculation={(row: Row) => removeRow("calculations", row.id, "Kalkulation")} deleteLine={(row: Row) => removeRow("calculation_items", row.id, "Kalkulationszeile")} saving={saving} />}
           {tab === "reinigungsplaene" && <CleaningPlans plans={filtered.cleaningPlans} items={filtered.cleaningPlanItems} sites={sites} customers={customerList} form={cleaningPlanForm} setForm={setCleaningPlanForm} itemForm={cleaningPlanItemForm} setItemForm={setCleaningPlanItemForm} selectedPlanId={selectedCleaningPlanId} setSelectedPlanId={setSelectedCleaningPlanId} openPlan={openCleaningPlan} savePlan={saveCleaningPlan} openItem={openCleaningPlanItem} saveItem={saveCleaningPlanItem} reorderItems={reorderCleaningPlanItems} deletePlan={(row: Row) => removeRow("cleaning_plans", row.id, "Reinigungsplan")} deleteItem={(row: Row) => removeRow("cleaning_plan_items", row.id, "Reinigungspunkt")} saving={saving} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
@@ -3013,12 +3067,12 @@ function customerRowsFromSites(sites: Row[]) {
 
 function PageHeader({ icon, title, sub, children }: { icon: string; title: string; sub?: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-black text-blue-700">{icon}</div>
+        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-blue-50 text-sm font-black text-blue-700 ring-1 ring-blue-100">{icon}</div>
         <div>
-          <h2 className="text-2xl font-black tracking-tight text-slate-950">{title}</h2>
-          {sub && <p className="text-sm text-slate-500">{sub}</p>}
+          <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>
+          {sub && <p className="text-sm font-semibold text-slate-500">{sub}</p>}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -3031,12 +3085,12 @@ function Button({ children, onClick, primary = false, danger = false, type = "bu
     ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
     : primary
       ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
-      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50";
-  return <button type={type} onClick={onClick} disabled={disabled} className={`rounded-xl border px-4 py-2.5 text-sm font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}>{children}</button>;
+      : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700";
+  return <button type={type} onClick={onClick} disabled={disabled} className={`rounded-xl border px-3.5 py-2 text-sm font-black shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}>{children}</button>;
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</div>;
+  return <div className={`rounded-[22px] border border-slate-200/80 bg-white shadow-sm ring-1 ring-white/70 ${className}`}>{children}</div>;
 }
 
 function Table({ headers, children, min = "900px" }: { headers: string[]; children: React.ReactNode; min?: string }) {
@@ -3054,7 +3108,7 @@ function Table({ headers, children, min = "900px" }: { headers: string[]; childr
 
 function Empty({ text = "Noch keine Daten hinterlegt" }: { text?: string }) {
   return (
-    <div className="flex min-h-[260px] flex-col items-center justify-center text-center text-slate-400">
+    <div className="flex min-h-[180px] flex-col items-center justify-center text-center text-slate-400">
       <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">×</div>
       <p className="font-bold text-slate-700">{text}</p>
       <p className="text-sm">Klicke oben auf „Neu“, um zu starten.</p>
@@ -4455,7 +4509,7 @@ function Offers(p: any) {
                     <p className="font-black text-slate-950">{offer.title}</p>
                     <p className="mt-1 text-sm font-bold text-slate-500">{offer.customer_name || "Kunde"} · {offer.site_name || "Objekt"}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Status color={offer.status === "sent" ? "blue" : offer.status === "accepted" ? "green" : offer.status === "rejected" ? "red" : "yellow"}>{offer.status || "draft"}</Status>
+                      <Status color={offer.status === "sent" ? "blue" : offer.status === "accepted" ? "green" : offer.status === "rejected" ? "red" : offer.status === "archived" ? "gray" : "yellow"}>{offer.status === "sent" ? "versendet" : offer.status === "accepted" ? "angenommen" : offer.status === "rejected" ? "abgelehnt" : offer.status === "archived" ? "Archiv" : "Entwurf"}</Status>
                       <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{offerLines.length} Positionen</span>
                     </div>
                   </button>
@@ -4504,11 +4558,14 @@ function Offers(p: any) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-2xl font-black text-slate-950">{selectedOffer?.title || "Kein Angebot ausgewählt"}</h3>
-                <p className="mt-1 text-sm font-bold text-slate-500">{selectedOffer?.customer_name || "Kunde"} · {selectedOffer?.site_name || "Objekt"}</p>
+                <p className="mt-1 text-sm font-bold text-slate-500">{selectedOffer?.offer_number ? `${selectedOffer.offer_number} · ` : ""}{selectedOffer?.customer_name || "Kunde"} · {selectedOffer?.site_name || "Objekt"}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {selectedOffer && <Button onClick={() => p.openOffer(selectedOffer)}>Bearbeiten</Button>}
                 {selectedOffer && <Button primary onClick={printOffer}>PDF Angebot</Button>}
+                {selectedOffer && <Button onClick={() => p.updateStatus?.(selectedOffer, "sent")}>Versendet</Button>}
+                {selectedOffer && <Button onClick={() => p.updateStatus?.(selectedOffer, "accepted")}>Angenommen</Button>}
+                {selectedOffer && <Button danger onClick={() => p.updateStatus?.(selectedOffer, "rejected")}>Abgelehnt</Button>}
                 {selectedOffer && <Button danger onClick={() => p.deleteOffer(selectedOffer)}>Löschen</Button>}
               </div>
             </div>
