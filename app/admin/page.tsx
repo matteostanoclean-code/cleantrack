@@ -2068,6 +2068,7 @@ const basePayload = {
       setMessage("Bitte zuerst eine Kalkulation auswählen.");
       return;
     }
+    const calc = calculation as Row;
 
     const lines = calculationItems
       .filter((item) => String(item.calculation_id) === String(calculationId))
@@ -2096,10 +2097,10 @@ const basePayload = {
 
     function linePrice(row: Row) {
       const hours = monthlyMinutes(row) / 60;
-      const wage = numberOrFallback(row.hourly_rate || calculation.hourly_rate, 0);
+      const wage = numberOrFallback(row.hourly_rate || calc.hourly_rate, 0);
       const base = (hours * wage) + numberOrFallback(row.material_cost, 0);
-      const overhead = numberOrFallback(row.overhead_percent ?? calculation.overhead_percent, 20);
-      const profit = numberOrFallback(row.profit_percent ?? calculation.profit_percent, 20);
+      const overhead = numberOrFallback(row.overhead_percent ?? calc.overhead_percent, 20);
+      const profit = numberOrFallback(row.profit_percent ?? calc.profit_percent, 20);
       return base * (1 + overhead / 100) * (1 + profit / 100);
     }
 
@@ -2113,12 +2114,12 @@ const basePayload = {
         table: "offers",
         payload: [{
           offer_number: null,
-          title: `Angebot ${calculation.customer_name || calculation.site_name || calculation.name || ""}`.trim(),
-          calculation_id: calculation.id,
-          customer_id: calculation.customer_id || null,
-          customer_name: calculation.customer_name || null,
-          work_site_id: calculation.work_site_id || null,
-          site_name: calculation.site_name || null,
+          title: `Angebot ${calc.customer_name || calc.site_name || calc.name || ""}`.trim(),
+          calculation_id: calc.id,
+          customer_id: calc.customer_id || null,
+          customer_name: calc.customer_name || null,
+          work_site_id: calc.work_site_id || null,
+          site_name: calc.site_name || null,
           status: "draft",
           intro_text: emptyOffer.intro_text,
           footer_text: emptyOffer.footer_text,
@@ -2136,7 +2137,7 @@ const basePayload = {
         table: "offer_items",
         payload: lines.map((line, index) => ({
           offer_id: offerId,
-          calculation_id: calculation.id,
+          calculation_id: calc.id,
           calculation_item_id: line.id,
           area: line.area || "Allgemein",
           title: line.task_title || "Leistung",
