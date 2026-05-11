@@ -201,8 +201,11 @@ function numericValue(value: unknown, fallback: number) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function sanitizeRow(table: string, row: Record<string, unknown>) {
+function sanitizeRow(table: string, row: Record<string, unknown>, action: "insert" | "update" = "insert") {
   const cleaned = { ...row };
+  const isInsert = action === "insert";
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(cleaned, key);
+
 
   if (table === "customers") {
     if (!("active" in cleaned)) cleaned.active = true;
@@ -244,13 +247,15 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
   }
 
   if (table === "cleaning_plan_items") {
-    if (isEmpty(cleaned.area)) cleaned.area = "Allgemein";
-    if (isEmpty(cleaned.task_title)) cleaned.task_title = "Neue Aufgabe";
-    if (isEmpty(cleaned.interval_type)) cleaned.interval_type = "daily";
-    if (!Array.isArray(cleaned.weekdays)) cleaned.weekdays = [];
-    cleaned.quantity = numericValue(cleaned.quantity, 1);
-    cleaned.sort_order = numericValue(cleaned.sort_order, 0);
-    if (!("active" in cleaned)) cleaned.active = true;
+    // Wichtig: Bei Updates darf ein Teil-Update wie { sort_order } keine bestehenden Inhalte überschreiben.
+    // Deshalb Defaults nur beim Insert setzen oder wenn das Feld im Update bewusst mitgesendet wurde.
+    if ((isInsert || has("area")) && isEmpty(cleaned.area)) cleaned.area = "Allgemein";
+    if ((isInsert || has("task_title")) && isEmpty(cleaned.task_title)) cleaned.task_title = "Neue Aufgabe";
+    if ((isInsert || has("interval_type")) && isEmpty(cleaned.interval_type)) cleaned.interval_type = "daily";
+    if ((isInsert || has("weekdays")) && !Array.isArray(cleaned.weekdays)) cleaned.weekdays = [];
+    if (isInsert || has("quantity")) cleaned.quantity = numericValue(cleaned.quantity, 1);
+    if (isInsert || has("sort_order")) cleaned.sort_order = numericValue(cleaned.sort_order, 0);
+    if (isInsert && !("active" in cleaned)) cleaned.active = true;
   }
 
   if (table === "material_products") {
@@ -291,11 +296,11 @@ function sanitizeRow(table: string, row: Record<string, unknown>) {
   return cleaned;
 }
 
-function sanitizePayload(table: string, payload: unknown) {
+function sanitizePayload(table: string, payload: unknown, action: "insert" | "update" = "insert") {
   if (Array.isArray(payload)) {
-    return payload.map((item: unknown) => sanitizeRow(table, (item || {}) as Record<string, unknown>));
+    return payload.map((item: unknown) => sanitizeRow(table, (item || {}) as Record<string, unknown>, action));
   }
-  return sanitizeRow(table, (payload || {}) as Record<string, unknown>);
+  return sanitizeRow(table, (payload || {}) as Record<string, unknown>, action);
 }
 
 function isSchemaColumnError(error: unknown) {
@@ -473,7 +478,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "insert") {
-      const payload = sanitizePayload(table, body.payload);
+      const payload = sanitizePayload(table, body.payload, "insert");
       let { data, error } = await safeInsert(supabaseAdmin, table, payload);
       if (error && canRetryTaskSchema(table, error)) {
         const retryPayload = fallbackTaskPayload(payload);
@@ -488,7 +493,7 @@ export async function POST(request: Request) {
     if (action === "update") {
       const id = String(body.id || "").trim();
       if (!id) return NextResponse.json({ error: "ID fehlt." }, { status: 400 });
-      const payload = sanitizePayload(table, body.payload || {});
+      const payload = sanitizePayload(table, body.payload || {}, "update");
       let { data, error } = await safeUpdate(supabaseAdmin, table, id, payload);
       if (error && canRetryTaskSchema(table, error)) {
         const retryPayload = fallbackTaskPayload(payload);
