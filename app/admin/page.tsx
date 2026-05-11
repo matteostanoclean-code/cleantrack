@@ -4998,7 +4998,7 @@ function CleaningPlans(p: any) {
     th { background: #0f172a; color: white; padding: 7px 6px; text-align: left; font-size: 9px; white-space: nowrap; }
     td { border: 1px solid #cbd5e1; padding: 5px 6px; vertical-align: top; word-break: normal; overflow-wrap: anywhere; }
     tr.area td { background: #dbeafe; color: #1e3a8a; font-weight: 800; font-size: 12px; border-color: #93c5fd; }
-    .center { text-align: center; font-weight: 800; font-size: 12px; }\n    .note { font-size: 9.5px; line-height: 1.25; }
+    .center { text-align: center; font-weight: 800; font-size: 12px; }\n    .note { font-size: 9.5px; line-height: 1.25; white-space: nowrap; overflow-wrap: normal; word-break: normal; }
     small { color: #64748b; font-size: 8.5px; font-weight: 600; }
     .footer { margin-top: 12px; color: #64748b; font-size: 9px; display: flex; justify-content: space-between; }
     @media print { button { display: none; } }
@@ -5026,15 +5026,15 @@ function CleaningPlans(p: any) {
   <table>
     <thead>
       <tr>
-        <th style="width: 20%;">Aufgabe</th>
-        <th style="width: 28%;">Beschreibung</th>
+        <th style="width: 18%;">Aufgabe</th>
+        <th style="width: 18%;">Beschreibung</th>
         <th style="width: 6%;">Täglich</th>
         <th style="width: 8%;">Wöchentlich</th>
         <th style="width: 7%;">Monatlich</th>
         <th style="width: 7%;">Viertelj.</th>
         <th style="width: 8%;">Halbjährl.</th>
         <th style="width: 6%;">Jährlich</th>
-        <th style="width: 10%;">Bemerkung</th>
+        <th style="width: 22%;">Bemerkung</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -5178,14 +5178,14 @@ function CleaningPlans(p: any) {
                     <tr>
                       <th className="px-3 py-2">↕</th>
                       <th className="w-[220px] px-3 py-2">Aufgabe</th>
-                      <th className="w-[260px] px-3 py-2">Beschreibung</th>
+                      <th className="w-[170px] px-3 py-2">Beschreibung</th>
                       <th className="px-3 py-2 text-center">Täglich</th>
                       <th className="px-3 py-2 text-center">Wöchentlich</th>
                       <th className="px-3 py-2 text-center">Monatlich</th>
                       <th className="px-3 py-2 text-center">Viertelj.</th>
                       <th className="px-3 py-2 text-center">Halbjährlich</th>
                       <th className="px-3 py-2 text-center">Jährlich</th>
-                      <th className="w-[130px] px-3 py-2">Bemerkung</th>
+                      <th className="w-[260px] px-3 py-2">Bemerkung</th>
                       <th className="px-3 py-2">Aktion</th>
                     </tr>
                   </thead>
@@ -5206,7 +5206,7 @@ function CleaningPlans(p: any) {
                           >
                             <td className="px-3 py-2 text-base font-black text-slate-400">☰</td>
                             <td className="px-3 py-2 font-black text-slate-950">{item.task_title}</td>
-                            <td className="px-3 py-2 text-slate-600">{item.task_description || "-"}</td>
+                            <td className="w-[170px] px-3 py-2 text-slate-600">{item.task_description || "-"}</td>
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "daily")}</td>
                             <td className="px-3 py-2 text-center">
                               <div className="font-black text-blue-700">{mark(item, "weekly")}</div>
@@ -5216,7 +5216,7 @@ function CleaningPlans(p: any) {
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "quarterly")}</td>
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "half_yearly")}</td>
                             <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "yearly")}</td>
-                            <td className="max-w-[130px] px-3 py-2 text-xs font-semibold leading-snug text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
+                            <td className="w-[260px] whitespace-nowrap px-3 py-2 text-xs font-semibold text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
                             <td className="px-3 py-2">
                               <div className="flex flex-wrap gap-2">
                                 <Button onClick={() => openExistingItem(item)}>Bearbeiten</Button>
