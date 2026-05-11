@@ -2227,6 +2227,75 @@ const basePayload = {
     }
   }
 
+  async function duplicateCleaningPlan(row: Row) {
+    if (!row?.id) {
+      setMessage("Bitte zuerst einen Reinigungsplan auswählen.");
+      return;
+    }
+
+    const sourceItems = cleaningPlanItems
+      .filter((item) => String(item.plan_id || "") === String(row.id || ""))
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const created = await adminCall({
+        action: "insert",
+        table: "cleaning_plans",
+        payload: [{
+          name: `${row.name || "Reinigungsplan"} Kopie`,
+          customer_id: row.customer_id || null,
+          customer_name: row.customer_name || null,
+          work_site_id: row.work_site_id || null,
+          site_name: row.site_name || null,
+          description: row.description || null,
+          comments: row.comments || null,
+          status: "draft",
+          language: row.language || "de",
+          template_type: row.template_type || "standard",
+        }],
+      });
+
+      const copy = Array.isArray(created.data) ? created.data[0] : null;
+      const newPlanId = copy?.id;
+      if (!newPlanId) throw new Error("Kopie wurde erstellt, aber die ID fehlt.");
+
+      if (sourceItems.length > 0) {
+        await adminCall({
+          action: "insert",
+          table: "cleaning_plan_items",
+          payload: sourceItems.map((item, index) => ({
+            plan_id: newPlanId,
+            area: item.area || "Allgemein",
+            task_title: item.task_title || "Aufgabe",
+            task_description: item.task_description || null,
+            interval_type: item.interval_type || "daily",
+            weekdays: Array.isArray(item.weekdays) ? item.weekdays : [],
+            quantity: numberOrFallback(item.quantity, 1),
+            unit: item.unit || "x",
+            notes: item.notes || null,
+            active: item.active !== false,
+            sort_order: index + 1,
+            calculation_group: item.calculation_group || null,
+            calculation_minutes: item.calculation_minutes || null,
+            calculation_factor: item.calculation_factor || null,
+            calculation_price: item.calculation_price || null,
+            offer_text: item.offer_text || null,
+          })),
+        });
+      }
+
+      setSelectedCleaningPlanId(String(newPlanId));
+      setMessage("Reinigungsplan wurde dupliziert. Du kannst jetzt Kunde und Objekt anpassen.");
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Reinigungsplan konnte nicht dupliziert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveMaterial() {
     const site = sites.find((item) => item.id === materialForm.work_site_id);
     await insertOrUpdate("material_products", materialForm.id, {
@@ -2881,38 +2950,81 @@ const basePayload = {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden pr-0.5">
-          {visibleNavItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              title={item.label}
-              onClick={() => setTab(item.id)}
-              className={
-                tab === item.id
-                  ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-2.5 py-2.5 text-left text-sm font-black text-white shadow-lg shadow-blue-950/20"
-                  : "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left text-sm font-bold text-slate-400 transition hover:bg-white/10 hover:text-white"
+        <nav className="flex-1 space-y-1 overflow-y-hidden overflow-x-hidden pr-0.5 group-hover/sidebar:overflow-y-auto">
+          {visibleNavItems
+            .filter((item) => !(["kunden", "kontakte"] as Tab[]).includes(item.id))
+            .map((item) => {
+              if (item.id === "objekte") {
+                const objectActive = (["objekte", "kunden", "kontakte"] as Tab[]).includes(tab);
+                return (
+                  <div key={item.id} className="rounded-2xl">
+                    <button
+                      type="button"
+                      title={item.label}
+                      onClick={() => setTab("objekte")}
+                      className={
+                        objectActive
+                          ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-2.5 py-2.5 text-left text-sm font-black text-white shadow-lg shadow-blue-950/20"
+                          : "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left text-sm font-bold text-slate-400 transition hover:bg-white/10 hover:text-white"
+                      }
+                    >
+                      <span className={objectActive ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-base" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/5 text-base"}>{item.icon}</span>
+                      <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">Objekte</span>
+                      <span className="ml-auto hidden text-xs text-slate-300 group-hover/sidebar:inline">⌃</span>
+                    </button>
+                    <div className="ml-12 mt-1 hidden space-y-1 group-hover/sidebar:block">
+                      <button type="button" onClick={() => setTab("kunden")} className={tab === "kunden" ? "block w-full rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-bold text-white" : "block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"}>Kunden</button>
+                      <button type="button" onClick={() => setTab("kontakte")} className={tab === "kontakte" ? "block w-full rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-bold text-white" : "block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"}>Kontakte</button>
+                      <button type="button" onClick={() => setTab("dashboard")} className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white">Auswertung</button>
+                    </div>
+                  </div>
+                );
               }
-            >
-              <span className={tab === item.id ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-base" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/5 text-base"}>{item.icon}</span>
-              <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">{item.label}</span>
-            </button>
-          ))}
+
+              if (item.id === "abwesenheiten") {
+                return (
+                  <div key={item.id} className="rounded-2xl">
+                    <button
+                      type="button"
+                      title={item.label}
+                      onClick={() => setTab(item.id)}
+                      className={
+                        tab === item.id
+                          ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-2.5 py-2.5 text-left text-sm font-black text-white shadow-lg shadow-blue-950/20"
+                          : "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left text-sm font-bold text-slate-400 transition hover:bg-white/10 hover:text-white"
+                      }
+                    >
+                      <span className={tab === item.id ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-base" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/5 text-base"}>{item.icon}</span>
+                      <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">{item.label}</span>
+                      <span className="ml-auto hidden text-xs text-slate-300 group-hover/sidebar:inline">⌃</span>
+                    </button>
+                    <div className="ml-12 mt-1 hidden space-y-1 group-hover/sidebar:block">
+                      <button type="button" onClick={() => setTab("abwesenheiten")} className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white">Kalender</button>
+                      <button type="button" onClick={() => setTab("abwesenheiten")} className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white">Freigaben</button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={item.label}
+                  onClick={() => setTab(item.id)}
+                  className={
+                    tab === item.id
+                      ? "flex w-full items-center gap-3 rounded-2xl bg-blue-600 px-2.5 py-2.5 text-left text-sm font-black text-white shadow-lg shadow-blue-950/20"
+                      : "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left text-sm font-bold text-slate-400 transition hover:bg-white/10 hover:text-white"
+                  }
+                >
+                  <span className={tab === item.id ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-base" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/5 text-base"}>{item.icon}</span>
+                  <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">{item.label}</span>
+                </button>
+              );
+            })}
         </nav>
 
-        <div className="mt-4 overflow-hidden rounded-3xl bg-white/5 p-2 text-white ring-1 ring-white/10 transition-all group-hover/sidebar:p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-sm font-black">!</div>
-            <div className="min-w-0 opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100">
-              <p className="text-xs font-bold text-slate-300">Heute</p>
-              <p className="text-2xl font-black leading-none">{openTasks}</p>
-              <p className="text-xs font-semibold text-slate-300">offene Aufgaben</p>
-            </div>
-          </div>
-          <button type="button" onClick={() => setTab("aufgaben")} className="mt-3 hidden w-full rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-950 hover:bg-blue-50 group-hover/sidebar:block">
-            Aufgaben öffnen
-          </button>
-        </div>
       </aside>
 
       <div className="lg:pl-16">
@@ -2966,12 +3078,12 @@ const basePayload = {
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} chatMessages={filtered.chatMessages} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} updateTodoStatus={updateTodoStatus} loadChat={loadChat} />}
           {tab === "angebote" && <Offers offers={filtered.offers} offerItems={filtered.offerItems} calculations={calculations} calculationItems={calculationItems} selectedOfferId={selectedOfferId} setSelectedOfferId={setSelectedOfferId} selectedCalculationId={selectedCalculationForOffer} setSelectedCalculationId={setSelectedCalculationForOffer} form={offerForm} setForm={setOfferForm} openOffer={openOffer} saveOffer={saveOffer} createFromCalculation={createOfferFromCalculation} updateLine={updateOfferLine} updateStatus={updateOfferStatus} deleteOffer={(row: Row) => removeRow("offers", row.id, "Angebot")} deleteLine={(row: Row) => removeRow("offer_items", row.id, "Angebotsposition")} saving={saving} />}
           {tab === "kalkulation" && <Calculations calculations={filtered.calculations} calculationItems={filtered.calculationItems} cleaningPlans={cleaningPlans} cleaningPlanItems={cleaningPlanItems} selectedCalculationId={selectedCalculationId} setSelectedCalculationId={setSelectedCalculationId} selectedPlanId={selectedPlanForCalculation} setSelectedPlanId={setSelectedPlanForCalculation} form={calculationForm} setForm={setCalculationForm} openCalculation={openCalculation} saveCalculation={saveCalculation} createFromPlan={createCalculationFromPlan} updateLine={updateCalculationLine} deleteCalculation={(row: Row) => removeRow("calculations", row.id, "Kalkulation")} deleteLine={(row: Row) => removeRow("calculation_items", row.id, "Kalkulationszeile")} saving={saving} />}
-          {tab === "reinigungsplaene" && <CleaningPlans plans={filtered.cleaningPlans} items={filtered.cleaningPlanItems} sites={sites} customers={customerList} form={cleaningPlanForm} setForm={setCleaningPlanForm} itemForm={cleaningPlanItemForm} setItemForm={setCleaningPlanItemForm} selectedPlanId={selectedCleaningPlanId} setSelectedPlanId={setSelectedCleaningPlanId} openPlan={openCleaningPlan} savePlan={saveCleaningPlan} openItem={openCleaningPlanItem} saveItem={saveCleaningPlanItem} reorderItems={reorderCleaningPlanItems} deletePlan={(row: Row) => removeRow("cleaning_plans", row.id, "Reinigungsplan")} deleteItem={(row: Row) => removeRow("cleaning_plan_items", row.id, "Reinigungspunkt")} saving={saving} />}
+          {tab === "reinigungsplaene" && <CleaningPlans plans={filtered.cleaningPlans} items={filtered.cleaningPlanItems} sites={sites} customers={customerList} form={cleaningPlanForm} setForm={setCleaningPlanForm} itemForm={cleaningPlanItemForm} setItemForm={setCleaningPlanItemForm} selectedPlanId={selectedCleaningPlanId} setSelectedPlanId={setSelectedCleaningPlanId} openPlan={openCleaningPlan} savePlan={saveCleaningPlan} openItem={openCleaningPlanItem} saveItem={saveCleaningPlanItem} reorderItems={reorderCleaningPlanItems} duplicatePlan={duplicateCleaningPlan} deletePlan={(row: Row) => removeRow("cleaning_plans", row.id, "Reinigungsplan")} deleteItem={(row: Row) => removeRow("cleaning_plan_items", row.id, "Reinigungspunkt")} saving={saving} />}
           {tab === "material" && <Materials rows={filtered.materials} reports={filtered.materialReports} sites={sites} openCreate={() => openMaterial()} openEdit={openMaterial} deleteRow={(row: Row) => removeRow("material_products", row.id, "Material")} resolveReport={resolveMaterialReport} onExport={() => downloadCsv("material.csv", materials)} />}
           {tab === "geraete" && <Devices rows={filtered.devices} openCreate={() => openDevice()} openEdit={openDevice} deleteRow={(row: Row) => removeRow("equipment_items", row.id, "Gerät")} exportRows={() => downloadCsv("geraete.csv", devices)} />}
           {tab === "schluessel" && <Keys rows={filtered.keys} openCreate={() => openKey()} openEdit={openKey} deleteRow={(row: Row) => removeRow("key_items", row.id, "Schlüssel")} pdf={createKeyPdf} exportRows={() => downloadCsv("schluessel.csv", keys)} />}
           {tab === "zeiten" && <Times rows={filtered.entries} employees={employees} tasks={assignmentRows} absences={absences} notifications={filtered.adminNotifications} approve={approveEntry} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openCorrection={openTimeCorrection} exportRows={() => downloadCsv("zeiten.csv", entries)} />}
-          {tab === "abwesenheiten" && <Absences rows={filtered.absences} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={decideAbsence} />}
+          {tab === "abwesenheiten" && <Absences rows={filtered.absences} employees={activeEmployees} openCreate={() => openAbsence()} openEdit={openAbsence} deleteRow={(row: Row) => removeRow("absence_requests", row.id, "Abwesenheit")} decide={decideAbsence} />}
           {tab === "chat" && <Chat employees={activeEmployees} employee={chatEmployee} setEmployee={loadChat} messages={chatMessages} text={chatText} setText={setChatText} send={sendChat} />}
         </section>
       </div>
@@ -4937,6 +5049,23 @@ function CleaningPlans(p: any) {
     return item.weekdays.map((day: string) => weekdayLabels[day] || day).join(", ");
   }
 
+  function intervalCellHtml(item: Row, interval: string) {
+    if (item.interval_type !== interval) return "";
+    const days = weekText(item);
+    return `✓${days ? `<br><small>${htmlEscape(days)}</small>` : ""}`;
+  }
+
+  function IntervalCell({ item, interval }: { item: Row; interval: string }) {
+    if (item.interval_type !== interval) return null;
+    const days = weekText(item);
+    return (
+      <div className="text-center">
+        <div className="font-black text-blue-700">✓</div>
+        {days && <div className="mt-1 text-[11px] font-bold text-slate-400">{days}</div>}
+      </div>
+    );
+  }
+
   function handleDrop(targetId: string) {
     if (!draggedItemId || draggedItemId === targetId) return;
 
@@ -4966,12 +5095,12 @@ function CleaningPlans(p: any) {
           <tr>
             <td>${htmlEscape(item.task_title || "")}</td>
             <td>${htmlEscape(item.task_description || "")}</td>
-            <td class="center">${mark(item, "daily")}</td>
-            <td class="center">${mark(item, "weekly")}<br><small>${htmlEscape(weekText(item))}</small></td>
-            <td class="center">${mark(item, "monthly")}</td>
-            <td class="center">${mark(item, "quarterly")}</td>
-            <td class="center">${mark(item, "half_yearly")}</td>
-            <td class="center">${mark(item, "yearly")}</td>
+            <td class="center">${intervalCellHtml(item, "daily")}</td>
+            <td class="center">${intervalCellHtml(item, "weekly")}</td>
+            <td class="center">${intervalCellHtml(item, "monthly")}</td>
+            <td class="center">${intervalCellHtml(item, "quarterly")}</td>
+            <td class="center">${intervalCellHtml(item, "half_yearly")}</td>
+            <td class="center">${intervalCellHtml(item, "yearly")}</td>
             <td class="note">${htmlEscape(item.notes || intervalLabel(item.interval_type))}</td>
           </tr>
         `).join("")}`;
@@ -5156,6 +5285,7 @@ function CleaningPlans(p: any) {
               <div className="flex flex-wrap gap-2">
                 {selectedPlan && <Button primary onClick={openNewItem}>+ Reinigungspunkt</Button>}
                 {selectedPlan && <Button onClick={() => p.openPlan(selectedPlan)}>Plan bearbeiten</Button>}
+                {selectedPlan && <Button onClick={() => p.duplicatePlan?.(selectedPlan)}>Duplizieren</Button>}
                 {selectedPlan && <Button onClick={() => printPlan(false)}>PDF Kunde</Button>}
                 {selectedPlan && <Button danger onClick={() => p.deletePlan(selectedPlan)}>Löschen</Button>}
               </div>
@@ -5207,15 +5337,12 @@ function CleaningPlans(p: any) {
                             <td className="px-3 py-2 text-base font-black text-slate-400">☰</td>
                             <td className="px-3 py-2 font-black text-slate-950">{item.task_title}</td>
                             <td className="w-[170px] px-3 py-2 text-slate-600">{item.task_description || "-"}</td>
-                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "daily")}</td>
-                            <td className="px-3 py-2 text-center">
-                              <div className="font-black text-blue-700">{mark(item, "weekly")}</div>
-                              {Array.isArray(item.weekdays) && item.weekdays.length > 0 && <div className="mt-1 text-[11px] font-bold text-slate-400">{weekText(item)}</div>}
-                            </td>
-                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "monthly")}</td>
-                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "quarterly")}</td>
-                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "half_yearly")}</td>
-                            <td className="px-3 py-2 text-center font-black text-blue-700">{mark(item, "yearly")}</td>
+                            <td className="px-3 py-2"><IntervalCell item={item} interval="daily" /></td>
+                            <td className="px-3 py-2"><IntervalCell item={item} interval="weekly" /></td>
+                            <td className="px-3 py-2"><IntervalCell item={item} interval="monthly" /></td>
+                            <td className="px-3 py-2"><IntervalCell item={item} interval="quarterly" /></td>
+                            <td className="px-3 py-2"><IntervalCell item={item} interval="half_yearly" /></td>
+                            <td className="px-3 py-2"><IntervalCell item={item} interval="yearly" /></td>
                             <td className="w-[260px] whitespace-nowrap px-3 py-2 text-xs font-semibold text-slate-600">{item.notes || intervalLabel(item.interval_type)}</td>
                             <td className="px-3 py-2">
                               <div className="flex flex-wrap gap-2">
@@ -5906,7 +6033,141 @@ function Times(p: any) {
 }
 
 function Absences(p: any) {
-  return <ListPage icon="✈" title="Abwesenheiten" sub="Urlaub, Krankheit und Freistellung" rows={p.rows} headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]} createLabel="+ Abwesenheit" onCreate={p.openCreate}>{p.rows.map((r: Row) => <tr key={r.id}><td className="px-4 py-3 font-black">{r.employee_name}</td><td className="px-4 py-3">{r.absence_type}</td><td className="px-4 py-3">{dateText(r.start_date)}</td><td className="px-4 py-3">{dateText(r.end_date)}</td><td className="px-4 py-3"><Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || "open"}</Status></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button primary onClick={() => p.decide(r, "approved")}>OK</Button><Button danger onClick={() => p.decide(r, "rejected")}>Nein</Button><Button onClick={() => p.openEdit(r)}>Bearbeiten</Button><Button danger onClick={() => p.deleteRow(r)}>Löschen</Button></div></td></tr>)}</ListPage>;
+  const [view, setView] = useState<"kalender" | "freigaben" | "liste">("kalender");
+  const rows = Array.isArray(p.rows) ? p.rows : [];
+  const openRows = rows.filter((row: Row) => !row.status || row.status === "open" || row.status === "pending");
+
+  const employees = (Array.isArray(p.employees) && p.employees.length > 0)
+    ? p.employees
+    : Array.from(new Map(rows.map((row: Row) => [String(row.employee_id || row.employee_name || row.id), { id: row.employee_id || row.employee_name || row.id, name: row.employee_name || "Mitarbeiter" }])).values());
+
+  function toDate(value: any) {
+    const date = new Date(String(value || ""));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const firstDate = rows
+    .map((row: Row) => toDate(row.start_date))
+    .filter(Boolean)
+    .sort((a: any, b: any) => a.getTime() - b.getTime())[0] as Date | undefined;
+
+  const startDate = firstDate || new Date();
+  startDate.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 28 }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+    return date;
+  });
+
+  function dayKey(date: Date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function dayLabel(date: Date) {
+    return date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  }
+
+  function rowsForEmployeeDay(employee: Row, date: Date) {
+    const key = dayKey(date);
+    return rows.filter((row: Row) => {
+      const sameEmployee = String(row.employee_id || row.employee_name || "") === String(employee.id || employee.name || "") || String(row.employee_name || "") === String(employee.name || "");
+      if (!sameEmployee) return false;
+      const start = String(row.start_date || "").slice(0, 10);
+      const end = String(row.end_date || row.start_date || "").slice(0, 10);
+      return key >= start && key <= end;
+    });
+  }
+
+  function AbsenceRow({ r }: { r: Row }) {
+    return (
+      <tr key={r.id}>
+        <td className="px-4 py-3 font-black">{r.employee_name}</td>
+        <td className="px-4 py-3">{r.absence_type}</td>
+        <td className="px-4 py-3">{dateText(r.start_date)}</td>
+        <td className="px-4 py-3">{dateText(r.end_date)}</td>
+        <td className="px-4 py-3"><Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || "open"}</Status></td>
+        <td className="px-4 py-3">
+          <div className="flex flex-wrap gap-2">
+            <Button primary onClick={() => p.decide(r, "approved")}>OK</Button>
+            <Button danger onClick={() => p.decide(r, "rejected")}>Nein</Button>
+            <Button onClick={() => p.openEdit(r)}>Bearbeiten</Button>
+            <Button danger onClick={() => p.deleteRow(r)}>Löschen</Button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <div>
+      <PageHeader icon="✈" title="Abwesenheiten" sub="Kalender, Anträge und Freigaben pro Mitarbeiter im Blick.">
+        <Button onClick={() => setView("kalender")} primary={view === "kalender"}>Kalender</Button>
+        <Button onClick={() => setView("freigaben")} primary={view === "freigaben"}>Freigaben</Button>
+        <Button onClick={() => setView("liste")} primary={view === "liste"}>Liste</Button>
+        <Button primary onClick={p.openCreate}>+ Abwesenheit</Button>
+      </PageHeader>
+
+      {view === "kalender" && (
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+            <div>
+              <h3 className="text-lg font-black text-slate-950">Kalenderansicht</h3>
+              <p className="text-sm font-semibold text-slate-500">Ich sehe alle Mitarbeiter gleichzeitig.</p>
+            </div>
+            <Status color={openRows.length ? "yellow" : "green"}>{openRows.length} offen</Status>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 1100 }}>
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="sticky left-0 z-10 border-b border-slate-200 bg-slate-50 px-4 py-3 text-left font-black">Mitarbeiter</th>
+                  {days.map((day) => <th key={dayKey(day)} className="border-b border-slate-200 px-3 py-2 text-center text-xs font-black">{dayLabel(day)}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {employees.map((employee: Row) => (
+                  <tr key={employee.id || employee.name}>
+                    <td className="sticky left-0 z-10 min-w-[220px] bg-white px-4 py-3 font-black">{employee.name || employee.employee_name}</td>
+                    {days.map((day) => {
+                      const matches = rowsForEmployeeDay(employee, day);
+                      return (
+                        <td key={dayKey(day)} className="h-14 min-w-[92px] border-l border-slate-100 px-1 py-1 align-top">
+                          {matches.map((row: Row) => (
+                            <button key={row.id} type="button" onClick={() => p.openEdit(row)} className={row.status === "approved" ? "block w-full rounded-xl bg-emerald-50 px-2 py-1 text-left text-[11px] font-black text-emerald-700 ring-1 ring-emerald-100" : row.status === "rejected" ? "block w-full rounded-xl bg-red-50 px-2 py-1 text-left text-[11px] font-black text-red-700 ring-1 ring-red-100" : "block w-full rounded-xl bg-amber-50 px-2 py-1 text-left text-[11px] font-black text-amber-700 ring-1 ring-amber-100"}>
+                              {row.absence_type || "Abwesenheit"}
+                            </button>
+                          ))}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {view === "freigaben" && (
+        <div>
+          <div className="mb-4 grid gap-4 md:grid-cols-3">
+            <Metric title="Offen" value={openRows.length} hint="Anträge" />
+            <Metric title="Genehmigt" value={rows.filter((r: Row) => r.status === "approved").length} hint="gesamt" />
+            <Metric title="Abgelehnt" value={rows.filter((r: Row) => r.status === "rejected").length} hint="gesamt" />
+          </div>
+          <Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>
+            {openRows.length === 0 ? <tr><td colSpan={6}><Empty text="Keine offenen Abwesenheiten zur Freigabe." /></td></tr> : openRows.map((r: Row) => <AbsenceRow key={r.id} r={r} />)}
+          </Table>
+        </div>
+      )}
+
+      {view === "liste" && (
+        <Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>
+          {rows.length === 0 ? <tr><td colSpan={6}><Empty /></td></tr> : rows.map((r: Row) => <AbsenceRow key={r.id} r={r} />)}
+        </Table>
+      )}
+    </div>
+  );
 }
 
 function Chat(p: any) {
