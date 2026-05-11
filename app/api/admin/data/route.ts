@@ -208,6 +208,8 @@ function sanitizeRow(table: string, row: Record<string, unknown>, action: "inser
 
 
   if (table === "customers") {
+    if (isEmpty(cleaned.contract_start_date)) cleaned.contract_start_date = null;
+    if (isEmpty(cleaned.contract_end_date)) cleaned.contract_end_date = null;
     if (!("active" in cleaned)) cleaned.active = true;
   }
 

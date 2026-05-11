@@ -10,6 +10,7 @@ type Tab =
   | "kunden"
   | "kontakte"
   | "objekte"
+  | "objekt_auswertung"
   | "aufgaben"
   | "meldungen"
   | "material"
@@ -55,7 +56,7 @@ const today = toLocalIso(new Date());
 
 const emptyEmployeeInvite = { name: "", email: "", phone: "" };
 const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", monthly_hour_limit: "0", vacation_days: "0", active: true };
-const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", notes: "", active: true };
+const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", contract_start_date: "", contract_end_date: "", notes: "", active: true };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
 const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "150", monthly_hour_quota: "0", latitude: "", longitude: "", notes: "", active: true };
 const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false, paid_minutes: "120", quality_required: false, quality_photo_required: false, quality_checklist_text: "" };
@@ -868,6 +869,101 @@ function downloadKeyHandoverPdf(data: {
   ], data.filename);
 }
 
+
+function parseCsvText(text: string) {
+  const rows: string[][] = [];
+  let current = "";
+  let row: string[] = [];
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if ((char === "," || char === ";") && !inQuotes) {
+      row.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(current.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  row.push(current.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function normalizeCsvKey(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\ufeff/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
+}
+
+function csvRecords(text: string) {
+  const rows = parseCsvText(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(normalizeCsvKey);
+  return rows.slice(1).map((row) => {
+    const record: Row = {};
+    headers.forEach((header, index) => {
+      record[header] = row[index] ?? "";
+    });
+    return record;
+  });
+}
+
+function csvValue(record: Row, keys: string[]) {
+  for (const key of keys) {
+    const normalized = normalizeCsvKey(key);
+    if (record[normalized] !== undefined && String(record[normalized]).trim() !== "") return String(record[normalized]).trim();
+  }
+  return "";
+}
+
+function normalizeImportDate(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (match) return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+  return text;
+}
+
+function normalizeImportTime(value: unknown, fallback = "") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return fallback;
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
 export default function AdminPage() {
   const [allowed, setAllowed] = useState(false);
   const [adminProfile, setAdminProfile] = useState<Row | null>(null);
@@ -1353,6 +1449,108 @@ export default function AdminPage() {
     await updateEmployeeProfile({ id: row.id, name: row.name, active }, active ? "Mitarbeiter aktiviert." : "Mitarbeiter deaktiviert.");
   }
 
+  async function importCustomersFromCsv(file: File | null) {
+    if (!file) return;
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const text = await file.text();
+      const records = csvRecords(text);
+      if (records.length === 0) {
+        setMessage("CSV enthält keine Kundendaten.");
+        return;
+      }
+
+      const payload = records
+        .map((record) => ({
+          name: csvValue(record, ["kunde", "name", "customer", "firma"]),
+          customer_number: csvValue(record, ["kundennummer", "nummer", "customer_number"]) || null,
+          address: csvValue(record, ["adresse", "address"]) || null,
+          phone: csvValue(record, ["telefon", "phone"]) || null,
+          email: csvValue(record, ["email", "e-mail", "mail"]) || null,
+          contract_start_date: normalizeImportDate(csvValue(record, ["vertragsbeginn", "beginn", "contract_start_date"])) || null,
+          contract_end_date: normalizeImportDate(csvValue(record, ["vertragsende", "ende", "contract_end_date"])) || null,
+          notes: csvValue(record, ["notiz", "notizen", "notes"]) || null,
+          active: true,
+        }))
+        .filter((row) => row.name);
+
+      if (payload.length === 0) {
+        setMessage("Keine gültigen Kunden gefunden. Spalte „Kunde“ oder „Name“ muss gefüllt sein.");
+        return;
+      }
+
+      await adminCall({ action: "insert", table: "customers", payload });
+      setMessage(`${payload.length} Kunden wurden importiert.`);
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kundenimport fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function importPastTimesFromCsv(file: File | null) {
+    if (!file) return;
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const text = await file.text();
+      const records = csvRecords(text);
+      if (records.length === 0) {
+        setMessage("CSV enthält keine Zeiten.");
+        return;
+      }
+
+      const payload = records.map((record) => {
+        const employeeName = csvValue(record, ["mitarbeiter", "employee", "name"]);
+        const date = normalizeImportDate(csvValue(record, ["datum", "date", "work_date"]));
+        const startTime = normalizeImportTime(csvValue(record, ["von", "start", "start_time"]), "08:00");
+        const endTime = normalizeImportTime(csvValue(record, ["bis", "ende", "end", "end_time"]), "10:00");
+        const siteName = csvValue(record, ["objekt", "site", "work_site", "object"]);
+        const matchedSite = sites.find((site) => String(site.name || "").trim().toLowerCase() === siteName.trim().toLowerCase());
+        const start = new Date(`${date}T${startTime}:00`);
+        const end = new Date(`${date}T${endTime}:00`);
+        if (end.getTime() < start.getTime()) end.setDate(end.getDate() + 1);
+        const duration = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+        const minutesValue = numberOrFallback(csvValue(record, ["minuten", "minutes", "arbeitsminuten"]), duration || 0);
+        return {
+          employee_name: employeeName,
+          work_date: date,
+          check_in_at: start.toISOString(),
+          check_out_at: end.toISOString(),
+          site: matchedSite?.name || siteName || null,
+          work_site_name: matchedSite?.name || siteName || null,
+          work_site_id: matchedSite?.id || null,
+          action: "manual",
+          entry_type: "import",
+          reason: csvValue(record, ["grund", "reason"]) || "Vergangene Zeit importiert",
+          notes: csvValue(record, ["notiz", "notizen", "notes"]) || null,
+          planned_minutes: minutesValue,
+          worked_minutes: minutesValue,
+          payroll_minutes: minutesValue,
+          approved: true,
+          status: "approved",
+        };
+      }).filter((row) => row.employee_name && row.work_date && row.worked_minutes > 0);
+
+      if (payload.length === 0) {
+        setMessage("Keine gültigen Zeiten gefunden. Benötigt werden Mitarbeiter, Datum, Von und Bis.");
+        return;
+      }
+
+      await adminCall({ action: "insert", table: "time_entries", payload });
+      setMessage(`${payload.length} vergangene Zeiten wurden importiert und freigegeben.`);
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Zeitimport fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openCustomer(row?: Row) {
     setCustomerForm(row ? {
       id: String(row.id || ""),
@@ -1361,6 +1559,8 @@ export default function AdminPage() {
       address: String(row.address || row.customer_address || ""),
       phone: String(row.phone || row.customer_phone || ""),
       email: String(row.email || row.customer_email || ""),
+      contract_start_date: String(row.contract_start_date || row.contract_start || ""),
+      contract_end_date: String(row.contract_end_date || row.contract_end || ""),
       notes: String(row.notes || row.customer_notes || ""),
       active: row.active !== false,
     } : emptyCustomer);
@@ -1374,6 +1574,8 @@ export default function AdminPage() {
       address: customerForm.address || null,
       phone: customerForm.phone || null,
       email: customerForm.email || null,
+      contract_start_date: customerForm.contract_start_date || null,
+      contract_end_date: customerForm.contract_end_date || null,
       notes: customerForm.notes || null,
       active: customerForm.active !== false,
     });
@@ -2889,12 +3091,12 @@ const basePayload = {
   function canCreateInTab(tabName: Tab) {
     if (isAdminRole) return true;
     if (isObjectLeaderRole) {
-      return ["planung", "aufgaben", "meldungen", "material", "reinigungsplaene", "kalkulation", "angebote", "zeiten", "abwesenheiten", "chat"].includes(tabName);
+      return ["planung", "aufgaben", "meldungen", "material", "reinigungsplaene", "kalkulation", "angebote", "zeiten", "abwesenheiten", "chat", "objekt_auswertung"].includes(tabName);
     }
     return false;
   }
 
-  const currentNav = visibleNavItems.find((item) => item.id === tab) || visibleNavItems[0] || navItems[0];
+  const currentNav = tab === "objekt_auswertung" ? { id: "objekt_auswertung" as Tab, icon: "📊", label: "Objekt-Auswertung" } : visibleNavItems.find((item) => item.id === tab) || visibleNavItems[0] || navItems[0];
   const createButtonLabel = getCreateButtonLabel(tab);
   const canUsePrimaryAction = canCreateInTab(tab);
 
@@ -2975,7 +3177,7 @@ const basePayload = {
                     <div className="ml-12 mt-1 hidden space-y-1 group-hover/sidebar:block">
                       <button type="button" onClick={() => setTab("kunden")} className={tab === "kunden" ? "block w-full rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-bold text-white" : "block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"}>Kunden</button>
                       <button type="button" onClick={() => setTab("kontakte")} className={tab === "kontakte" ? "block w-full rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-bold text-white" : "block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"}>Kontakte</button>
-                      <button type="button" onClick={() => setTab("dashboard")} className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white">Auswertung</button>
+                      <button type="button" onClick={() => setTab("objekt_auswertung")} className={tab === "objekt_auswertung" ? "block w-full rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-bold text-white" : "block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"}>Auswertung</button>
                     </div>
                   </div>
                 );
@@ -2999,8 +3201,7 @@ const basePayload = {
                       <span className="ml-auto hidden text-xs text-slate-300 group-hover/sidebar:inline">⌃</span>
                     </button>
                     <div className="ml-12 mt-1 hidden space-y-1 group-hover/sidebar:block">
-                      <button type="button" onClick={() => setTab("abwesenheiten")} className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white">Kalender</button>
-                      <button type="button" onClick={() => setTab("abwesenheiten")} className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white">Freigaben</button>
+                      <button type="button" onClick={() => setTab("abwesenheiten")} className={tab === "abwesenheiten" ? "block w-full rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-bold text-white" : "block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"}>Freigaben</button>
                     </div>
                   </div>
                 );
@@ -3071,9 +3272,10 @@ const basePayload = {
           {tab === "dashboard" && <Dashboard employees={activeEmployees} sites={sites} tasks={tasks} entries={entries} lowStock={lowStock} openMaterialReports={openMaterialReports} openNotifications={adminNotifications.filter((item: Row) => !item.status || item.status === "open").length} openAbsences={openAbsences} workedMinutes={workedMinutes} setTab={setTab} />}
           {tab === "planung" && <Planning tasks={filtered.assignments} employees={activeEmployees} sites={sites} customers={customerList} absences={absences} qualityReports={filtered.qualityReports} openTask={openTask} editTask={openTask} reassignTask={reassignTask} deleteTask={deleteAssignment} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} />}
           {tab === "mitarbeiter" && <Employees rows={filtered.employees} entries={entries} absences={absences} tasks={tasks} openCreate={() => openEmployee()} openEdit={openEmployee} activate={(row: Row) => setEmployeeActive(row, true)} deactivate={(row: Row) => setEmployeeActive(row, false)} exportRows={() => downloadCsv("mitarbeiter.csv", employees)} />}
-          {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedCustomer={selectedCustomerFile} setSelectedCustomer={setSelectedCustomerFile} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} />}
+          {tab === "kunden" && <Customers rows={filtered.customers} sites={sites} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedCustomer={selectedCustomerFile} setSelectedCustomer={setSelectedCustomerFile} openCreate={() => openCustomer()} openEdit={openCustomer} deleteRow={(row: Row) => removeRow("customers", row.id, "Kunde")} exportRows={() => downloadCsv("kunden.csv", customerList)} importCustomers={importCustomersFromCsv} />}
           {tab === "kontakte" && <Contacts rows={filtered.contacts} openCreate={() => openContact()} openEdit={openContact} deleteRow={(row: Row) => removeRow("customer_contacts", row.id, "Kontakt")} exportRows={() => downloadCsv("kontakte.csv", contacts)} />}
           {tab === "objekte" && <Sites rows={filtered.sites} customers={customerList} tasks={assignmentRows} entries={entries} materialReports={materialReports} qualityReports={qualityReports} keys={keys} contacts={contacts} selectedObject={selectedObjectFile} setSelectedObject={setSelectedObjectFile} openCreate={() => openSite()} openEdit={openSite} deleteRow={(row: Row) => removeRow("work_sites", row.id, "Objekt")} exportRows={() => downloadCsv("objekte.csv", sites)} />}
+          {tab === "objekt_auswertung" && <ObjectAnalytics sites={sites} entries={entries} materials={materials} materialReports={materialReports} calculations={calculations} />}
           {tab === "aufgaben" && <Tasks rows={filtered.actionTasks} openCreate={() => openTask()} openEdit={openTask} deleteRow={(row: Row) => removeRow("tasks", row.id, "Aufgabe")} exportRows={() => downloadCsv("aufgaben.csv", actionTaskRows)} />}
           {tab === "meldungen" && <Meldungen notifications={filtered.adminNotifications} materialReports={filtered.materialReports} qualityReports={filtered.qualityReports} absences={filtered.absences} entries={filtered.entries} chatMessages={filtered.chatMessages} approveQualityReport={approveQualityReport} requestQualityRework={requestQualityRework} setTab={setTab} resolveReport={resolveMaterialReport} decideAbsence={decideAbsence} decideNotification={decideAdminNotification} closeNotification={closeAdminNotification} openTimeCorrection={openTimeCorrection} updateTodoStatus={updateTodoStatus} loadChat={loadChat} />}
           {tab === "angebote" && <Offers offers={filtered.offers} offerItems={filtered.offerItems} calculations={calculations} calculationItems={calculationItems} selectedOfferId={selectedOfferId} setSelectedOfferId={setSelectedOfferId} selectedCalculationId={selectedCalculationForOffer} setSelectedCalculationId={setSelectedCalculationForOffer} form={offerForm} setForm={setOfferForm} openOffer={openOffer} saveOffer={saveOffer} createFromCalculation={createOfferFromCalculation} updateLine={updateOfferLine} updateStatus={updateOfferStatus} deleteOffer={(row: Row) => removeRow("offers", row.id, "Angebot")} deleteLine={(row: Row) => removeRow("offer_items", row.id, "Angebotsposition")} saving={saving} />}
@@ -3935,7 +4137,18 @@ function Customers(p: any) {
         />
       )}
 
-      <ListPage icon="🏷" title="Kunden" sub="Hauptmaske für Kundenstammdaten" rows={p.rows} headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Objekte", "Aktion"]} createLabel="+ Kunde erstellen" onCreate={p.openCreate} onExport={p.exportRows}>
+      <PageHeader icon="🏷" title="Kunden" sub="Hauptmaske für Kundenstammdaten">
+        <label className="cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">
+          CSV hochladen
+          <input type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => p.importCustomers?.(event.target.files?.[0] || null)} />
+        </label>
+        <Button onClick={p.exportRows}>Exportieren</Button>
+        <Button primary onClick={p.openCreate}>+ Kunde erstellen</Button>
+      </PageHeader>
+      <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800">
+        CSV-Spalten: Kunde, Kundennummer, Adresse, Telefon, E-Mail, Vertragsbeginn, Vertragsende, Notizen
+      </div>
+      <Table headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Vertrag", "Objekte", "Aktion"]}>
         {p.rows.map((r: Row) => {
           const objectCount = p.sites?.filter((site: Row) => site.customer_id === r.id || site.customer_name === r.name).length || r.object_count || 0;
           return (
@@ -3947,6 +4160,7 @@ function Customers(p: any) {
               <td className="px-4 py-3">{r.address || r.customer_address || "-"}</td>
               <td className="px-4 py-3">{r.phone || r.customer_phone || "-"}</td>
               <td className="px-4 py-3">{r.email || r.customer_email || "-"}</td>
+              <td className="px-4 py-3 text-sm font-semibold text-slate-500">{r.contract_start_date ? dateText(r.contract_start_date) : "-"}{r.contract_end_date ? ` bis ${dateText(r.contract_end_date)}` : ""}</td>
               <td className="px-4 py-3"><Status color={objectCount > 0 ? "blue" : "gray"}>{objectCount}</Status></td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-2">
@@ -3957,7 +4171,7 @@ function Customers(p: any) {
             </tr>
           );
         })}
-      </ListPage>
+      </Table>
     </div>
   );
 }
@@ -5913,8 +6127,12 @@ function Times(p: any) {
         </Card>
       )}
 
-      <PageHeader icon="⏱" title="Zeiten & Lohnexport" sub="Ich gebe Zeiten frei und exportiere danach die Monatsstunden.">
+      <PageHeader icon="⏱" title="Zeiten & Lohnexport" sub="Ich gebe Zeiten frei, trage fehlende Zeiten nach und importiere vergangene Zeiten.">
         <Button onClick={() => p.openCorrection()}>Zeit nachtragen</Button>
+        <label className="cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">
+          Vergangene Zeiten CSV
+          <input type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => p.importTimes?.(event.target.files?.[0] || null)} />
+        </label>
         <Button onClick={p.exportRows}>Zeiten CSV</Button>
         <Button primary onClick={exportPayroll}>Lohnexport CSV</Button>
       </PageHeader>
@@ -6032,140 +6250,203 @@ function Times(p: any) {
   );
 }
 
-function Absences(p: any) {
-  const [view, setView] = useState<"kalender" | "freigaben" | "liste">("kalender");
-  const rows = Array.isArray(p.rows) ? p.rows : [];
-  const openRows = rows.filter((row: Row) => !row.status || row.status === "open" || row.status === "pending");
+function ObjectAnalytics(p: any) {
+  const [selectedSiteId, setSelectedSiteId] = useState("");
+  const sites = Array.isArray(p.sites) ? p.sites : [];
+  const selectedSite = sites.find((site: Row) => String(site.id || "") === String(selectedSiteId || "")) || sites[0] || null;
+  const siteId = String(selectedSite?.id || "");
 
-  const employees = (Array.isArray(p.employees) && p.employees.length > 0)
-    ? p.employees
-    : Array.from(new Map(rows.map((row: Row) => [String(row.employee_id || row.employee_name || row.id), { id: row.employee_id || row.employee_name || row.id, name: row.employee_name || "Mitarbeiter" }])).values());
-
-  function toDate(value: any) {
-    const date = new Date(String(value || ""));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const firstDate = rows
-    .map((row: Row) => toDate(row.start_date))
-    .filter(Boolean)
-    .sort((a: any, b: any) => a.getTime() - b.getTime())[0] as Date | undefined;
-
-  const startDate = firstDate || new Date();
-  startDate.setHours(0, 0, 0, 0);
-  const days = Array.from({ length: 28 }, (_, index) => {
-    const date = new Date(startDate);
-    date.setDate(startDate.getDate() + index);
-    return date;
+  const entries = (Array.isArray(p.entries) ? p.entries : []).filter((entry: Row) => {
+    const entrySiteId = String(entry.work_site_id || entry.site_id || entry.object_id || "");
+    const entrySiteName = String(entry.site || entry.site_name || entry.object_name || "");
+    return siteId ? entrySiteId === siteId || entrySiteName === String(selectedSite?.name || "") : false;
   });
 
-  function dayKey(date: Date) {
-    return date.toISOString().slice(0, 10);
-  }
+  const materialProducts = (Array.isArray(p.materials) ? p.materials : []).filter((item: Row) => {
+    const itemSiteId = String(item.work_site_id || item.site_id || "");
+    const itemSiteName = String(item.site_name || item.object_name || "");
+    return siteId ? itemSiteId === siteId || itemSiteName === String(selectedSite?.name || "") : false;
+  });
 
-  function dayLabel(date: Date) {
-    return date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
-  }
+  const materialReports = (Array.isArray(p.materialReports) ? p.materialReports : []).filter((item: Row) => {
+    const itemSiteId = String(item.work_site_id || item.site_id || "");
+    const itemSiteName = String(item.site_name || item.object_name || "");
+    return siteId ? itemSiteId === siteId || itemSiteName === String(selectedSite?.name || "") : false;
+  });
 
-  function rowsForEmployeeDay(employee: Row, date: Date) {
-    const key = dayKey(date);
-    return rows.filter((row: Row) => {
-      const sameEmployee = String(row.employee_id || row.employee_name || "") === String(employee.id || employee.name || "") || String(row.employee_name || "") === String(employee.name || "");
-      if (!sameEmployee) return false;
-      const start = String(row.start_date || "").slice(0, 10);
-      const end = String(row.end_date || row.start_date || "").slice(0, 10);
-      return key >= start && key <= end;
-    });
-  }
+  const calculations = (Array.isArray(p.calculations) ? p.calculations : []).filter((item: Row) => {
+    const itemSiteId = String(item.work_site_id || item.site_id || "");
+    const itemSiteName = String(item.site_name || item.object_name || "");
+    return siteId ? itemSiteId === siteId || itemSiteName === String(selectedSite?.name || "") : false;
+  });
 
-  function AbsenceRow({ r }: { r: Row }) {
-    return (
-      <tr key={r.id}>
-        <td className="px-4 py-3 font-black">{r.employee_name}</td>
-        <td className="px-4 py-3">{r.absence_type}</td>
-        <td className="px-4 py-3">{dateText(r.start_date)}</td>
-        <td className="px-4 py-3">{dateText(r.end_date)}</td>
-        <td className="px-4 py-3"><Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{r.status || "open"}</Status></td>
-        <td className="px-4 py-3">
-          <div className="flex flex-wrap gap-2">
-            <Button primary onClick={() => p.decide(r, "approved")}>OK</Button>
-            <Button danger onClick={() => p.decide(r, "rejected")}>Nein</Button>
-            <Button onClick={() => p.openEdit(r)}>Bearbeiten</Button>
-            <Button danger onClick={() => p.deleteRow(r)}>Löschen</Button>
+  const minutes = entries.reduce((sum: number, entry: Row) => sum + numberOrFallback(entry.worked_minutes || entry.approved_minutes || entry.planned_minutes, 0), 0);
+  const hours = minutes / 60;
+
+  const wageCosts = entries.reduce((sum: number, entry: Row) => {
+    const entryMinutes = numberOrFallback(entry.worked_minutes || entry.approved_minutes || entry.planned_minutes, 0);
+    const wage = numberOrFallback(entry.hourly_rate || entry.wage || entry.employee_hourly_rate, 0);
+    return sum + (entryMinutes / 60) * wage;
+  }, 0);
+
+  const employerCosts = wageCosts * 1.25;
+
+  const materialValue = materialProducts.reduce((sum: number, item: Row) => {
+    const stock = numberOrFallback(item.current_stock || item.quantity || 0, 0);
+    const price = numberOrFallback(item.unit_price || item.purchase_price || item.price || 0, 0);
+    return sum + stock * price;
+  }, 0);
+
+  const orderedMaterialValue = materialReports.reduce((sum: number, item: Row) => {
+    const quantity = numberOrFallback(item.quantity || item.amount || 1, 1);
+    const price = numberOrFallback(item.unit_price || item.purchase_price || item.price || 0, 0);
+    return sum + quantity * price;
+  }, 0);
+
+  const revenue = calculations.reduce((sum: number, item: Row) => sum + numberOrFallback(item.monthly_price || item.price || item.revenue, 0), 0);
+  const actualProfit = revenue - employerCosts - materialValue - orderedMaterialValue;
+
+  return (
+    <div>
+      <PageHeader icon="📊" title="Objekte · Auswertung" sub="Vorbereitung für Stunden, Materialeinsatz, Lohnkosten und tatsächlichen Gewinn je Objekt.">
+        <Button onClick={() => setSelectedSiteId("")}>Zurücksetzen</Button>
+      </PageHeader>
+
+      <Card className="mb-5 p-5">
+        <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
+          <Field label="Objekt">
+            <Select value={selectedSiteId || String(selectedSite?.id || "")} onChange={(e) => setSelectedSiteId(e.target.value)}>
+              <option value="">Objekt auswählen</option>
+              {sites.map((site: Row) => <option key={site.id || site.name} value={site.id}>{site.name}</option>)}
+            </Select>
+          </Field>
+          <div className="rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-800">
+            {selectedSite ? `${selectedSite.name || "Objekt"} · ${selectedSite.customer_name || "Kunde"}` : "Bitte ein Objekt auswählen."}
           </div>
-        </td>
-      </tr>
+        </div>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Metric title="Arbeitsstunden" value={`${prettyHours(minutes)} h`} hint="erfasste Zeit" />
+        <Metric title="Materialeinsatz" value={euro(materialValue + orderedMaterialValue)} hint="Bestand + Bestellungen" />
+        <Metric title="Lohn" value={euro(wageCosts)} hint="Mitarbeiterlohn" />
+        <Metric title="Kosten AG" value={euro(employerCosts)} hint="Lohn inkl. Arbeitgeberkosten" />
+        <Metric title="Gewinn" value={euro(actualProfit)} hint="tatsächlich übrig" />
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <Card className="p-5">
+          <h3 className="text-xl font-black text-slate-950">Stunden</h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Alle erfassten Zeiten zum Objekt.</p>
+          <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            {entries.length === 0 && <Empty text="Keine Zeiten für dieses Objekt gefunden." />}
+            {entries.map((entry: Row) => (
+              <div key={entry.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                <p className="font-black text-slate-950">{entry.employee_name || "Mitarbeiter"}</p>
+                <p className="text-sm font-semibold text-slate-500">{dateText(entry.created_at || entry.entry_date || entry.task_date)} · {prettyHours(entry.worked_minutes || entry.approved_minutes || entry.planned_minutes)} h</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h3 className="text-xl font-black text-slate-950">Material</h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Bestand und Bestellungen zum Objekt.</p>
+          <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            {materialProducts.length === 0 && materialReports.length === 0 && <Empty text="Kein Material für dieses Objekt gefunden." />}
+            {materialProducts.map((item: Row) => (
+              <div key={`product-${item.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+                <p className="font-black text-slate-950">{item.name || item.material_name || "Material"}</p>
+                <p className="text-sm font-semibold text-slate-500">Bestand: {item.current_stock || item.quantity || 0} {item.unit || ""}</p>
+              </div>
+            ))}
+            {materialReports.map((item: Row) => (
+              <div key={`report-${item.id}`} className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                <p className="font-black text-slate-950">{item.material_name || item.product_name || item.name || "Materialmeldung"}</p>
+                <p className="text-sm font-semibold text-amber-700">Bestellung/Meldung · {item.quantity || item.amount || 1} {item.unit || ""}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Absences(p: any) {
+  const rows = Array.isArray(p.rows) ? p.rows : [];
+  const openRows = rows.filter((row: Row) => !row.status || row.status === "open" || row.status === "pending");
+  const doneRows = rows.filter((row: Row) => row.status && row.status !== "open" && row.status !== "pending");
+
+  function statusLabel(row: Row) {
+    if (row.status === "approved") return "freigegeben";
+    if (row.status === "rejected") return "abgelehnt";
+    return row.status || "offen";
+  }
+
+  function AbsenceCard({ r, done = false }: { r: Row; done?: boolean }) {
+    return (
+      <div className={done ? "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" : "rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm"}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-black text-slate-950">{r.employee_name || "Mitarbeiter"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">{r.absence_type || "Abwesenheit"} · {dateText(r.start_date)} bis {dateText(r.end_date)}</p>
+            {r.note && <p className="mt-2 text-sm font-semibold text-slate-600">{r.note}</p>}
+          </div>
+          <Status color={r.status === "approved" ? "green" : r.status === "rejected" ? "red" : "yellow"}>{statusLabel(r)}</Status>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!done && <Button primary onClick={() => p.decide(r, "approved")}>Freigeben</Button>}
+          {!done && <Button danger onClick={() => p.decide(r, "rejected")}>Ablehnen</Button>}
+          <Button onClick={() => p.openEdit(r)}>Bearbeiten</Button>
+          <Button danger onClick={() => p.deleteRow(r)}>Löschen</Button>
+        </div>
+      </div>
     );
   }
 
   return (
     <div>
-      <PageHeader icon="✈" title="Abwesenheiten" sub="Kalender, Anträge und Freigaben pro Mitarbeiter im Blick.">
-        <Button onClick={() => setView("kalender")} primary={view === "kalender"}>Kalender</Button>
-        <Button onClick={() => setView("freigaben")} primary={view === "freigaben"}>Freigaben</Button>
-        <Button onClick={() => setView("liste")} primary={view === "liste"}>Liste</Button>
+      <PageHeader icon="✈" title="Abwesenheiten · Freigaben" sub="Ich prüfe hier offene Abwesenheitsanträge. Bearbeitete Anträge stehen darunter.">
         <Button primary onClick={p.openCreate}>+ Abwesenheit</Button>
       </PageHeader>
 
-      {view === "kalender" && (
-        <Card className="overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+      <div className="mb-4 grid gap-4 md:grid-cols-3">
+        <Metric title="Offen" value={openRows.length} hint="muss ich bearbeiten" />
+        <Metric title="Freigegeben" value={rows.filter((r: Row) => r.status === "approved").length} hint="bearbeitet" />
+        <Metric title="Abgelehnt" value={rows.filter((r: Row) => r.status === "rejected").length} hint="bearbeitet" />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-lg font-black text-slate-950">Kalenderansicht</h3>
-              <p className="text-sm font-semibold text-slate-500">Ich sehe alle Mitarbeiter gleichzeitig.</p>
+              <h3 className="text-xl font-black text-slate-950">Offene Anträge</h3>
+              <p className="text-sm font-semibold text-slate-500">Nicht bearbeitete Anträge stehen immer oben.</p>
             </div>
             <Status color={openRows.length ? "yellow" : "green"}>{openRows.length} offen</Status>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: 1100 }}>
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="sticky left-0 z-10 border-b border-slate-200 bg-slate-50 px-4 py-3 text-left font-black">Mitarbeiter</th>
-                  {days.map((day) => <th key={dayKey(day)} className="border-b border-slate-200 px-3 py-2 text-center text-xs font-black">{dayLabel(day)}</th>)}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {employees.map((employee: Row) => (
-                  <tr key={employee.id || employee.name}>
-                    <td className="sticky left-0 z-10 min-w-[220px] bg-white px-4 py-3 font-black">{employee.name || employee.employee_name}</td>
-                    {days.map((day) => {
-                      const matches = rowsForEmployeeDay(employee, day);
-                      return (
-                        <td key={dayKey(day)} className="h-14 min-w-[92px] border-l border-slate-100 px-1 py-1 align-top">
-                          {matches.map((row: Row) => (
-                            <button key={row.id} type="button" onClick={() => p.openEdit(row)} className={row.status === "approved" ? "block w-full rounded-xl bg-emerald-50 px-2 py-1 text-left text-[11px] font-black text-emerald-700 ring-1 ring-emerald-100" : row.status === "rejected" ? "block w-full rounded-xl bg-red-50 px-2 py-1 text-left text-[11px] font-black text-red-700 ring-1 ring-red-100" : "block w-full rounded-xl bg-amber-50 px-2 py-1 text-left text-[11px] font-black text-amber-700 ring-1 ring-amber-100"}>
-                              {row.absence_type || "Abwesenheit"}
-                            </button>
-                          ))}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-3">
+            {openRows.length === 0 && <Empty text="Keine offenen Abwesenheiten zur Freigabe." />}
+            {openRows.map((r: Row) => <AbsenceCard key={r.id} r={r} />)}
           </div>
         </Card>
-      )}
 
-      {view === "freigaben" && (
-        <div>
-          <div className="mb-4 grid gap-4 md:grid-cols-3">
-            <Metric title="Offen" value={openRows.length} hint="Anträge" />
-            <Metric title="Genehmigt" value={rows.filter((r: Row) => r.status === "approved").length} hint="gesamt" />
-            <Metric title="Abgelehnt" value={rows.filter((r: Row) => r.status === "rejected").length} hint="gesamt" />
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xl font-black text-slate-950">Bearbeitet</h3>
+              <p className="text-sm font-semibold text-slate-500">Freigegeben und abgelehnt.</p>
+            </div>
+            <Status color="gray">{doneRows.length}</Status>
           </div>
-          <Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>
-            {openRows.length === 0 ? <tr><td colSpan={6}><Empty text="Keine offenen Abwesenheiten zur Freigabe." /></td></tr> : openRows.map((r: Row) => <AbsenceRow key={r.id} r={r} />)}
-          </Table>
-        </div>
-      )}
-
-      {view === "liste" && (
-        <Table headers={["Mitarbeiter", "Art", "Von", "Bis", "Status", "Aktion"]}>
-          {rows.length === 0 ? <tr><td colSpan={6}><Empty /></td></tr> : rows.map((r: Row) => <AbsenceRow key={r.id} r={r} />)}
-        </Table>
-      )}
+          <div className="max-h-[620px] space-y-3 overflow-y-auto pr-1">
+            {doneRows.length === 0 && <Empty text="Noch keine bearbeiteten Anträge." />}
+            {doneRows.map((r: Row) => <AbsenceCard key={r.id} r={r} done />)}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -6231,7 +6512,20 @@ function EmployeeEditModal(p: any) {
   return <ModalShell title="Mitarbeiter bearbeiten" close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="Personalnummer"><Input value={p.form.employee_number} onChange={(e) => p.setForm({ ...p.form, employee_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Stundenlohn"><Input type="number" step="0.01" value={p.form.hourly_rate} onChange={(e) => p.setForm({ ...p.form, hourly_rate: e.target.value })} /></Field><Field label="Monatslimit Stunden"><Input type="number" step="0.25" value={p.form.monthly_hour_limit} onChange={(e) => p.setForm({ ...p.form, monthly_hour_limit: e.target.value })} placeholder="z. B. 80" /></Field><Field label="Urlaubstage"><Input type="number" step="0.5" value={p.form.vacation_days} onChange={(e) => p.setForm({ ...p.form, vacation_days: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field></ModalShell>;
 }
 
-function CustomerModal(p: any) { return <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
+function CustomerModal(p: any) {
+  return (
+    <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
+      <Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field>
+      <Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field>
+      <Field label="Vertragsbeginn"><Input type="date" value={p.form.contract_start_date} onChange={(e) => p.setForm({ ...p.form, contract_start_date: e.target.value })} /></Field>
+      <Field label="Vertragsende optional"><Input type="date" value={p.form.contract_end_date} onChange={(e) => p.setForm({ ...p.form, contract_end_date: e.target.value })} /></Field>
+      <Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field>
+      <Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field>
+      <Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field>
+      <Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
+    </ModalShell>
+  );
+}
 function ContactModal(p: any) { return <ModalShell title={p.form.id ? "Kontakt bearbeiten" : "Kontakt erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="Firma"><Input value={p.form.company} onChange={(e) => p.setForm({ ...p.form, company: e.target.value })} /></Field><Field label="Rolle"><Input value={p.form.role} onChange={(e) => p.setForm({ ...p.form, role: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field></ModalShell>; }
 function SiteModal(p: any) {
   return (
