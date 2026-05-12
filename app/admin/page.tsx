@@ -24,7 +24,7 @@ type Tab =
   | "chat";
 
 type Row = Record<string, any>;
-type ModalType = "employeeInvite" | "employeeEdit" | "customer" | "contact" | "site" | "task" | "material" | "device" | "key" | "absence" | "timeCorrection" | null;
+type ModalType = "employeeInvite" | "employeeEdit" | "customer" | "contact" | "site" | "task" | "material" | "device" | "key" | "absence" | "timeCorrection" | "importPreview" | null;
 
 function parseLocalDate(value?: string | Date | null) {
   if (value instanceof Date) {
@@ -90,6 +90,7 @@ const emptyDevice = { id: "", name: "", category: "", serial_number: "", assigne
 const emptyKey = { id: "", key_name: "", key_number: "", customer_id: "", customer_name: "", customer_address: "", work_site_id: "", object_name: "", object_address: "", employee_name: "", status: "Ausgegeben", handover_date: today, return_date: "", notes: "" };
 const emptyAbsence = { id: "", employee_name: "", absence_type: "Urlaub", start_date: today, end_date: today, reason: "", status: "open" };
 const emptyTimeCorrection = { id: "", employee_name: "", work_date: today, start_time: "08:00", end_time: "10:00", site: "", work_site_id: "", reason: "Manuelle Korrektur", notes: "", approved: true };
+const emptyImportPreview = { type: "" as "customers" | "times" | "", rows: [] as Row[], validRows: [] as Row[], duplicateRows: [] as Row[], errorRows: [] as Row[], fileName: "" };
 
 function euro(value: unknown) {
   return `${Number(value || 0).toFixed(2)} €`;
@@ -1023,6 +1024,7 @@ export default function AdminPage() {
   const [chatText, setChatText] = useState("");
   const [selectedObjectFile, setSelectedObjectFile] = useState<Row | null>(null);
   const [selectedCustomerFile, setSelectedCustomerFile] = useState<Row | null>(null);
+  const [importPreview, setImportPreview] = useState(emptyImportPreview);
 
   useEffect(() => {
     checkAdmin();
@@ -1452,7 +1454,6 @@ export default function AdminPage() {
   async function importCustomersFromCsv(file: File | null) {
     if (!file) return;
 
-    setSaving(true);
     setMessage("");
     try {
       const text = await file.text();
@@ -1462,87 +1463,142 @@ export default function AdminPage() {
         return;
       }
 
-      let customerCount = 0;
-      let objectCount = 0;
+      const existingNames = new Set(customerList.map((customer) => String(customer.name || customer.customer_name || "").trim().toLowerCase()).filter(Boolean));
+      const seenNames = new Set<string>();
 
-      for (const record of records) {
+      const rows = records.map((record, index) => {
         const name = csvValue(record, ["kunde", "name", "customer", "firma"]);
-        if (!name) continue;
-
         const street = csvValue(record, ["strasse", "straße", "street"]);
         const postalCode = csvValue(record, ["postleitzahl", "plz", "postal_code", "zip"]);
         const city = csvValue(record, ["stadt", "city"]);
         const country = csvValue(record, ["land", "country"]) || "DE Deutschland";
         const address = csvValue(record, ["adresse", "address"]) || [street, postalCode, city].filter(Boolean).join(", ");
-        const shouldCreateObject = ["ja", "yes", "true", "1", "x"].includes(csvValue(record, ["objekt_automatisch_erstellen", "objekt_erstellen", "create_object"]).toLowerCase());
-        const objectName = csvValue(record, ["objekt", "objektname", "object", "site"]) || name;
+        const nameKey = name.trim().toLowerCase();
+        const duplicate = Boolean(nameKey && (existingNames.has(nameKey) || seenNames.has(nameKey)));
+        if (nameKey) seenNames.add(nameKey);
 
-        const result = await adminCall({
-          action: "insert",
-          table: "customers",
-          payload: [{
-            name,
-            customer_number: csvValue(record, ["kundennummer", "nummer", "customer_number"]) || null,
-            status: csvValue(record, ["status"]) || "active",
-            street: street || null,
-            postal_code: postalCode || null,
-            city: city || null,
-            country,
-            address: address || null,
-            address_addition: csvValue(record, ["adresszusatz", "address_addition"]) || null,
-            phone: csvValue(record, ["telefon", "phone"]) || null,
-            mobile: csvValue(record, ["mobil", "mobile"]) || null,
-            email: csvValue(record, ["email", "e-mail", "mail"]) || null,
-            contact_person: csvValue(record, ["ansprechpartner", "kontaktperson", "contact_person"]) || null,
-            contract_start_date: normalizeImportDate(csvValue(record, ["vertragsbeginn", "beginn", "contract_start_date"])) || null,
-            contract_end_date: normalizeImportDate(csvValue(record, ["vertragsende", "ende", "contract_end_date"])) || null,
-            invoice_recipient: csvValue(record, ["rechnungsempfaenger", "invoice_recipient"]) || null,
-            payment_terms: csvValue(record, ["zahlungsbedingungen", "payment_terms"]) || null,
-            xrechnung_leitweg_id: csvValue(record, ["leitweg_id", "xrechnung_leitweg_id"]) || null,
-            xrechnung_order_number: csvValue(record, ["bestellnummer", "xrechnung_order_number"]) || null,
-            xrechnung_supplier_number: csvValue(record, ["lieferantennummer", "xrechnung_supplier_number"]) || null,
-            notes: csvValue(record, ["notiz", "notizen", "notes"]) || null,
-            active: csvValue(record, ["status"]).toLowerCase() !== "passiv",
-          }],
-        });
+        const payload = {
+          name,
+          customer_number: csvValue(record, ["kundennummer", "nummer", "customer_number"]) || null,
+          status: csvValue(record, ["status"]) || "active",
+          street: street || null,
+          postal_code: postalCode || null,
+          city: city || null,
+          country,
+          address: address || null,
+          address_addition: csvValue(record, ["adresszusatz", "address_addition"]) || null,
+          phone: csvValue(record, ["telefon", "phone"]) || null,
+          mobile: csvValue(record, ["mobil", "mobile"]) || null,
+          email: csvValue(record, ["email", "e-mail", "mail"]) || null,
+          contact_person: csvValue(record, ["ansprechpartner", "kontaktperson", "contact_person"]) || null,
+          contract_start_date: normalizeImportDate(csvValue(record, ["vertragsbeginn", "beginn", "contract_start_date"])) || null,
+          contract_end_date: normalizeImportDate(csvValue(record, ["vertragsende", "ende", "contract_end_date"])) || null,
+          invoice_recipient: csvValue(record, ["rechnungsempfaenger", "invoice_recipient"]) || null,
+          payment_terms: csvValue(record, ["zahlungsbedingungen", "payment_terms"]) || null,
+          xrechnung_leitweg_id: csvValue(record, ["leitweg_id", "xrechnung_leitweg_id"]) || null,
+          xrechnung_order_number: csvValue(record, ["bestellnummer", "xrechnung_order_number"]) || null,
+          xrechnung_supplier_number: csvValue(record, ["lieferantennummer", "xrechnung_supplier_number"]) || null,
+          notes: csvValue(record, ["notiz", "notizen", "notes"]) || null,
+          active: csvValue(record, ["status"]).toLowerCase() !== "passiv",
+          create_object: ["ja", "yes", "true", "1", "x"].includes(csvValue(record, ["objekt_automatisch_erstellen", "objekt_erstellen", "create_object"]).toLowerCase()),
+          object_name: csvValue(record, ["objekt", "objektname", "object", "site"]) || name,
+        };
 
-        const savedCustomer = Array.isArray(result.data) ? result.data[0] : null;
-        customerCount += 1;
+        const errors = [
+          !name ? "Kunde/Name fehlt" : "",
+          duplicate ? "Doppelter Kunde" : "",
+        ].filter(Boolean);
 
-        if (shouldCreateObject && savedCustomer?.id) {
-          await adminCall({
-            action: "insert",
-            table: "work_sites",
-            payload: [{
-              name: objectName,
-              customer_id: savedCustomer.id,
-              customer_name: name,
-              address: address || null,
-              street: street || null,
-              postal_code: postalCode || null,
-              city: city || null,
-              country,
-              allowed_radius_m: 150,
-              monthly_hour_quota: 0,
-              latitude: 0,
-              longitude: 0,
-              active: true,
-              notes: "Automatisch per Kunden-CSV erstellt",
-            }],
-          });
-          objectCount += 1;
+        return {
+          row_number: index + 2,
+          kind: "Kunde",
+          title: name || "Ohne Namen",
+          subtitle: [payload.customer_number, address].filter(Boolean).join(" · "),
+          duplicate,
+          errors,
+          payload,
+        };
+      });
+
+      setImportPreview({
+        type: "customers",
+        rows,
+        validRows: rows.filter((row) => row.errors.length === 0),
+        duplicateRows: rows.filter((row) => row.duplicate),
+        errorRows: rows.filter((row) => row.errors.length > 0),
+        fileName: file.name,
+      });
+      setModal("importPreview");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kundenimport konnte nicht geprüft werden.");
+    }
+  }
+
+  async function executeImportPreview() {
+    if (!importPreview.type || importPreview.validRows.length === 0) {
+      setMessage("Es gibt keine gültigen Zeilen zum Importieren.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    try {
+      if (importPreview.type === "customers") {
+        let customerCount = 0;
+        let objectCount = 0;
+
+        for (const row of importPreview.validRows) {
+          const payload = row.payload || {};
+          const createObject = Boolean(payload.create_object);
+          const objectName = String(payload.object_name || payload.name || "");
+
+          const { create_object, object_name, ...customerPayload } = payload;
+          const result = await adminCall({ action: "insert", table: "customers", payload: [customerPayload] });
+          const savedCustomer = Array.isArray(result.data) ? result.data[0] : null;
+          customerCount += 1;
+
+          if (createObject && savedCustomer?.id) {
+            await adminCall({
+              action: "insert",
+              table: "work_sites",
+              payload: [{
+                name: objectName,
+                customer_id: savedCustomer.id,
+                customer_name: customerPayload.name,
+                address: customerPayload.address || null,
+                street: customerPayload.street || null,
+                postal_code: customerPayload.postal_code || null,
+                city: customerPayload.city || null,
+                country: customerPayload.country || "DE Deutschland",
+                allowed_radius_m: 150,
+                monthly_hour_quota: 0,
+                latitude: 0,
+                longitude: 0,
+                active: true,
+                notes: "Automatisch per Kunden-CSV erstellt",
+              }],
+            });
+            objectCount += 1;
+          }
         }
+
+        setMessage(`${customerCount} Kunden wurden importiert.${objectCount ? ` ${objectCount} Objekte wurden automatisch erstellt.` : ""}`);
       }
 
-      if (customerCount === 0) {
-        setMessage("Keine gültigen Kunden gefunden. Spalte „Kunde“ oder „Name“ muss gefüllt sein.");
-        return;
+      if (importPreview.type === "times") {
+        await adminCall({
+          action: "insert",
+          table: "time_entries",
+          payload: importPreview.validRows.map((row) => row.payload),
+        });
+        setMessage(`${importPreview.validRows.length} vergangene Zeiten wurden importiert und freigegeben.`);
       }
 
-      setMessage(`${customerCount} Kunden wurden importiert.${objectCount ? ` ${objectCount} Objekte wurden automatisch erstellt.` : ""}`);
+      setImportPreview(emptyImportPreview);
+      setModal(null);
       await loadAll();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Kundenimport fehlgeschlagen.");
+      setMessage(error instanceof Error ? error.message : "Import fehlgeschlagen.");
     } finally {
       setSaving(false);
     }
@@ -1551,7 +1607,6 @@ export default function AdminPage() {
   async function importPastTimesFromCsv(file: File | null) {
     if (!file) return;
 
-    setSaving(true);
     setMessage("");
     try {
       const text = await file.text();
@@ -1561,7 +1616,17 @@ export default function AdminPage() {
         return;
       }
 
-      const payload = records.map((record) => {
+      const existingKeys = new Set((entries || []).map((entry) => [
+        String(entry.employee_name || "").trim().toLowerCase(),
+        String(entry.work_date || dateOnly(entry.check_in_at) || "").slice(0, 10),
+        String(entry.site || entry.work_site_name || "").trim().toLowerCase(),
+        String(entry.check_in_at || "").slice(11, 16),
+        String(entry.check_out_at || "").slice(11, 16),
+      ].join("__")));
+
+      const seenKeys = new Set<string>();
+
+      const rows = records.map((record, index) => {
         const employeeName = csvValue(record, ["mitarbeiter", "employee", "name"]);
         const date = normalizeImportDate(csvValue(record, ["datum", "date", "work_date"]));
         const startTime = normalizeImportTime(csvValue(record, ["von", "start", "start_time"]), "08:00");
@@ -1573,7 +1638,18 @@ export default function AdminPage() {
         if (end.getTime() < start.getTime()) end.setDate(end.getDate() + 1);
         const duration = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
         const minutesValue = numberOrFallback(csvValue(record, ["minuten", "minutes", "arbeitsminuten"]), duration || 0);
-        return {
+
+        const duplicateKey = [
+          employeeName.trim().toLowerCase(),
+          date,
+          siteName.trim().toLowerCase(),
+          startTime,
+          endTime,
+        ].join("__");
+        const duplicate = Boolean(duplicateKey && (existingKeys.has(duplicateKey) || seenKeys.has(duplicateKey)));
+        if (duplicateKey) seenKeys.add(duplicateKey);
+
+        const payload = {
           employee_name: employeeName,
           work_date: date,
           check_in_at: start.toISOString(),
@@ -1591,20 +1667,36 @@ export default function AdminPage() {
           approved: true,
           status: "approved",
         };
-      }).filter((row) => row.employee_name && row.work_date && row.worked_minutes > 0);
 
-      if (payload.length === 0) {
-        setMessage("Keine gültigen Zeiten gefunden. Benötigt werden Mitarbeiter, Datum, Von und Bis.");
-        return;
-      }
+        const errors = [
+          !employeeName ? "Mitarbeiter fehlt" : "",
+          !date ? "Datum fehlt" : "",
+          minutesValue <= 0 ? "Minuten/Zeit ungültig" : "",
+          duplicate ? "Doppelte Zeit" : "",
+        ].filter(Boolean);
 
-      await adminCall({ action: "insert", table: "time_entries", payload });
-      setMessage(`${payload.length} vergangene Zeiten wurden importiert und freigegeben.`);
-      await loadAll();
+        return {
+          row_number: index + 2,
+          kind: "Zeit",
+          title: employeeName || "Ohne Mitarbeiter",
+          subtitle: [date, startTime && endTime ? `${startTime}-${endTime}` : "", siteName].filter(Boolean).join(" · "),
+          duplicate,
+          errors,
+          payload,
+        };
+      });
+
+      setImportPreview({
+        type: "times",
+        rows,
+        validRows: rows.filter((row) => row.errors.length === 0),
+        duplicateRows: rows.filter((row) => row.duplicate),
+        errorRows: rows.filter((row) => row.errors.length > 0),
+        fileName: file.name,
+      });
+      setModal("importPreview");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Zeitimport fehlgeschlagen.");
-    } finally {
-      setSaving(false);
+      setMessage(error instanceof Error ? error.message : "Zeitimport konnte nicht geprüft werden.");
     }
   }
 
@@ -3440,6 +3532,7 @@ const basePayload = {
       {modal === "device" && <DeviceModal close={() => setModal(null)} form={deviceForm} setForm={setDeviceForm} save={saveDevice} saving={saving} employees={activeEmployees} />}
       {modal === "key" && <KeyModal close={() => setModal(null)} form={keyForm} setForm={setKeyForm} save={saveKey} saving={saving} employees={activeEmployees} sites={sites} customers={customerList} />}
       {modal === "absence" && <AbsenceModal close={() => setModal(null)} form={absenceForm} setForm={setAbsenceForm} save={saveAbsence} saving={saving} employees={activeEmployees} />}
+      {modal === "importPreview" && <ImportPreviewModal preview={importPreview} setPreview={setImportPreview} close={() => { setModal(null); setImportPreview(emptyImportPreview); }} execute={executeImportPreview} saving={saving} />}
       {modal === "timeCorrection" && <TimeCorrectionModal close={() => setModal(null)} form={timeCorrectionForm} setForm={setTimeCorrectionForm} save={saveTimeCorrection} saving={saving} employees={activeEmployees} sites={sites} />}
     </main>
   );
@@ -4192,14 +4285,16 @@ function CustomerFile(p: any) {
     : "Noch keine Vertragsdaten";
 
   const assignmentMap = (tasks as Row[]).reduce((map: Map<string, Row[]>, task: Row) => {
-  const objectName = String(task.site || task.work_site_name || task.object_name || "Ohne Objekt");
-  const title = String(task.title || task.task_category || "Auftrag");
-  const key = `${objectName}__${title}`;
-  map.set(key, [...(map.get(key) || []), task]);
-  return map;
-}, new Map<string, Row[]>());
+    const objectName = String(task.site || task.work_site_name || task.object_name || "Ohne Objekt");
+    const title = String(task.title || task.task_category || "Auftrag");
+    const key = `${objectName}__${title}`;
+    map.set(key, [...(map.get(key) || []), task]);
+    return map;
+  }, new Map<string, Row[]>());
 
-  const assignmentGroups = Array.from(assignmentMap.entries()).map(([key, rows]: [string, Row[]]) => {
+  const assignmentGroups = Array.from(assignmentMap.entries()).map((entry) => {
+    const key = String(entry[0]);
+    const rows = entry[1] as Row[];
     const [objectName, title] = key.split("__");
     const minutesValue = rows.reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
     const lastDate = rows.map((task: Row) => String(task.task_date || task.due_date || "")).filter(Boolean).sort().at(-1) || "";
@@ -6829,6 +6924,84 @@ function EmployeeInviteModal(p: any) {
 
 function EmployeeEditModal(p: any) {
   return <ModalShell title="Mitarbeiter bearbeiten" close={p.close} onSubmit={p.save} saving={p.saving} wide><Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field><Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field><Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field><Field label="Personalnummer"><Input value={p.form.employee_number} onChange={(e) => p.setForm({ ...p.form, employee_number: e.target.value })} /></Field><Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field><Field label="Stundenlohn"><Input type="number" step="0.01" value={p.form.hourly_rate} onChange={(e) => p.setForm({ ...p.form, hourly_rate: e.target.value })} /></Field><Field label="Monatslimit Stunden"><Input type="number" step="0.25" value={p.form.monthly_hour_limit} onChange={(e) => p.setForm({ ...p.form, monthly_hour_limit: e.target.value })} placeholder="z. B. 80" /></Field><Field label="Urlaubstage"><Input type="number" step="0.5" value={p.form.vacation_days} onChange={(e) => p.setForm({ ...p.form, vacation_days: e.target.value })} /></Field><Field label="Status"><Select value={p.form.active ? "true" : "false"} onChange={(e) => p.setForm({ ...p.form, active: e.target.value === "true" })}><option value="true">Aktiv</option><option value="false">Passiv</option></Select></Field></ModalShell>;
+}
+
+function ImportPreviewModal(p: any) {
+  const preview = p.preview || emptyImportPreview;
+  const rows = Array.isArray(preview.rows) ? preview.rows : [];
+  const validRows = Array.isArray(preview.validRows) ? preview.validRows : [];
+  const errorRows = Array.isArray(preview.errorRows) ? preview.errorRows : [];
+  const duplicateRows = Array.isArray(preview.duplicateRows) ? preview.duplicateRows : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm">
+      <div className="my-8 w-full max-w-6xl rounded-3xl bg-white shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-xl font-black text-slate-950">CSV-Import prüfen</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{preview.fileName || "CSV-Datei"} · {preview.type === "customers" ? "Kunden" : "Vergangene Zeiten"}</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">✕</button>
+        </div>
+
+        <div className="grid gap-4 p-6 md:grid-cols-4">
+          <Metric title="Zeilen" value={rows.length} hint="gesamt" />
+          <Metric title="Gültig" value={validRows.length} hint="wird importiert" />
+          <Metric title="Doppelt" value={duplicateRows.length} hint="wird übersprungen" />
+          <Metric title="Fehler" value={errorRows.length} hint="bitte prüfen" />
+        </div>
+
+        <div className="px-6 pb-6">
+          {errorRows.length > 0 && (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+              Fehlerhafte oder doppelte Zeilen werden nicht importiert. Ich importiere nur die gültigen Zeilen.
+            </div>
+          )}
+
+          <div className="max-h-[520px] overflow-auto rounded-2xl border border-slate-200">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Zeile</th>
+                  <th className="px-4 py-3">Typ</th>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Info</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((row: Row) => {
+                  const hasErrors = Array.isArray(row.errors) && row.errors.length > 0;
+                  return (
+                    <tr key={`${row.row_number}-${row.title}`} className={hasErrors ? "bg-amber-50" : "bg-white"}>
+                      <td className="px-4 py-3 font-black">{row.row_number}</td>
+                      <td className="px-4 py-3">{row.kind}</td>
+                      <td className="px-4 py-3 font-black text-slate-950">{row.title}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.subtitle || "-"}</td>
+                      <td className="px-4 py-3">
+                        {hasErrors ? (
+                          <span className="rounded-xl bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">{row.errors.join(", ")}</span>
+                        ) : (
+                          <span className="rounded-xl bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
+          <button type="button" onClick={p.close} className="text-sm font-bold text-slate-500">Abbrechen</button>
+          <Button primary onClick={p.execute} disabled={p.saving || validRows.length === 0}>
+            {p.saving ? "Importiere..." : `${validRows.length} gültige Zeilen importieren`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CustomerModal(p: any) {
