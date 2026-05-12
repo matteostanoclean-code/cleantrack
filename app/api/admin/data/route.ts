@@ -210,7 +210,20 @@ function sanitizeRow(table: string, row: Record<string, unknown>, action: "inser
   if (table === "customers") {
     if (isEmpty(cleaned.contract_start_date)) cleaned.contract_start_date = null;
     if (isEmpty(cleaned.contract_end_date)) cleaned.contract_end_date = null;
-    if (!("active" in cleaned)) cleaned.active = true;
+    if (isEmpty(cleaned.street)) cleaned.street = null;
+    if (isEmpty(cleaned.postal_code)) cleaned.postal_code = null;
+    if (isEmpty(cleaned.city)) cleaned.city = null;
+    if (isEmpty(cleaned.country)) cleaned.country = "DE Deutschland";
+    if (isEmpty(cleaned.address_addition)) cleaned.address_addition = null;
+    if (isEmpty(cleaned.mobile)) cleaned.mobile = null;
+    if (isEmpty(cleaned.contact_person)) cleaned.contact_person = null;
+    if (isEmpty(cleaned.invoice_recipient)) cleaned.invoice_recipient = null;
+    if (isEmpty(cleaned.payment_terms)) cleaned.payment_terms = null;
+    if (isEmpty(cleaned.xrechnung_leitweg_id)) cleaned.xrechnung_leitweg_id = null;
+    if (isEmpty(cleaned.xrechnung_order_number)) cleaned.xrechnung_order_number = null;
+    if (isEmpty(cleaned.xrechnung_supplier_number)) cleaned.xrechnung_supplier_number = null;
+    if (isEmpty(cleaned.status)) cleaned.status = cleaned.active === false ? "inactive" : "active";
+    if (!("active" in cleaned)) cleaned.active = cleaned.status !== "inactive";
   }
 
   if (table === "work_sites") {
@@ -221,6 +234,10 @@ function sanitizeRow(table: string, row: Record<string, unknown>, action: "inser
     cleaned.allowed_radius_m = numericValue(cleaned.allowed_radius_m, 150);
     if (!("active" in cleaned)) cleaned.active = true;
     if (isEmpty(cleaned.customer_name) && !isEmpty(cleaned.name)) cleaned.customer_name = null;
+    if (isEmpty(cleaned.street)) cleaned.street = null;
+    if (isEmpty(cleaned.postal_code)) cleaned.postal_code = null;
+    if (isEmpty(cleaned.city)) cleaned.city = null;
+    if (isEmpty(cleaned.country)) cleaned.country = "DE Deutschland";
   }
 
 

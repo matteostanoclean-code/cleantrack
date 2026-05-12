@@ -56,7 +56,7 @@ const today = toLocalIso(new Date());
 
 const emptyEmployeeInvite = { name: "", email: "", phone: "" };
 const emptyEmployeeEdit = { id: "", name: "", email: "", phone: "", employee_number: "", address: "", hourly_rate: "0", monthly_hour_limit: "0", vacation_days: "0", active: true };
-const emptyCustomer = { id: "", name: "", customer_number: "", address: "", phone: "", email: "", contract_start_date: "", contract_end_date: "", notes: "", active: true };
+const emptyCustomer = { id: "", name: "", customer_number: "", status: "active", street: "", postal_code: "", city: "", country: "DE Deutschland", address: "", address_addition: "", phone: "", mobile: "", email: "", contact_person: "", contract_start_date: "", contract_end_date: "", invoice_recipient: "", payment_terms: "", xrechnung_leitweg_id: "", xrechnung_order_number: "", xrechnung_supplier_number: "", notes: "", active: true, create_object: false, create_another: false };
 const emptyContact = { id: "", name: "", company: "", phone: "", email: "", role: "", notes: "" };
 const emptySite = { id: "", name: "", customer_id: "", customer_name: "", address: "", allowed_radius_m: "150", monthly_hour_quota: "0", latitude: "", longitude: "", notes: "", active: true };
 const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, due_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", customer_id: "", customer_name: "", site: "", work_site_id: "", employee_name: "", priority: "Normal", task_category: "Reklamation", status: "open", notes: "", done: false, item_type: "einsatz", task_type: "einsatz", repeat_mode: "once", recurrence_interval: "1", recurrence_unit: "week", recurrence_days: [] as string[], recurrence_end_date: "", travel_minutes: "0", break_minutes: "0", notify_employee: true, create_another: false, paid_minutes: "120", quality_required: false, quality_photo_required: false, quality_checklist_text: "" };
@@ -1462,27 +1462,84 @@ export default function AdminPage() {
         return;
       }
 
-      const payload = records
-        .map((record) => ({
-          name: csvValue(record, ["kunde", "name", "customer", "firma"]),
-          customer_number: csvValue(record, ["kundennummer", "nummer", "customer_number"]) || null,
-          address: csvValue(record, ["adresse", "address"]) || null,
-          phone: csvValue(record, ["telefon", "phone"]) || null,
-          email: csvValue(record, ["email", "e-mail", "mail"]) || null,
-          contract_start_date: normalizeImportDate(csvValue(record, ["vertragsbeginn", "beginn", "contract_start_date"])) || null,
-          contract_end_date: normalizeImportDate(csvValue(record, ["vertragsende", "ende", "contract_end_date"])) || null,
-          notes: csvValue(record, ["notiz", "notizen", "notes"]) || null,
-          active: true,
-        }))
-        .filter((row) => row.name);
+      let customerCount = 0;
+      let objectCount = 0;
 
-      if (payload.length === 0) {
+      for (const record of records) {
+        const name = csvValue(record, ["kunde", "name", "customer", "firma"]);
+        if (!name) continue;
+
+        const street = csvValue(record, ["strasse", "straße", "street"]);
+        const postalCode = csvValue(record, ["postleitzahl", "plz", "postal_code", "zip"]);
+        const city = csvValue(record, ["stadt", "city"]);
+        const country = csvValue(record, ["land", "country"]) || "DE Deutschland";
+        const address = csvValue(record, ["adresse", "address"]) || [street, postalCode, city].filter(Boolean).join(", ");
+        const shouldCreateObject = ["ja", "yes", "true", "1", "x"].includes(csvValue(record, ["objekt_automatisch_erstellen", "objekt_erstellen", "create_object"]).toLowerCase());
+        const objectName = csvValue(record, ["objekt", "objektname", "object", "site"]) || name;
+
+        const result = await adminCall({
+          action: "insert",
+          table: "customers",
+          payload: [{
+            name,
+            customer_number: csvValue(record, ["kundennummer", "nummer", "customer_number"]) || null,
+            status: csvValue(record, ["status"]) || "active",
+            street: street || null,
+            postal_code: postalCode || null,
+            city: city || null,
+            country,
+            address: address || null,
+            address_addition: csvValue(record, ["adresszusatz", "address_addition"]) || null,
+            phone: csvValue(record, ["telefon", "phone"]) || null,
+            mobile: csvValue(record, ["mobil", "mobile"]) || null,
+            email: csvValue(record, ["email", "e-mail", "mail"]) || null,
+            contact_person: csvValue(record, ["ansprechpartner", "kontaktperson", "contact_person"]) || null,
+            contract_start_date: normalizeImportDate(csvValue(record, ["vertragsbeginn", "beginn", "contract_start_date"])) || null,
+            contract_end_date: normalizeImportDate(csvValue(record, ["vertragsende", "ende", "contract_end_date"])) || null,
+            invoice_recipient: csvValue(record, ["rechnungsempfaenger", "invoice_recipient"]) || null,
+            payment_terms: csvValue(record, ["zahlungsbedingungen", "payment_terms"]) || null,
+            xrechnung_leitweg_id: csvValue(record, ["leitweg_id", "xrechnung_leitweg_id"]) || null,
+            xrechnung_order_number: csvValue(record, ["bestellnummer", "xrechnung_order_number"]) || null,
+            xrechnung_supplier_number: csvValue(record, ["lieferantennummer", "xrechnung_supplier_number"]) || null,
+            notes: csvValue(record, ["notiz", "notizen", "notes"]) || null,
+            active: csvValue(record, ["status"]).toLowerCase() !== "passiv",
+          }],
+        });
+
+        const savedCustomer = Array.isArray(result.data) ? result.data[0] : null;
+        customerCount += 1;
+
+        if (shouldCreateObject && savedCustomer?.id) {
+          await adminCall({
+            action: "insert",
+            table: "work_sites",
+            payload: [{
+              name: objectName,
+              customer_id: savedCustomer.id,
+              customer_name: name,
+              address: address || null,
+              street: street || null,
+              postal_code: postalCode || null,
+              city: city || null,
+              country,
+              allowed_radius_m: 150,
+              monthly_hour_quota: 0,
+              latitude: 0,
+              longitude: 0,
+              active: true,
+              notes: "Automatisch per Kunden-CSV erstellt",
+            }],
+          });
+          objectCount += 1;
+        }
+      }
+
+      if (customerCount === 0) {
         setMessage("Keine gültigen Kunden gefunden. Spalte „Kunde“ oder „Name“ muss gefüllt sein.");
         return;
       }
 
-      await adminCall({ action: "insert", table: "customers", payload });
-      setMessage(`${payload.length} Kunden wurden importiert.`);
+      setMessage(`${customerCount} Kunden wurden importiert.${objectCount ? ` ${objectCount} Objekte wurden automatisch erstellt.` : ""}`);
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Kundenimport fehlgeschlagen.");
@@ -1556,29 +1613,112 @@ export default function AdminPage() {
       id: String(row.id || ""),
       name: String(row.name || row.customer_name || ""),
       customer_number: String(row.customer_number || ""),
+      status: row.active === false ? "inactive" : "active",
+      street: String(row.street || row.customer_street || row.address || row.customer_address || ""),
+      postal_code: String(row.postal_code || row.zip || row.customer_postal_code || ""),
+      city: String(row.city || row.customer_city || ""),
+      country: String(row.country || "DE Deutschland"),
       address: String(row.address || row.customer_address || ""),
+      address_addition: String(row.address_addition || row.address_extra || ""),
       phone: String(row.phone || row.customer_phone || ""),
+      mobile: String(row.mobile || row.customer_mobile || ""),
       email: String(row.email || row.customer_email || ""),
+      contact_person: String(row.contact_person || row.contact_name || ""),
       contract_start_date: String(row.contract_start_date || row.contract_start || ""),
       contract_end_date: String(row.contract_end_date || row.contract_end || ""),
+      invoice_recipient: String(row.invoice_recipient || ""),
+      payment_terms: String(row.payment_terms || ""),
+      xrechnung_leitweg_id: String(row.xrechnung_leitweg_id || row.leitweg_id || ""),
+      xrechnung_order_number: String(row.xrechnung_order_number || row.order_number || ""),
+      xrechnung_supplier_number: String(row.xrechnung_supplier_number || row.supplier_number || ""),
       notes: String(row.notes || row.customer_notes || ""),
       active: row.active !== false,
+      create_object: false,
+      create_another: false,
     } : emptyCustomer);
     setModal("customer");
   }
 
   async function saveCustomer() {
-    await insertOrUpdate("customers", customerForm.id, {
+    const fullAddress = [customerForm.street, customerForm.postal_code, customerForm.city]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(", ") || customerForm.address || null;
+
+    const payload = {
       name: customerForm.name,
       customer_number: customerForm.customer_number || null,
-      address: customerForm.address || null,
+      status: customerForm.status || (customerForm.active === false ? "inactive" : "active"),
+      street: customerForm.street || null,
+      postal_code: customerForm.postal_code || null,
+      city: customerForm.city || null,
+      country: customerForm.country || "DE Deutschland",
+      address: fullAddress,
+      address_addition: customerForm.address_addition || null,
       phone: customerForm.phone || null,
+      mobile: customerForm.mobile || null,
       email: customerForm.email || null,
+      contact_person: customerForm.contact_person || null,
       contract_start_date: customerForm.contract_start_date || null,
       contract_end_date: customerForm.contract_end_date || null,
+      invoice_recipient: customerForm.invoice_recipient || null,
+      payment_terms: customerForm.payment_terms || null,
+      xrechnung_leitweg_id: customerForm.xrechnung_leitweg_id || null,
+      xrechnung_order_number: customerForm.xrechnung_order_number || null,
+      xrechnung_supplier_number: customerForm.xrechnung_supplier_number || null,
       notes: customerForm.notes || null,
-      active: customerForm.active !== false,
-    });
+      active: customerForm.status ? customerForm.status === "active" : customerForm.active !== false,
+    };
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const result = customerForm.id
+        ? await adminCall({ action: "update", table: "customers", id: customerForm.id, payload })
+        : await adminCall({ action: "insert", table: "customers", payload: [payload] });
+
+      const savedCustomer = customerForm.id ? { ...payload, id: customerForm.id } : Array.isArray(result.data) ? result.data[0] : null;
+      const savedCustomerId = savedCustomer?.id || customerForm.id;
+
+      if (customerForm.create_object && savedCustomerId) {
+        const existingObject = sites.find((site) => String(site.customer_id || "") === String(savedCustomerId) && String(site.name || "").trim().toLowerCase() === String(customerForm.name || "").trim().toLowerCase());
+
+        if (!existingObject) {
+          await adminCall({
+            action: "insert",
+            table: "work_sites",
+            payload: [{
+              name: customerForm.name,
+              customer_id: savedCustomerId,
+              customer_name: customerForm.name,
+              address: fullAddress,
+              street: customerForm.street || null,
+              postal_code: customerForm.postal_code || null,
+              city: customerForm.city || null,
+              country: customerForm.country || "DE Deutschland",
+              allowed_radius_m: 150,
+              monthly_hour_quota: 0,
+              latitude: 0,
+              longitude: 0,
+              active: true,
+              notes: "Automatisch mit Kunde erstellt",
+            }],
+          });
+        }
+      }
+
+      setMessage(customerForm.create_object ? "Kunde und Objekt wurden gespeichert." : "Kunde wurde gespeichert.");
+      if (customerForm.create_another) {
+        setCustomerForm({ ...emptyCustomer, customer_number: String(Number(customerForm.customer_number || 0) + 1 || "") });
+      } else {
+        setModal(null);
+      }
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kunde konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openContact(row?: Row) {
@@ -4032,6 +4172,9 @@ function rowBelongsToCustomerObject(row: Row, sites: Row[], customer: Row) {
 }
 
 function CustomerFile(p: any) {
+  const [tab, setTab] = useState<"informationen" | "objekte" | "auftraege" | "auswertung" | "dokumente">("informationen");
+  const [infoTab, setInfoTab] = useState<"allgemein" | "kontakte" | "vertrag" | "dokumente" | "rechnung">("allgemein");
+
   const customer = p.customer;
   const sites = customerSites(p.sites || [], customer);
   const tasks = (p.tasks || []).filter((row: Row) => rowBelongsToCustomerObject(row, p.sites || [], customer));
@@ -4043,14 +4186,54 @@ function CustomerFile(p: any) {
   const plannedMinutes = tasks.reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
   const approvedMinutes = totalPayableMinutes(timeSessionSummaries(entries).filter(isApprovedEntry));
 
+  const addressLine = customer.address || [customer.street, customer.postal_code, customer.city].filter(Boolean).join(", ") || customer.customer_address || "Keine Adresse";
+  const contractText = customer.contract_start_date
+    ? `${dateText(customer.contract_start_date)}${customer.contract_end_date ? ` bis ${dateText(customer.contract_end_date)}` : " · ohne Enddatum"}`
+    : "Noch keine Vertragsdaten";
+
+  const assignmentMap = (tasks as Row[]).reduce((map: Map<string, Row[]>, task: Row) => {
+  const objectName = String(task.site || task.work_site_name || task.object_name || "Ohne Objekt");
+  const title = String(task.title || task.task_category || "Auftrag");
+  const key = `${objectName}__${title}`;
+  map.set(key, [...(map.get(key) || []), task]);
+  return map;
+}, new Map<string, Row[]>());
+
+  const assignmentGroups = Array.from(assignmentMap.entries()).map(([key, rows]: [string, Row[]]) => {
+    const [objectName, title] = key.split("__");
+    const minutesValue = rows.reduce((sum: number, task: Row) => sum + taskDuration(task), 0);
+    const lastDate = rows.map((task: Row) => String(task.task_date || task.due_date || "")).filter(Boolean).sort().at(-1) || "";
+    return { key, objectName, title, rows, minutesValue, lastDate };
+  });
+
+  function TopTab({ id, label }: { id: typeof tab; label: string }) {
+    return (
+      <button type="button" onClick={() => setTab(id)} className={tab === id ? "rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white" : "rounded-xl px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-950"}>
+        {label}
+      </button>
+    );
+  }
+
+  function SideTab({ id, label }: { id: typeof infoTab; label: string }) {
+    return (
+      <button type="button" onClick={() => setInfoTab(id)} className={infoTab === id ? "w-full rounded-xl bg-slate-100 px-4 py-3 text-left text-sm font-black text-slate-950" : "w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-950"}>
+        {label}
+      </button>
+    );
+  }
+
   return (
-    <div className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-wide text-blue-600">Kundenakte</p>
-          <h2 className="mt-1 text-2xl font-black text-slate-950">{customer.name || customer.customer_name}</h2>
-          <p className="mt-1 text-sm font-bold text-slate-500">{customer.address || customer.customer_address || "Keine Adresse"}</p>
-          <p className="mt-1 text-xs font-bold text-slate-400">{customer.phone || customer.customer_phone || "Keine Telefonnummer"} · {customer.email || customer.customer_email || "Keine E-Mail"}</p>
+    <div className="mb-6 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-700">👤</div>
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-xl font-black text-slate-950">{customer.name || customer.customer_name}</h2>
+              <Status color={customer.active === false ? "gray" : "green"}>{customer.active === false ? "Passiv" : "Aktiv"}</Status>
+            </div>
+            <p className="text-sm font-semibold text-slate-500">{addressLine}</p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => p.openEdit(customer)}>Kunde bearbeiten</Button>
@@ -4058,63 +4241,199 @@ function CustomerFile(p: any) {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-5">
-        <Metric title="Objekte" value={sites.length} hint="Standorte" />
-        <Metric title="Einsätze" value={tasks.length} hint="geplant" />
-        <Metric title="Planzeit" value={`${prettyHours(plannedMinutes)} Std.`} hint="gesamt" />
-        <Metric title="Lohnzeit" value={`${prettyHours(approvedMinutes)} Std.`} hint="freigegeben" />
-        <Metric title="Nachweise" value={qualityReports.length} hint="Qualität" />
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 px-5 py-3">
+        <TopTab id="informationen" label="Informationen" />
+        <TopTab id="objekte" label="Objekte" />
+        <TopTab id="auftraege" label="Aufträge" />
+        <TopTab id="auswertung" label="Auswertung" />
+        <TopTab id="dokumente" label="Dokumente" />
       </div>
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-2">
-        <Card className="p-4">
-          <h3 className="font-black text-slate-950">Objekte dieses Kunden</h3>
-          <div className="mt-3 space-y-2">
-            {sites.length === 0 && <Empty text="Noch keine Objekte für diesen Kunden." />}
-            {sites.map((site: Row) => (
-              <div key={site.id || site.name} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black">{site.name}</p>
-                <p className="text-sm font-bold text-slate-500">{site.address || "Keine Adresse"} · Radius {site.allowed_radius_m || 150} m</p>
-              </div>
-            ))}
+      {tab === "informationen" && (
+        <div className="grid min-h-[520px] grid-cols-[260px_1fr]">
+          <div className="border-r border-slate-100 bg-slate-50/60 p-3">
+            <SideTab id="allgemein" label="Allgemein" />
+            <SideTab id="kontakte" label="Kontakte" />
+            <SideTab id="vertrag" label="Vertrag" />
+            <SideTab id="dokumente" label="Dokumente" />
+            <SideTab id="rechnung" label="Rechnungswesen" />
           </div>
-        </Card>
 
-        <Card className="p-4">
-          <h3 className="font-black text-slate-950">Kontakte</h3>
-          <div className="mt-3 space-y-2">
-            {contacts.length === 0 && <Empty text="Noch keine Kontakte." />}
-            {contacts.map((contact: Row) => (
-              <div key={contact.id || contact.name} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black">{contact.name}</p>
-                <p className="text-sm font-bold text-slate-500">{contact.role || contact.contact_role || "-"} · {contact.phone || "-"} · {contact.email || "-"}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
+          <div className="p-6">
+            {infoTab === "allgemein" && (
+              <div className="max-w-5xl space-y-8">
+                <section>
+                  <h3 className="text-lg font-black text-slate-950">Adresse</h3>
+                  <p className="text-sm font-semibold text-slate-500">Ich hinterlege hier die Anschrift des Kunden.</p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <InfoBox label="Straße" value={customer.street || customer.address || "-"} />
+                    <InfoBox label="Postleitzahl" value={customer.postal_code || "-"} />
+                    <InfoBox label="Stadt" value={customer.city || "-"} />
+                    <InfoBox label="Land" value={customer.country || "DE Deutschland"} />
+                    <InfoBox label="Adresszusatz" value={customer.address_addition || "-"} />
+                  </div>
+                </section>
 
-        <Card className="p-4">
-          <h3 className="font-black text-slate-950">Letzte Einsätze</h3>
-          <div className="mt-3 space-y-2">
-            {tasks.length === 0 && <Empty text="Noch keine Einsätze." />}
-            {tasks.slice(0, 8).map((task: Row) => (
-              <div key={task.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black">{dateText(task.task_date)} · {task.site || "Objekt"}</p>
-                <p className="text-sm font-bold text-slate-500">{task.employee_name || "Nicht zugewiesen"} · {task.start_time || "--:--"} - {task.end_time || "--:--"} · {taskDuration(task)} Min.</p>
+                <section>
+                  <h3 className="text-lg font-black text-slate-950">Kontaktinformationen</h3>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <InfoBox label="Ansprechpartner" value={customer.contact_person || "-"} />
+                    <InfoBox label="Mobilnummer" value={customer.mobile || "-"} />
+                    <InfoBox label="E-Mail" value={customer.email || customer.customer_email || "-"} />
+                    <InfoBox label="Telefonnummer" value={customer.phone || customer.customer_phone || "-"} />
+                  </div>
+                </section>
               </div>
-            ))}
-          </div>
-        </Card>
+            )}
 
-        <Card className="p-4">
-          <h3 className="font-black text-slate-950">Dokumentation</h3>
-          <div className="mt-3 grid gap-2">
-            <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black text-slate-400">Qualitätsnachweise</p><p className="font-black">{qualityReports.length}</p></div>
-            <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black text-slate-400">Materialmeldungen</p><p className="font-black">{materialReports.length}</p></div>
-            <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-black text-slate-400">Schlüssel</p><p className="font-black">{keys.length}</p></div>
+            {infoTab === "kontakte" && (
+              <section>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-lg font-black text-slate-950">Kontakte</h3>
+                  <Button>+ Kontakte erstellen</Button>
+                </div>
+                {contacts.length === 0 ? <Empty text="Noch keine Kontakte hinterlegt." /> : (
+                  <Table headers={["Name", "Rolle", "Telefon", "E-Mail"]}>
+                    {contacts.map((contact: Row) => (
+                      <tr key={contact.id || contact.name}>
+                        <td className="px-4 py-3 font-black">{contact.name}</td>
+                        <td className="px-4 py-3">{contact.role || contact.contact_role || "-"}</td>
+                        <td className="px-4 py-3">{contact.phone || "-"}</td>
+                        <td className="px-4 py-3">{contact.email || "-"}</td>
+                      </tr>
+                    ))}
+                  </Table>
+                )}
+              </section>
+            )}
+
+            {infoTab === "vertrag" && (
+              <section className="max-w-5xl">
+                <h3 className="text-lg font-black text-slate-950">Vertragsdaten</h3>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <InfoBox label="Vertragsstart" value={customer.contract_start_date ? dateText(customer.contract_start_date) : "Bitte auswählen"} />
+                  <InfoBox label="Vertragsende" value={customer.contract_end_date ? dateText(customer.contract_end_date) : "Optional / kein Ende"} />
+                  <InfoBox label="Status" value={customer.active === false ? "Passiv" : "Aktiv"} />
+                  <InfoBox label="Zusammenfassung" value={contractText} />
+                </div>
+              </section>
+            )}
+
+            {infoTab === "dokumente" && (
+              <section>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-lg font-black text-slate-950">Dokumente</h3>
+                  <Button>Dokument hochladen</Button>
+                </div>
+                <Empty text="Noch keine Dokumente hinterlegt." />
+              </section>
+            )}
+
+            {infoTab === "rechnung" && (
+              <section className="max-w-5xl space-y-8">
+                <div>
+                  <h3 className="text-lg font-black text-slate-950">Rechnungsversand</h3>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <InfoBox label="Rechnungsempfänger" value={customer.invoice_recipient || customer.email || "-"} />
+                    <InfoBox label="Zahlungsbedingungen" value={customer.payment_terms || "-"} />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-950">XRechnung</h3>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <InfoBox label="Leitweg-ID" value={customer.xrechnung_leitweg_id || "-"} />
+                    <InfoBox label="Bestellnummer" value={customer.xrechnung_order_number || "-"} />
+                    <InfoBox label="Lieferantennummer" value={customer.xrechnung_supplier_number || "-"} />
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
-        </Card>
-      </div>
+        </div>
+      )}
+
+      {tab === "objekte" && (
+        <div className="p-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-black text-slate-950">Objekte</h3>
+            <Button>+ Objekt erstellen</Button>
+          </div>
+          {sites.length === 0 ? <Empty text="Noch keine Objekte für diesen Kunden." /> : (
+            <Table headers={["Name", "Adresse", "Planzeit", "GPS", "Status"]}>
+              {sites.map((site: Row) => (
+                <tr key={site.id || site.name}>
+                  <td className="px-4 py-3 font-black">{site.name}</td>
+                  <td className="px-4 py-3">{site.address || "-"}</td>
+                  <td className="px-4 py-3">{site.monthly_hour_quota ? `${site.monthly_hour_quota} Std./Monat` : "-"}</td>
+                  <td className="px-4 py-3">{site.latitude && site.longitude ? "GPS gesetzt" : "GPS fehlt"}</td>
+                  <td className="px-4 py-3"><Status color={site.active === false ? "gray" : "green"}>{site.active === false ? "Passiv" : "Aktiv"}</Status></td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </div>
+      )}
+
+      {tab === "auftraege" && (
+        <div className="p-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-black text-slate-950">Aufträge</h3>
+              <p className="text-sm font-semibold text-slate-500">Ein Auftrag fasst einzelne Einsätze zusammen.</p>
+            </div>
+            <Button>+ Auftrag erstellen</Button>
+          </div>
+          {assignmentGroups.length === 0 ? <Empty text="Noch keine Aufträge / Einsätze für diesen Kunden." /> : (
+            <Table headers={["Auftrag", "Objekt", "Einsätze", "Planzeit", "Letzte Abrechnung", "Status"]}>
+              {assignmentGroups.map((group) => (
+                <tr key={group.key}>
+                  <td className="px-4 py-3">
+                    <div className="font-black text-slate-950">{group.title}</div>
+                    <div className="text-xs font-bold text-slate-400">{group.rows.length} einzelne Einsätze</div>
+                  </td>
+                  <td className="px-4 py-3">{group.objectName}</td>
+                  <td className="px-4 py-3 font-black">{group.rows.length}</td>
+                  <td className="px-4 py-3 font-black">{prettyHours(group.minutesValue)} Std.</td>
+                  <td className="px-4 py-3">{group.lastDate ? dateText(group.lastDate) : "-"}</td>
+                  <td className="px-4 py-3"><Status color="green">Aktiv</Status></td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </div>
+      )}
+
+      {tab === "auswertung" && (
+        <div className="p-6">
+          <div className="grid gap-4 md:grid-cols-5">
+            <Metric title="Objekte" value={sites.length} hint="Standorte" />
+            <Metric title="Einsätze" value={tasks.length} hint="geplant" />
+            <Metric title="Planzeit" value={`${prettyHours(plannedMinutes)} Std.`} hint="gesamt" />
+            <Metric title="Lohnzeit" value={`${prettyHours(approvedMinutes)} Std.`} hint="freigegeben" />
+            <Metric title="Nachweise" value={qualityReports.length} hint="Qualität" />
+          </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <Metric title="Materialmeldungen" value={materialReports.length} hint="Objekt/Kunde" />
+            <Metric title="Schlüssel" value={keys.length} hint="ausgegeben" />
+            <Metric title="Kontakte" value={contacts.length} hint="hinterlegt" />
+          </div>
+        </div>
+      )}
+
+      {tab === "dokumente" && (
+        <div className="p-6">
+          <Empty text="Dokumentenablage ist vorbereitet." />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfoBox({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-black text-slate-400">{label}</p>
+      <p className="mt-1 font-bold text-slate-950">{value || "-"}</p>
     </div>
   );
 }
@@ -4146,7 +4465,7 @@ function Customers(p: any) {
         <Button primary onClick={p.openCreate}>+ Kunde erstellen</Button>
       </PageHeader>
       <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800">
-        CSV-Spalten: Kunde, Kundennummer, Adresse, Telefon, E-Mail, Vertragsbeginn, Vertragsende, Notizen
+        CSV-Spalten: Kunde, Kundennummer, Straße, Postleitzahl, Stadt, Land, Telefon, Mobil, E-Mail, Ansprechpartner, Vertragsbeginn, Vertragsende, Objekt automatisch erstellen, Objekt, Notizen
       </div>
       <Table headers={["Kunde", "Nummer", "Adresse", "Telefon", "E-Mail", "Vertrag", "Objekte", "Aktion"]}>
         {p.rows.map((r: Row) => {
@@ -4157,7 +4476,7 @@ function Customers(p: any) {
                 <button type="button" onClick={() => p.setSelectedCustomer(r)} className="text-left font-black text-blue-700 hover:underline">{r.name || r.customer_name}</button>
               </td>
               <td className="px-4 py-3">{r.customer_number || "-"}</td>
-              <td className="px-4 py-3">{r.address || r.customer_address || "-"}</td>
+              <td className="px-4 py-3">{r.address || [r.street, r.postal_code, r.city].filter(Boolean).join(", ") || r.customer_address || "-"}</td>
               <td className="px-4 py-3">{r.phone || r.customer_phone || "-"}</td>
               <td className="px-4 py-3">{r.email || r.customer_email || "-"}</td>
               <td className="px-4 py-3 text-sm font-semibold text-slate-500">{r.contract_start_date ? dateText(r.contract_start_date) : "-"}{r.contract_end_date ? ` bis ${dateText(r.contract_end_date)}` : ""}</td>
@@ -6513,16 +6832,65 @@ function EmployeeEditModal(p: any) {
 }
 
 function CustomerModal(p: any) {
+  const activeValue = p.form.status || (p.form.active === false ? "inactive" : "active");
+  const customerNumber = p.form.customer_number || "";
+
   return (
     <ModalShell title={p.form.id ? "Kunde bearbeiten" : "Kunde erstellen"} close={p.close} onSubmit={p.save} saving={p.saving} wide>
-      <Field label="Kunde"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} /></Field>
-      <Field label="Kundennummer"><Input value={p.form.customer_number} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} /></Field>
+      <Field label="Name"><Input required value={p.form.name} onChange={(e) => p.setForm({ ...p.form, name: e.target.value })} placeholder="Name" /></Field>
+      <Field label="Nummer">
+        <Input required value={customerNumber} onChange={(e) => p.setForm({ ...p.form, customer_number: e.target.value })} placeholder="1031" />
+      </Field>
+      <Field label="Status">
+        <Select value={activeValue} onChange={(e) => p.setForm({ ...p.form, status: e.target.value, active: e.target.value === "active" })}>
+          <option value="active">🟢 Aktiv</option>
+          <option value="inactive">⚪ Passiv</option>
+        </Select>
+      </Field>
+
+      <div className="md:col-span-2 mt-2 border-t border-slate-100 pt-4">
+        <h3 className="font-black text-slate-950">Adresse</h3>
+      </div>
+      <Field label="Straße" wide><Input value={p.form.street} onChange={(e) => p.setForm({ ...p.form, street: e.target.value, address: e.target.value })} placeholder="Straße auswählen" /></Field>
+      <Field label="Postleitzahl"><Input value={p.form.postal_code} onChange={(e) => p.setForm({ ...p.form, postal_code: e.target.value })} placeholder="Postleitzahl" /></Field>
+      <Field label="Stadt"><Input value={p.form.city} onChange={(e) => p.setForm({ ...p.form, city: e.target.value })} placeholder="Stadt" /></Field>
+      <Field label="Land" wide>
+        <Select value={p.form.country} onChange={(e) => p.setForm({ ...p.form, country: e.target.value })}>
+          <option value="DE Deutschland">DE Deutschland</option>
+          <option value="AT Österreich">AT Österreich</option>
+          <option value="CH Schweiz">CH Schweiz</option>
+        </Select>
+      </Field>
+      <Field label="Adresszusatz" wide><Input value={p.form.address_addition} onChange={(e) => p.setForm({ ...p.form, address_addition: e.target.value })} placeholder="Adresszusatz" /></Field>
+
+      <div className="md:col-span-2 mt-2 border-t border-slate-100 pt-4">
+        <h3 className="font-black text-slate-950">Kontaktinformationen</h3>
+      </div>
+      <Field label="Ansprechpartner"><Input value={p.form.contact_person} onChange={(e) => p.setForm({ ...p.form, contact_person: e.target.value })} placeholder="Ansprechpartner" /></Field>
+      <Field label="Mobilnummer"><Input value={p.form.mobile} onChange={(e) => p.setForm({ ...p.form, mobile: e.target.value })} placeholder="Mobilnummer" /></Field>
+      <Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} placeholder="E-Mail Adresse" /></Field>
+      <Field label="Telefonnummer"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} placeholder="Telefonnummer" /></Field>
+
+      <div className="md:col-span-2 mt-2 border-t border-slate-100 pt-4">
+        <h3 className="font-black text-slate-950">Vertragsdaten</h3>
+      </div>
       <Field label="Vertragsbeginn"><Input type="date" value={p.form.contract_start_date} onChange={(e) => p.setForm({ ...p.form, contract_start_date: e.target.value })} /></Field>
       <Field label="Vertragsende optional"><Input type="date" value={p.form.contract_end_date} onChange={(e) => p.setForm({ ...p.form, contract_end_date: e.target.value })} /></Field>
-      <Field label="Adresse" wide><Input value={p.form.address} onChange={(e) => p.setForm({ ...p.form, address: e.target.value })} /></Field>
-      <Field label="Telefon"><Input value={p.form.phone} onChange={(e) => p.setForm({ ...p.form, phone: e.target.value })} /></Field>
-      <Field label="E-Mail"><Input type="email" value={p.form.email} onChange={(e) => p.setForm({ ...p.form, email: e.target.value })} /></Field>
+
       <Field label="Notizen" wide><Textarea value={p.form.notes} onChange={(e) => p.setForm({ ...p.form, notes: e.target.value })} /></Field>
+
+      <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4">
+        <label className="flex items-center gap-3 text-sm font-bold text-slate-600">
+          <input type="checkbox" checked={Boolean(p.form.create_object)} onChange={(e) => p.setForm({ ...p.form, create_object: e.target.checked })} />
+          Objekt automatisch erstellen
+        </label>
+        {!p.form.id && (
+          <label className="flex items-center gap-3 text-sm font-bold text-slate-600">
+            <input type="checkbox" checked={Boolean(p.form.create_another)} onChange={(e) => p.setForm({ ...p.form, create_another: e.target.checked })} />
+            Weiteren Kunden erstellen
+          </label>
+        )}
+      </div>
     </ModalShell>
   );
 }
