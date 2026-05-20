@@ -3,5 +3,5 @@
 import MitarbeiterApp from "../MitarbeiterApp";
 
 export default function Page() {
-  return <MitarbeiterApp initialTab="chat" />;
+  return <MitarbeiterApp initialTab="menu" />;
 }

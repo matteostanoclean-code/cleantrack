@@ -3,5 +3,5 @@
 import MitarbeiterApp from "../MitarbeiterApp";
 
 export default function Page() {
-  return <MitarbeiterApp initialTab="menu" />;
+  return <MitarbeiterApp initialTab="timesheet" />;
 }

@@ -1,12 +1,18 @@
 {
-  "name": "CleanTrack",
+  "name": "CleanTrack Pro",
   "short_name": "CleanTrack",
-  "description": "CleanTrack Mitarbeiter App",
+  "description": "Mobile App für Reinigungsteams",
   "start_url": "/mitarbeiter",
   "display": "standalone",
-  "background_color": "#f4f7fb",
-  "theme_color": "#2563eb",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait",
   "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
