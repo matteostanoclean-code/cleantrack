@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
 type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu";
 type ClockStatus = "idle" | "working" | "break";
@@ -105,6 +106,7 @@ type EmployeeWorkSite = {
 type AppData = {
   ok: boolean;
   error?: string;
+  isAdmin?: boolean;
   employees: Employee[];
   employee: Employee | null;
   tasks: RawTask[];
@@ -488,7 +490,7 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
           <p className="text-2xl font-black tracking-tight">Hallo, {employee?.name || "Team"}</p>
           <p className="text-xs text-slate-400">Heute: {todayTasks.length} Einsätze · {doneToday} erledigt.</p>
         </div>
-        <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
+        {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
       </div>
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
@@ -649,7 +651,7 @@ function AssignmentCard({ assignment, featured }: { assignment: Assignment; feat
   );
 }
 
-function Clock({ data, onReload }: { data: AppData | null; onReload: () => Promise<void> }) {
+function Clock({ data, authToken, onReload }: { data: AppData | null; authToken: string; onReload: () => Promise<void> }) {
   const [status, setStatus] = useState<ClockStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -691,7 +693,7 @@ function Clock({ data, onReload }: { data: AppData | null; onReload: () => Promi
     try {
       const response = await fetch("/api/mobile/time-entry", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
           employeeName: data.employee.name,
           employeeId: data.employee.id,
@@ -866,14 +868,14 @@ function TimeRow({ entry }: { entry: TimeEntry }) {
   );
 }
 
-function Tasks({ tasks, onReload }: { tasks: RawTask[]; onReload: () => Promise<void> }) {
+function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: string; onReload: () => Promise<void> }) {
   const [savingId, setSavingId] = useState<string | null>(null);
   async function toggleTask(task: RawTask, done: boolean) {
     setSavingId(task.id);
     try {
       const response = await fetch("/api/mobile/task", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ id: task.id, done })
       });
       const result = await response.json();
@@ -905,7 +907,7 @@ function Tasks({ tasks, onReload }: { tasks: RawTask[]; onReload: () => Promise<
   );
 }
 
-function Menu({ data, employeeName, onEmployeeChange }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void }) {
+function Menu({ data, employeeName, onEmployeeChange, onLogout }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void> }) {
   const items = [
     ["Material melden", "Nächster Schritt: material_reports anbinden", "box"],
     ["Abwesenheit", `${data?.absences?.length || 0} vorhandene Anträge`, "calendar"],
@@ -918,11 +920,19 @@ function Menu({ data, employeeName, onEmployeeChange }: { data: AppData | null; 
         <h1 className="text-2xl font-black">Mehr</h1>
         <p className="text-xs text-slate-400">Weitere Funktionen für den Arbeitsalltag</p>
       </div>
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Mitarbeiter wählen</p>
-        <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
-        <p className="mt-3 text-xs text-slate-500">Später wird das automatisch über den Login gewählt.</p>
-      </section>
+      {data?.isAdmin ? (
+        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+          <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Admin-Auswahl</p>
+          <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
+          <p className="mt-3 text-xs text-slate-500">Nur Admins dürfen Mitarbeiter wechseln.</p>
+        </section>
+      ) : (
+        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+          <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Angemeldet als</p>
+          <p className="font-black text-blue-100">{data?.employee?.name || employeeName}</p>
+          <p className="mt-1 text-xs text-slate-500">Die App lädt automatisch nur die eigenen Einsätze und Zeiten.</p>
+        </section>
+      )}
       <div className="space-y-3">
         {items.map(([title, subtitle, icon]) => (
           <button key={title} className="flex w-full items-center gap-4 rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
@@ -933,6 +943,7 @@ function Menu({ data, employeeName, onEmployeeChange }: { data: AppData | null; 
             </div>
           </button>
         ))}
+        <button onClick={onLogout} className="w-full rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-left font-black text-red-100">Abmelden</button>
       </div>
     </div>
   );
@@ -958,8 +969,62 @@ function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void })
         <p className="mt-2 text-sm text-red-100/80">{error}</p>
       </div>
       <button onClick={onRetry} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white">Erneut laden</button>
-      <p className="text-xs text-slate-500">Prüfe in Vercel die Variablen NEXT_PUBLIC_SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY.</p>
+      <p className="text-xs text-slate-500">Prüfe in Vercel die Variablen NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY und SUPABASE_SERVICE_ROLE_KEY.</p>
     </div>
+  );
+}
+
+function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseBrowser();
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginError) throw new Error(loginError.message);
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Login erfolgreich, aber Session fehlt.");
+      await onLogin(token);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Login fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
+      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
+        <div className="flex min-h-[calc(100vh-2rem)] flex-col justify-center bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-5 py-8">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-blue-500/40 bg-blue-500/10 text-3xl">🧼</div>
+            <h1 className="text-3xl font-black">CleanTrack Pro</h1>
+            <p className="mt-2 text-sm text-slate-400">Mit Mitarbeiter-Login anmelden</p>
+          </div>
+
+          <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">E-Mail</span>
+              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="name@firma.de" />
+            </label>
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Passwort</span>
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Passwort" />
+            </label>
+            {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
+            <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+          </form>
+
+          <p className="mt-4 text-center text-xs text-slate-500">Der Login wird mit Supabase Auth geprüft. Danach werden nur die passenden Mitarbeiter-Daten geladen.</p>
+        </div>
+      </div>
+    </main>
   );
 }
 
@@ -967,44 +1032,106 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
   const [data, setData] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState("");
+  const [authToken, setAuthToken] = useState("");
 
-  const loadData = useCallback(async (name?: string) => {
+  const loadData = useCallback(async (name?: string, tokenOverride?: string) => {
+    const token = tokenOverride || authToken;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const storedName = typeof window !== "undefined" ? window.localStorage.getItem("cleantrack-employee-name") || "" : "";
       const wantedName = name || employeeName || storedName;
       const query = wantedName ? `?employee=${encodeURIComponent(wantedName)}` : "";
-      const response = await fetch(`/api/mobile/bootstrap${query}`, { cache: "no-store" });
+      const response = await fetch(`/api/mobile/bootstrap${query}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Supabase konnte nicht geladen werden.");
       setData(result);
       const selectedName = result.employee?.name || result.employees?.[0]?.name || "";
       setEmployeeName(selectedName);
-      if (selectedName) window.localStorage.setItem("cleantrack-employee-name", selectedName);
+      if (selectedName && typeof window !== "undefined") window.localStorage.setItem("cleantrack-employee-name", selectedName);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
     } finally {
       setLoading(false);
     }
-  }, [employeeName]);
+  }, [authToken, employeeName]);
 
   useEffect(() => {
-    loadData();
+    let mounted = true;
+    async function initAuth() {
+      try {
+        const supabase = getSupabaseBrowser();
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token || "";
+        if (!mounted) return;
+        setAuthToken(token);
+        setAuthLoading(false);
+        if (token) await loadData(undefined, token);
+        else setLoading(false);
+      } catch (initError) {
+        if (!mounted) return;
+        setError(initError instanceof Error ? initError.message : "Login konnte nicht geprüft werden.");
+        setAuthLoading(false);
+        setLoading(false);
+      }
+    }
+    initAuth();
+    return () => {
+      mounted = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function handleLogin(token: string) {
+    setAuthToken(token);
+    await loadData(undefined, token);
+  }
+
+  async function handleLogout() {
+    const supabase = getSupabaseBrowser();
+    await supabase.auth.signOut();
+    if (typeof window !== "undefined") window.localStorage.removeItem("cleantrack-employee-name");
+    setAuthToken("");
+    setEmployeeName("");
+    setData(null);
+    setError(null);
+    setActive("home");
+  }
+
   async function handleEmployeeChange(name: string) {
+    if (!data?.isAdmin) return;
     setEmployeeName(name);
-    window.localStorage.setItem("cleantrack-employee-name", name);
+    if (typeof window !== "undefined") window.localStorage.setItem("cleantrack-employee-name", name);
     await loadData(name);
   }
 
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
-
   const timeEntries = useMemo(() => groupTimeEntries(data?.timeEntries || []), [data?.timeEntries]);
+
+  if (authLoading) {
+    return (
+      <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
+        <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[430px] place-items-center rounded-[2rem] border border-blue-500/30 bg-slate-950">
+          <LoadingScreen />
+        </div>
+      </main>
+    );
+  }
+
+  if (!authToken) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
   return (
     <AppShell active={active} setActive={setActive}>
@@ -1014,10 +1141,10 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
         <>
           {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} />}
           {active === "schedule" && <Schedule assignments={assignments} />}
-          {active === "clock" && <Clock data={data} onReload={() => loadData(employeeName)} />}
+          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} />}
           {active === "timesheet" && <Timesheet entries={timeEntries} absences={data?.absences || []} />}
-          {active === "tasks" && <Tasks tasks={data?.tasks || []} onReload={() => loadData(employeeName)} />}
-          {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} />}
+          {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
+          {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} />}
         </>
       )}
     </AppShell>

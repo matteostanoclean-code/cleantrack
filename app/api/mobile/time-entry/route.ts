@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -7,21 +7,39 @@ const allowedActions = new Set(["clock_in", "break_start", "break_end", "clock_o
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const employeeName = String(body.employeeName || "").trim();
-    const action = String(body.action || "").trim();
-
-    if (!employeeName) {
-      return NextResponse.json({ ok: false, error: "Mitarbeiter fehlt." }, { status: 400 });
+    const auth = await getAuthenticatedMobileProfile(request);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
+
+    const body = await request.json();
+    const action = String(body.action || "").trim();
 
     if (!allowedActions.has(action)) {
       return NextResponse.json({ ok: false, error: "Ungültige Stempel-Aktion." }, { status: 400 });
     }
 
+    const requestedEmployeeName = String(body.employeeName || "").trim();
+    const employeeName = auth.isAdmin && requestedEmployeeName ? requestedEmployeeName : auth.profile.name;
+    let employeeId = auth.profile.id;
+
+    if (auth.isAdmin && requestedEmployeeName && requestedEmployeeName !== auth.profile.name) {
+      const { data: selectedEmployee, error } = await auth.supabase
+        .from("employee_profiles")
+        .select("id, name, active")
+        .eq("name", requestedEmployeeName)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!selectedEmployee || selectedEmployee.active === false) {
+        return NextResponse.json({ ok: false, error: "Gewählter Mitarbeiter ist nicht aktiv oder wurde nicht gefunden." }, { status: 403 });
+      }
+      employeeId = selectedEmployee.id;
+    }
+
     const insertPayload = {
       employee_name: employeeName,
-      employee_id: body.employeeId || null,
+      employee_id: employeeId,
       work_site_id: body.workSiteId || null,
       work_site_name: body.workSiteName || null,
       action,
@@ -35,8 +53,7 @@ export async function POST(request: Request) {
       expected_start_time: body.expectedStartTime || null
     };
 
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase.from("time_entries").insert(insertPayload).select("*").single();
+    const { data, error } = await auth.supabase.from("time_entries").insert(insertPayload).select("*").single();
 
     if (error) throw new Error(error.message);
 

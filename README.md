@@ -1,16 +1,28 @@
 # CleanTrack Pro Mobile App
 
-Mobile App im dunklen Google-AI-Studio-Layout mit echter Supabase-Anbindung.
+Mobile App im dunklen Google-AI-Studio-Layout mit echter Supabase-Anbindung und Mitarbeiter-Login.
 
 ## Enthalten
 
-- Home Dashboard
+- Login über Supabase Auth
+- automatische Mitarbeiter-Erkennung über `employee_profiles.auth_user_id`
+- Home Dashboard aus echten Daten
 - Einsatzplan aus `tasks`
 - Aufgaben abhaken in `tasks.done`
 - Stempeluhr mit Speicherung in `time_entries`
 - Stundenzettel aus `time_entries`
 - Abwesenheiten aus `absence_requests`
-- Mitarbeiterdaten aus `employee_profiles`
+- Admin-Auswahl nur für Profile mit `role = admin`
+
+## Wichtige Supabase-Regel
+
+Ein Login funktioniert nur, wenn in `employee_profiles` diese Felder passen:
+
+- `auth_user_id` = Supabase Auth User ID
+- `active` = true
+- `name` muss zu `tasks.employee_name` passen
+
+Beispiel: Wenn Aufgaben für `Matteo Stano` angelegt sind, muss das eingeloggte Profil auch `name = Matteo Stano` haben.
 
 ## Vercel Environment Variables
 
@@ -27,6 +39,10 @@ VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=
 ```
 
-## Wichtig
+## Start
 
-Diese Version ist eine Daten-Integrationsversion. Sie nutzt serverseitig den Supabase Service Role Key über API-Routen. Für den produktiven Einsatz sollte danach ein echter Login aktiviert werden, damit jeder Mitarbeiter nur seine eigenen Daten sieht.
+```bash
+npm install
+npm run build
+npm run dev
+```

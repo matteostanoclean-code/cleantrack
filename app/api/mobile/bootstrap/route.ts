@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,12 @@ function byName<T extends { name?: string | null }>(items: T[], name?: string | 
 
 export async function GET(request: Request) {
   try {
-    const supabase = getSupabaseAdmin();
+    const auth = await getAuthenticatedMobileProfile(request);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
+
+    const { supabase, profile, isAdmin } = auth;
     const { searchParams } = new URL(request.url);
     const requestedEmployee = searchParams.get("employee");
 
@@ -37,15 +42,18 @@ export async function GET(request: Request) {
 
     const employees = (employeesResult.data || []).filter((employee) => employee.name);
     const activeEmployees = employees.filter((employee) => employee.active !== false);
-    const selectedEmployee = byName(activeEmployees, requestedEmployee) || byName(employees, requestedEmployee) || activeEmployees[0] || employees[0] || null;
+
+    const selectedEmployee = isAdmin
+      ? byName(activeEmployees, requestedEmployee) || byName(employees, requestedEmployee) || activeEmployees[0] || profile
+      : profile;
 
     if (!selectedEmployee) {
-      return NextResponse.json({ ok: true, employees, employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], employeeWorkSites: [] });
+      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], employeeWorkSites: [] });
     }
 
     const employeeName = selectedEmployee.name;
-    const fromDate = dateOffset(-14);
-    const toDate = dateOffset(31);
+    const fromDate = dateOffset(-30);
+    const toDate = dateOffset(45);
 
     const [tasksResult, timeEntriesResult, absencesResult, notificationsResult, chatMessagesResult, employeeWorkSitesResult] = await Promise.all([
       supabase
@@ -94,7 +102,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      employees,
+      isAdmin,
+      employees: isAdmin ? employees : [profile],
       employee: selectedEmployee,
       tasks: tasksResult.data || [],
       timeEntries: timeEntriesResult.data || [],
