@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu";
+type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -103,6 +103,55 @@ type EmployeeWorkSite = {
   created_at?: string | null;
 };
 
+type ChatMessage = {
+  id: string;
+  employee_name?: string | null;
+  sender_name?: string | null;
+  sender_role?: string | null;
+  message?: string | null;
+  body?: string | null;
+  text?: string | null;
+  status?: string | null;
+  todo_status?: string | null;
+  read_by_admin?: boolean | null;
+  read_by_employee?: boolean | null;
+  created_at?: string | null;
+};
+
+type MaterialProduct = {
+  id: string;
+  name?: string | null;
+  category?: string | null;
+  unit?: string | null;
+  current_stock?: number | null;
+  min_stock?: number | null;
+  minimum_stock?: number | null;
+  work_site_id?: string | null;
+  object_name?: string | null;
+  supplier?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+};
+
+type MaterialReport = {
+  id: string;
+  employee_name?: string | null;
+  material_id?: string | null;
+  material_product_id?: string | null;
+  material_name?: string | null;
+  product_name?: string | null;
+  work_site_id?: string | null;
+  object_name?: string | null;
+  site?: string | null;
+  quantity?: number | null;
+  quantity_requested?: number | null;
+  message?: string | null;
+  comment?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type AppData = {
   ok: boolean;
   error?: string;
@@ -113,6 +162,9 @@ type AppData = {
   timeEntries: RawTimeEntry[];
   absences: Absence[];
   notifications: Notification[];
+  chatMessages: ChatMessage[];
+  materialProducts: MaterialProduct[];
+  materialReports: MaterialReport[];
   employeeWorkSites: EmployeeWorkSite[];
 };
 
@@ -183,14 +235,13 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "clock" || value === "timesheet" || value === "tasks") return value;
-  if (value === "search" || value === "chat" || value === "profile" || value === "material" || value === "admin") return "menu";
+  if (value === "schedule" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile") return value;
+  if (value === "search" || value === "admin") return "menu";
   return "home";
 };
 
 const two = (value: number) => String(value).padStart(2, "0");
 const todayIso = () => new Date().toISOString().slice(0, 10);
-const timeNow = () => `${two(new Date().getHours())}:${two(new Date().getMinutes())}`;
 
 function formatDuration(totalSeconds: number) {
   const hours = Math.floor(totalSeconds / 3600);
@@ -401,7 +452,7 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
           <section className="flex-1 overflow-y-auto px-4 pb-28 pt-3">{children}</section>
           <nav className="absolute bottom-4 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key;
+              const selected = active === item.key || (item.key === "menu" && ["material", "absence", "chat", "profile"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -907,12 +958,306 @@ function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: st
   );
 }
 
-function Menu({ data, employeeName, onEmployeeChange, onLogout }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void> }) {
-  const items = [
-    ["Material melden", "Nächster Schritt: material_reports anbinden", "box"],
-    ["Abwesenheit", `${data?.absences?.length || 0} vorhandene Anträge`, "calendar"],
-    ["Chat", `${data?.notifications?.length || 0} Meldungen / Benachrichtigungen`, "chat"],
-    ["Profil", data?.employee?.email || "Stammdaten", "user"]
+function BackButton({ onBack }: { onBack: () => void }) {
+  return <button onClick={onBack} className="rounded-2xl border border-slate-800 px-4 py-2 text-sm font-bold text-blue-100">Zurück</button>;
+}
+
+function menuSites(data: AppData | null, tasks: RawTask[] = []) {
+  const fromTasks = tasks.map((task) => ({ workSiteId: task.work_site_id || null, siteName: task.site || task.customer_name || "Objekt" }));
+  const fromEmployeeSites = (data?.employeeWorkSites || []).filter((site) => site.active !== false).map((site) => ({ workSiteId: site.work_site_id || null, siteName: site.site_name || "Objekt" }));
+  const combined = [...fromEmployeeSites, ...fromTasks].filter((site) => site.siteName);
+  const unique = new Map<string, { workSiteId: string | null; siteName: string }>();
+  combined.forEach((site) => unique.set(`${site.workSiteId || ""}-${site.siteName}`, site));
+  return Array.from(unique.values());
+}
+
+function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const sites = useMemo(() => menuSites(data, data?.tasks || []), [data]);
+  const products = data?.materialProducts || [];
+  const [siteIndex, setSiteIndex] = useState(0);
+  const [productId, setProductId] = useState(products[0]?.id || "");
+  const [customMaterial, setCustomMaterial] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!productId && products[0]?.id) setProductId(products[0].id);
+  }, [productId, products]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      const site = sites[siteIndex] || null;
+      const response = await fetch("/api/mobile/material/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          workSiteId: site?.workSiteId || null,
+          workSiteName: site?.siteName || null,
+          materialProductId: productId || null,
+          materialName: customMaterial || null,
+          quantity,
+          notes
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Materialmeldung konnte nicht gesendet werden.");
+      setMessage("Materialmeldung wurde an den Admin gesendet.");
+      setNotes("");
+      setCustomMaterial("");
+      await onReload();
+    } catch (submitError) {
+      setMessage(submitError instanceof Error ? submitError.message : "Materialmeldung konnte nicht gesendet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Material melden</h1>
+          <p className="text-xs text-slate-400">Fehlendes Material direkt als Meldung speichern</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Objekt</span>
+          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
+          </select>
+        </label>
+
+        {products.length ? (
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Material</span>
+            <select value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+              {products.map((product) => <option key={product.id} value={product.id}>{product.name || "Material"}{product.unit ? ` · ${product.unit}` : ""}</option>)}
+            </select>
+          </label>
+        ) : (
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Material</span>
+            <input value={customMaterial} onChange={(event) => setCustomMaterial(event.target.value)} required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z.B. Müllbeutel, Reiniger, Papier" />
+          </label>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Menge</span>
+            <input value={quantity} onChange={(event) => setQuantity(event.target.value)} inputMode="decimal" className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+          </label>
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-xs text-blue-100">
+            <p className="font-black">Status</p>
+            <p className="mt-1 text-blue-100/80">wird als offen gespeichert</p>
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was fehlt? Wo genau?" />
+        </label>
+
+        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
+        <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Materialmeldung senden"}</button>
+      </form>
+
+      <section className="space-y-2">
+        <h2 className="font-black">Letzte Materialmeldungen</h2>
+        {(data?.materialReports || []).length ? (data?.materialReports || []).slice(0, 5).map((report) => (
+          <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+            <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
+            <p className="text-xs text-slate-500">{report.object_name || report.site || "Objekt"} · {report.status || "open"}</p>
+          </article>
+        )) : <EmptyCard title="Noch keine Materialmeldung" text="Sobald etwas gemeldet wird, erscheint es hier." />}
+      </section>
+    </div>
+  );
+}
+
+function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const [absenceType, setAbsenceType] = useState("Urlaub");
+  const [startDate, setStartDate] = useState(todayIso());
+  const [endDate, setEndDate] = useState(todayIso());
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/absence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ absenceType, startDate, endDate, reason })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Antrag konnte nicht gesendet werden.");
+      setMessage("Antrag wurde gespeichert und an den Admin gesendet.");
+      setReason("");
+      await onReload();
+    } catch (submitError) {
+      setMessage(submitError instanceof Error ? submitError.message : "Antrag konnte nicht gesendet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Abwesenheit</h1>
+          <p className="text-xs text-slate-400">Urlaub oder Krankheit anfragen</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Art</span>
+          <select value={absenceType} onChange={(event) => setAbsenceType(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            <option>Urlaub</option>
+            <option>Krank</option>
+            <option>Frei</option>
+            <option>Sonstiges</option>
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Von</span>
+            <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Bis</span>
+            <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none" />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Grund / Notiz</span>
+          <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Kurze Info für den Admin" />
+        </label>
+        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
+        <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Antrag senden"}</button>
+      </form>
+
+      <section className="space-y-2">
+        <h2 className="font-black">Meine Anträge</h2>
+        {(data?.absences || []).length ? (data?.absences || []).map((absence) => (
+          <article key={absence.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-black">{absence.absence_type || absence.request_type || "Abwesenheit"}</p>
+              <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-black text-blue-100">{absence.status || "open"}</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{absence.start_date} bis {absence.end_date}</p>
+            {absence.admin_response && <p className="mt-2 rounded-xl bg-slate-950 px-3 py-2 text-xs text-slate-300">{absence.admin_response}</p>}
+          </article>
+        )) : <EmptyCard title="Keine Anträge" text="Hier erscheinen Urlaub, Krankheit und Freitage." />}
+      </section>
+    </div>
+  );
+}
+
+function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const messages = [...(data?.chatMessages || [])].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+  async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!text.trim()) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ message: text })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Nachricht konnte nicht gesendet werden.");
+      setText("");
+      await onReload();
+    } catch (sendError) {
+      setMessage(sendError instanceof Error ? sendError.message : "Nachricht konnte nicht gesendet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Chat</h1>
+          <p className="text-xs text-slate-400">Nachricht an Admin / Büro</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      <section className="max-h-[52vh] space-y-3 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        {messages.length ? messages.map((item) => {
+          const own = `${item.sender_role || ""}`.toLowerCase() === "employee";
+          const body = item.message || item.body || item.text || "Nachricht";
+          return (
+            <article key={item.id} className={`rounded-2xl px-4 py-3 ${own ? "ml-8 bg-blue-600 text-white" : "mr-8 bg-slate-800 text-slate-100"}`}>
+              <p className="text-sm font-semibold">{body}</p>
+              <p className={`mt-1 text-[10px] ${own ? "text-blue-100" : "text-slate-500"}`}>{item.sender_name || (own ? data?.employee?.name : "Admin")} · {item.created_at ? formatTime(item.created_at) : "—"}</p>
+            </article>
+          );
+        }) : <EmptyCard title="Noch keine Nachrichten" text="Schreibe dem Büro direkt aus der App." />}
+      </section>
+
+      {message && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{message}</p>}
+      <form onSubmit={sendMessage} className="rounded-3xl border border-slate-800 bg-slate-900 p-3">
+        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Nachricht schreiben…" />
+        <button disabled={saving || !text.trim()} className="mt-3 w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Nachricht senden"}</button>
+      </form>
+    </div>
+  );
+}
+
+function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBack: () => void; onLogout: () => Promise<void> }) {
+  const employee = data?.employee;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Profil</h1>
+          <p className="text-xs text-slate-400">Meine Mitarbeiterdaten</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <div className="mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-blue-500/15 text-2xl font-black text-blue-100">{(employee?.name || "?").slice(0, 1)}</div>
+        <p className="text-xl font-black">{employee?.name || "Mitarbeiter"}</p>
+        <p className="text-sm text-slate-400">{employee?.email || "Keine E-Mail"}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <MetricCard title="Rolle" value={employee?.role || "—"} caption="Zugriff" accent="text-blue-100" />
+          <MetricCard title="Urlaub" value={`${employee?.vacation_days ?? employee?.annual_vacation_days ?? "—"}`} caption="Tage" accent="text-emerald-200" />
+        </div>
+      </section>
+      <button onClick={onLogout} className="w-full rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-left font-black text-red-100">Abmelden</button>
+    </div>
+  );
+}
+
+function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
+  const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
+    { title: "Material melden", subtitle: `${data?.materialReports?.length || 0} vorhandene Meldungen`, icon: "box", tab: "material" },
+    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} vorhandene Anträge`, icon: "calendar", tab: "absence" },
+    { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
+    { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
   return (
     <div className="space-y-4">
@@ -935,12 +1280,12 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout }: { data: AppDat
         </section>
       )}
       <div className="space-y-3">
-        {items.map(([title, subtitle, icon]) => (
-          <button key={title} className="flex w-full items-center gap-4 rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-500/15 text-blue-200"><Icon name={icon} /></div>
+        {items.map((item) => (
+          <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-4 rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-500/15 text-blue-200"><Icon name={item.icon} /></div>
             <div className="min-w-0">
-              <p className="font-black">{title}</p>
-              <p className="truncate text-xs text-slate-500">{subtitle}</p>
+              <p className="font-black">{item.title}</p>
+              <p className="truncate text-xs text-slate-500">{item.subtitle}</p>
             </div>
           </button>
         ))}
@@ -1145,7 +1490,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} />}
           {active === "timesheet" && <Timesheet entries={timeEntries} absences={data?.absences || []} />}
           {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
-          {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} />}
+          {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}
+          {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
     </AppShell>

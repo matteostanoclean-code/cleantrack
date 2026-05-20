@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       : profile;
 
     if (!selectedEmployee) {
-      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], employeeWorkSites: [] });
+      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [] });
     }
 
     const employeeName = selectedEmployee.name;
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
         .select("id, employee_name, sender_name, sender_role, message, body, text, status, todo_status, read_by_admin, read_by_employee, created_at")
         .eq("employee_name", employeeName)
         .order("created_at", { ascending: false })
-        .limit(20),
+        .limit(30),
       supabase
         .from("employee_work_sites")
         .select("id, employee_name, work_site_id, site_name, active, created_at")
@@ -100,6 +100,24 @@ export async function GET(request: Request) {
     const error = results.find((result) => result.error)?.error;
     if (error) throw new Error(error.message);
 
+    let materialProducts: any[] = [];
+    let materialReports: any[] = [];
+
+    const productResult = await supabase
+      .from("material_products")
+      .select("*")
+      .order("name", { ascending: true })
+      .limit(100);
+    if (!productResult.error) materialProducts = productResult.data || [];
+
+    const reportResult = await supabase
+      .from("material_reports")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (!reportResult.error) materialReports = reportResult.data || [];
+
     return NextResponse.json({
       ok: true,
       isAdmin,
@@ -110,6 +128,8 @@ export async function GET(request: Request) {
       absences: absencesResult.data || [],
       notifications: notificationsResult.data || [],
       chatMessages: chatMessagesResult.data || [],
+      materialProducts,
+      materialReports,
       employeeWorkSites: employeeWorkSitesResult.data || []
     });
   } catch (error) {

@@ -46,3 +46,14 @@ npm install
 npm run build
 npm run dev
 ```
+
+## Update: Mobile Mehr-Funktionen
+
+Diese Version ergänzt in der Mitarbeiter-App unter **Mehr**:
+
+- Material melden → speichert in `material_reports` und erstellt `admin_notifications`
+- Abwesenheit beantragen → speichert in `absence_requests` und erstellt `admin_notifications`
+- Chat → speichert in `chat_messages` und erstellt eine Admin-Meldung
+- Profil → zeigt die eingeloggten Mitarbeiterdaten
+
+Falls eine Tabelle oder Spalte fehlt, kann die Datei `supabase/mobile_mehr_funktionen.sql` im Supabase SQL Editor ausgeführt werden.
