@@ -1,30 +1,32 @@
 # CleanTrack Pro Mobile App
 
-Diese Version ist eine Vercel-fertige Next.js-App mit einem mobilen Dark-Layout nach dem Google-AI-Studio-Screenshot.
+Mobile App im dunklen Google-AI-Studio-Layout mit echter Supabase-Anbindung.
 
-## Start lokal
+## Enthalten
 
-```bash
-npm install
-npm run dev
+- Home Dashboard
+- Einsatzplan aus `tasks`
+- Aufgaben abhaken in `tasks.done`
+- Stempeluhr mit Speicherung in `time_entries`
+- Stundenzettel aus `time_entries`
+- Abwesenheiten aus `absence_requests`
+- Mitarbeiterdaten aus `employee_profiles`
+
+## Vercel Environment Variables
+
+Diese Variablen müssen in Vercel unter Settings → Environment Variables vorhanden sein:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+NEXT_PUBLIC_SITE_URL=
+NEXT_PUBLIC_APP_URL=
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=
 ```
 
-## Build für Vercel
+## Wichtig
 
-```bash
-npm run build
-```
-
-## Routen
-
-- `/` Startseite
-- `/mitarbeiter` Mobile App
-- `/mitarbeiter/schedule` Einsatzplan
-- `/mitarbeiter/clock` Stempeluhr
-- `/mitarbeiter/timesheet` Stundenzettel
-- `/mitarbeiter/tasks` Aufgaben
-
-## Hinweis
-
-Diese Version funktioniert sofort als Frontend-App. Die Stempeluhr speichert Test-Zeiten im Browser per `localStorage`.
-Supabase/Login/Admin kann im nächsten Schritt wieder sauber angebunden werden.
+Diese Version ist eine Daten-Integrationsversion. Sie nutzt serverseitig den Supabase Service Role Key über API-Routen. Für den produktiven Einsatz sollte danach ein echter Login aktiviert werden, damit jeder Mitarbeiter nur seine eigenen Daten sieht.

@@ -1,9 +1,118 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu";
 type ClockStatus = "idle" | "working" | "break";
+
+type Employee = {
+  id: string;
+  auth_user_id?: string | null;
+  name: string;
+  email?: string | null;
+  role?: string | null;
+  active?: boolean | null;
+  phone?: string | null;
+  avatar_url?: string | null;
+  monthly_hour_limit?: number | null;
+  monthly_hours?: number | null;
+  vacation_days?: number | null;
+  annual_vacation_days?: number | null;
+};
+
+type RawTask = {
+  id: string;
+  title?: string | null;
+  site?: string | null;
+  employee_name?: string | null;
+  task_date?: string | null;
+  done?: boolean | null;
+  created_at?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  max_minutes?: number | null;
+  work_site_id?: string | null;
+  planned_minutes?: number | null;
+  notes?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  due_date?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  task_type?: string | null;
+  task_category?: string | null;
+  paid_minutes?: number | null;
+  wage_minutes?: number | null;
+  break_minutes?: number | null;
+  quality_required?: boolean | null;
+  quality_photo_required?: boolean | null;
+};
+
+type RawTimeEntry = {
+  id: string;
+  employee_name?: string | null;
+  employee_id?: string | null;
+  work_site_id?: string | null;
+  work_site_name?: string | null;
+  action?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  distance_m?: number | null;
+  allowed_radius_m?: number | null;
+  success?: boolean | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  expected_start_time?: string | null;
+};
+
+type Absence = {
+  id: string;
+  employee_name?: string | null;
+  request_type?: string | null;
+  absence_type?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  reason?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  admin_response?: string | null;
+};
+
+type Notification = {
+  id: string;
+  title?: string | null;
+  message?: string | null;
+  employee_name?: string | null;
+  work_site_name?: string | null;
+  object_name?: string | null;
+  site?: string | null;
+  read?: boolean | null;
+  status?: string | null;
+  notification_type?: string | null;
+  created_at?: string | null;
+  overtime_minutes?: number | null;
+};
+
+type EmployeeWorkSite = {
+  id: string;
+  employee_name?: string | null;
+  work_site_id?: string | null;
+  site_name?: string | null;
+  active?: boolean | null;
+  created_at?: string | null;
+};
+
+type AppData = {
+  ok: boolean;
+  error?: string;
+  employees: Employee[];
+  employee: Employee | null;
+  tasks: RawTask[];
+  timeEntries: RawTimeEntry[];
+  absences: Absence[];
+  notifications: Notification[];
+  employeeWorkSites: EmployeeWorkSite[];
+};
 
 type TimeEntry = {
   id: string;
@@ -25,9 +134,13 @@ type Assignment = {
   tag: string;
   priority: "normal" | "overdue" | "urgent";
   duration: string;
+  done: boolean;
+  date?: string | null;
+  workSiteId?: string | null;
+  raw?: RawTask;
 };
 
-const assignments: Assignment[] = [
+const demoAssignments: Assignment[] = [
   {
     id: "a1",
     time: "08:00 - 12:00",
@@ -36,7 +149,9 @@ const assignments: Assignment[] = [
     customer: "Facility Maintenance",
     tag: "Deep Cleaning",
     priority: "overdue",
-    duration: "4h"
+    duration: "4h",
+    done: false,
+    date: new Date().toISOString().slice(0, 10)
   },
   {
     id: "a2",
@@ -46,17 +161,9 @@ const assignments: Assignment[] = [
     customer: "Routine Inspection",
     tag: "Kontrolle",
     priority: "normal",
-    duration: "1.5h"
-  },
-  {
-    id: "a3",
-    time: "16:00 - 18:00",
-    title: "Greenfield Medical",
-    address: "1220 Wellness Blvd, Wing B",
-    customer: "Emergency Repair",
-    tag: "Hygiene",
-    priority: "urgent",
-    duration: "2h"
+    duration: "1.5h",
+    done: false,
+    date: new Date().toISOString().slice(0, 10)
   }
 ];
 
@@ -66,40 +173,10 @@ const starterEntries: TimeEntry[] = [
     day: "Mo 23",
     start: "08:00",
     end: "17:00",
-    site: "Facility Maintenance · Wing A",
+    site: "Demo-Objekt · Gebäudereinigung",
     status: "approved",
     minutes: 510,
-    note: "Freigegeben"
-  },
-  {
-    id: "t2",
-    day: "Di 24",
-    start: "08:15",
-    end: "17:45",
-    site: "Electrical Inspection · Floor 4",
-    status: "open",
-    minutes: 540,
-    note: "Offen"
-  },
-  {
-    id: "t3",
-    day: "Mi 25",
-    start: "Krank",
-    end: "",
-    site: "Doctor certificate uploaded",
-    status: "sick",
-    minutes: 0,
-    note: "Krankmeldung"
-  },
-  {
-    id: "t4",
-    day: "Do 26",
-    start: "09:00",
-    end: "18:00",
-    site: "System Calibration · Server Room",
-    status: "approved",
-    minutes: 480,
-    note: "Freigegeben"
+    note: "Demo"
   }
 ];
 
@@ -110,6 +187,7 @@ const tabFromProp = (value?: string): Tab => {
 };
 
 const two = (value: number) => String(value).padStart(2, "0");
+const todayIso = () => new Date().toISOString().slice(0, 10);
 const timeNow = () => `${two(new Date().getHours())}:${two(new Date().getMinutes())}`;
 
 function formatDuration(totalSeconds: number) {
@@ -125,6 +203,160 @@ function minutesToHours(minutes: number) {
 
 function safeId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`;
+}
+
+function dateLabel(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit" }).format(date).replace(".", "");
+}
+
+function monthLabel() {
+  return new Intl.DateTimeFormat("de-DE", { month: "long", year: "numeric" }).format(new Date());
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+  if (/^\d{2}:\d{2}/.test(value)) return value.slice(0, 5);
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return value;
+}
+
+function actionLabel(action?: string | null) {
+  const labels: Record<string, string> = {
+    clock_in: "Eingestempelt",
+    break_start: "Pause gestartet",
+    break_end: "Pause beendet",
+    clock_out: "Ausgestempelt"
+  };
+  return labels[action || ""] || action || "Zeit erfasst";
+}
+
+function normalizePriority(task: RawTask): Assignment["priority"] {
+  const priority = `${task.priority || ""}`.toLowerCase();
+  const status = `${task.status || ""}`.toLowerCase();
+  const dueDate = task.due_date || task.task_date;
+  if (priority.includes("urgent") || priority.includes("hoch") || priority.includes("dring")) return "urgent";
+  if (!task.done && dueDate && dueDate < todayIso()) return "overdue";
+  if (status.includes("overdue")) return "overdue";
+  return "normal";
+}
+
+function taskDuration(task: RawTask) {
+  const minutes = task.planned_minutes || task.max_minutes || task.paid_minutes || task.wage_minutes || 0;
+  if (!minutes) return "—";
+  if (minutes < 60) return `${minutes}m`;
+  return `${(minutes / 60).toFixed(minutes % 60 ? 1 : 0)}h`;
+}
+
+function taskTime(task: RawTask) {
+  const start = formatTime(task.start_time);
+  const end = formatTime(task.end_time);
+  if (start !== "—" && end !== "—") return `${start} - ${end}`;
+  if (start !== "—") return start;
+  return "Zeit offen";
+}
+
+function assignmentFromTask(task: RawTask): Assignment {
+  return {
+    id: task.id,
+    time: taskTime(task),
+    title: task.title || task.task_type || "Einsatz",
+    address: task.site || task.customer_name || "Objekt ohne Adresse",
+    customer: task.customer_name || task.task_category || task.status || "Gebäudereinigung",
+    tag: task.task_category || task.task_type || "Aufgabe",
+    priority: normalizePriority(task),
+    duration: taskDuration(task),
+    done: Boolean(task.done),
+    date: task.task_date,
+    workSiteId: task.work_site_id,
+    raw: task
+  };
+}
+
+function assignmentsFromTasks(tasks: RawTask[]) {
+  return tasks.map(assignmentFromTask);
+}
+
+function groupTimeEntries(entries: RawTimeEntry[]): TimeEntry[] {
+  const groups = new Map<string, RawTimeEntry[]>();
+  const sorted = [...entries].filter((entry) => entry.created_at).sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+  for (const entry of sorted) {
+    const day = (entry.created_at || "").slice(0, 10);
+    const site = entry.work_site_name || "Ohne Objekt";
+    const key = `${day}-${site}`;
+    const current = groups.get(key) || [];
+    current.push(entry);
+    groups.set(key, current);
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, rows]) => {
+      const firstClockIn = rows.find((row) => row.action === "clock_in") || rows[0];
+      const lastClockOut = [...rows].reverse().find((row) => row.action === "clock_out");
+      const startTime = firstClockIn?.created_at ? new Date(firstClockIn.created_at).getTime() : 0;
+      const endTime = lastClockOut?.created_at ? new Date(lastClockOut.created_at).getTime() : 0;
+      const minutes = startTime && endTime && endTime > startTime ? Math.round((endTime - startTime) / 60000) : 0;
+      const day = key.slice(0, 10);
+      return {
+        id: key,
+        day: dateLabel(day),
+        start: firstClockIn?.created_at ? formatTime(firstClockIn.created_at) : "—",
+        end: lastClockOut?.created_at ? formatTime(lastClockOut.created_at) : "",
+        site: rows[0]?.work_site_name || "Ohne Objekt",
+        status: lastClockOut ? "open" : "missing",
+        minutes,
+        note: lastClockOut ? "Gespeichert" : "Noch offen"
+      } satisfies TimeEntry;
+    })
+    .sort((a, b) => b.id.localeCompare(a.id));
+}
+
+function dailyWorkedSeconds(entries: RawTimeEntry[]) {
+  const today = todayIso();
+  const rows = entries
+    .filter((entry) => entry.created_at?.slice(0, 10) === today)
+    .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+  let seconds = 0;
+  let clockIn: number | null = null;
+  let breakStart: number | null = null;
+
+  for (const row of rows) {
+    const timestamp = row.created_at ? new Date(row.created_at).getTime() : 0;
+    if (!timestamp) continue;
+    if (row.action === "clock_in" || row.action === "break_end") {
+      clockIn = timestamp;
+      breakStart = null;
+    }
+    if (row.action === "break_start" && clockIn) {
+      seconds += Math.max(0, Math.round((timestamp - clockIn) / 1000));
+      breakStart = timestamp;
+      clockIn = null;
+    }
+    if (row.action === "clock_out" && clockIn) {
+      seconds += Math.max(0, Math.round((timestamp - clockIn) / 1000));
+      clockIn = null;
+      breakStart = null;
+    }
+    if (row.action === "clock_out" && breakStart) {
+      breakStart = null;
+    }
+  }
+
+  if (clockIn) seconds += Math.max(0, Math.round((Date.now() - clockIn) / 1000));
+  return seconds;
+}
+
+function latestClock(entries: RawTimeEntry[]) {
+  const latest = [...entries].filter((entry) => entry.action).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+  if (!latest) return { status: "idle" as ClockStatus, startedAt: null as number | null };
+  if (latest.action === "clock_in" || latest.action === "break_end") return { status: "working" as ClockStatus, startedAt: latest.created_at ? new Date(latest.created_at).getTime() : null };
+  if (latest.action === "break_start") return { status: "break" as ClockStatus, startedAt: latest.created_at ? new Date(latest.created_at).getTime() : null };
+  return { status: "idle" as ClockStatus, startedAt: null as number | null };
 }
 
 function Icon({ name }: { name: string }) {
@@ -162,10 +394,10 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
   return (
     <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
       <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="flex min-h-[calc(100vh-2rem)] flex-col bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
+        <div className="relative flex min-h-[calc(100vh-2rem)] flex-col bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
           <Header />
           <section className="flex-1 overflow-y-auto px-4 pb-28 pt-3">{children}</section>
-          <nav className="fixed bottom-4 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur md:absolute md:bottom-4">
+          <nav className="absolute bottom-4 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
               const selected = active === item.key;
               return (
@@ -224,27 +456,54 @@ function ProgressRing({ percent }: { percent: number }) {
   );
 }
 
-function Dashboard({ setActive }: { setActive: (tab: Tab) => void }) {
+function EmployeeSelect({ employees, employeeName, onChange }: { employees: Employee[]; employeeName: string; onChange: (name: string) => void }) {
+  if (!employees.length) return null;
+  return (
+    <select
+      value={employeeName}
+      onChange={(event) => onChange(event.target.value)}
+      className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3 text-sm font-bold text-blue-100 outline-none"
+    >
+      {employees.map((employee) => (
+        <option key={employee.id} value={employee.name}>{employee.name}</option>
+      ))}
+    </select>
+  );
+}
+
+function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void }) {
+  const employee = data?.employee;
+  const todayTasks = assignments.filter((assignment) => assignment.date === todayIso());
+  const doneToday = todayTasks.filter((assignment) => assignment.done).length;
+  const progress = todayTasks.length ? Math.round((doneToday / todayTasks.length) * 100) : 0;
+  const todaySeconds = dailyWorkedSeconds(data?.timeEntries || []);
+  const todayHours = todaySeconds / 3600;
+  const nextAssignment = todayTasks.find((assignment) => !assignment.done) || assignments.find((assignment) => !assignment.done) || assignments[0];
+  const latestActivity = data?.timeEntries?.slice(0, 3) || [];
+
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-2xl font-black tracking-tight">Hallo, Matteo</p>
-        <p className="text-xs text-slate-400">Schicht läuft gut. Heute stehen 3 Einsätze an.</p>
+      <div className="space-y-3">
+        <div>
+          <p className="text-2xl font-black tracking-tight">Hallo, {employee?.name || "Team"}</p>
+          <p className="text-xs text-slate-400">Heute: {todayTasks.length} Einsätze · {doneToday} erledigt.</p>
+        </div>
+        <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
       </div>
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-slate-500">Tagesfortschritt</p>
-            <p className="mt-1 text-3xl font-black text-white">5.5h</p>
-            <p className="text-xs text-slate-400">von 8h gearbeitet</p>
+            <p className="mt-1 text-3xl font-black text-white">{todayHours.toFixed(1)}h</p>
+            <p className="text-xs text-slate-400">gearbeitet · {doneToday}/{todayTasks.length || 0} Einsätze erledigt</p>
           </div>
-          <ProgressRing percent={68} />
+          <ProgressRing percent={progress} />
         </div>
         <div className="mt-4 h-2 rounded-full bg-slate-800">
-          <div className="h-2 w-[68%] rounded-full bg-blue-600" />
+          <div className="h-2 rounded-full bg-blue-600" style={{ width: `${progress}%` }} />
         </div>
-        <p className="mt-3 text-[11px] text-slate-400">Eingestempelt um 08:00 · Schicht endet 16:30</p>
+        <p className="mt-3 text-[11px] text-slate-400">Daten live aus Supabase · {monthLabel()}</p>
       </section>
 
       <section>
@@ -252,20 +511,24 @@ function Dashboard({ setActive }: { setActive: (tab: Tab) => void }) {
           <h2 className="font-bold">Nächster Einsatz</h2>
           <button onClick={() => setActive("schedule")} className="text-xs font-semibold text-blue-300">Plan ansehen</button>
         </div>
-        <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-800/80">
-          <div className="flex gap-3 p-4">
-            <div className="min-w-0 flex-1">
-              <span className="rounded-md bg-blue-500/20 px-2 py-1 text-[11px] font-semibold text-blue-200">Upcoming · 13:30 - 15:00</span>
-              <h3 className="mt-3 font-black">Nexus Tech Plaza</h3>
-              <p className="mt-1 text-xs text-slate-400">Flur 4 & 5, Tower A</p>
+        {nextAssignment ? (
+          <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-800/80">
+            <div className="flex gap-3 p-4">
+              <div className="min-w-0 flex-1">
+                <span className="rounded-md bg-blue-500/20 px-2 py-1 text-[11px] font-semibold text-blue-200">{dateLabel(nextAssignment.date)} · {nextAssignment.time}</span>
+                <h3 className="mt-3 font-black">{nextAssignment.title}</h3>
+                <p className="mt-1 text-xs text-slate-400">{nextAssignment.address}</p>
+              </div>
+              <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-blue-300 via-slate-700 to-slate-950 shadow-inner" />
             </div>
-            <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-blue-300 via-slate-700 to-slate-950 shadow-inner" />
+            <div className="grid grid-cols-2 border-t border-slate-700 text-sm">
+              <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="map" />Route</button>
+              <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="shield" />Info</button>
+            </div>
           </div>
-          <div className="grid grid-cols-2 border-t border-slate-700 text-sm">
-            <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="map" />Route</button>
-            <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="shield" />Info</button>
-          </div>
-        </div>
+        ) : (
+          <EmptyCard title="Kein Einsatz gefunden" text="Für diesen Mitarbeiter gibt es aktuell keinen Einsatz im abgefragten Zeitraum." />
+        )}
       </section>
 
       <section>
@@ -276,10 +539,10 @@ function Dashboard({ setActive }: { setActive: (tab: Tab) => void }) {
             <p className="font-bold">Aufgaben</p>
             <p className="text-xs text-slate-400">Heute abhaken</p>
           </button>
-          <button onClick={() => setActive("menu")} className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
-            <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-blue-500/15 text-blue-200"><Icon name="box" /></div>
-            <p className="font-bold">Material</p>
-            <p className="text-xs text-slate-400">Mangel melden</p>
+          <button onClick={() => setActive("clock")} className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
+            <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-blue-500/15 text-blue-200"><Icon name="clock" /></div>
+            <p className="font-bold">Stempeln</p>
+            <p className="text-xs text-slate-400">Zeit erfassen</p>
           </button>
         </div>
       </section>
@@ -287,11 +550,20 @@ function Dashboard({ setActive }: { setActive: (tab: Tab) => void }) {
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
         <h2 className="mb-3 font-bold">Heutige Aktivität</h2>
         <div className="space-y-3 text-sm">
-          <Activity label="Einsatz Orion Lofts abgeschlossen" time="12:45 · 2.5 Stunden" />
-          <Activity label="Pause gestartet" time="12:00 · 45 Minuten" />
-          <Activity label="GPS-Check erfolgreich" time="08:01 · Main Entrance" />
+          {latestActivity.length ? latestActivity.map((entry) => (
+            <Activity key={entry.id} label={`${actionLabel(entry.action)} · ${entry.work_site_name || "Ohne Objekt"}`} time={entry.created_at ? new Date(entry.created_at).toLocaleString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "—"} />
+          )) : <p className="text-sm text-slate-500">Heute noch keine Aktivität.</p>}
         </div>
       </section>
+    </div>
+  );
+}
+
+function EmptyCard({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <p className="font-black text-slate-100">{title}</p>
+      <p className="mt-1 text-sm text-slate-400">{text}</p>
     </div>
   );
 }
@@ -308,35 +580,45 @@ function Activity({ label, time }: { label: string; time: string }) {
   );
 }
 
-function Schedule() {
-  const days = ["Mo 12", "Di 13", "Mi 14", "Do 15", "Fr 16"];
+function Schedule({ assignments }: { assignments: Assignment[] }) {
+  const days = Array.from({ length: 5 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
+  const todays = assignments.filter((assignment) => assignment.date === todayIso());
+  const focus = todays[0] || assignments[0];
+  const nextAssignments = assignments.filter((assignment) => assignment.id !== focus?.id).slice(0, 8);
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Einsatzplan</h1>
-        <p className="text-xs text-slate-400">Heute im Fokus</p>
+        <p className="text-xs text-slate-400">Echte Einsätze aus Supabase</p>
       </div>
       <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
         {days.map((day, index) => (
-          <button key={day} className={`min-w-16 rounded-2xl border p-3 text-sm ${index === 1 ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
-            <span className="block text-[10px] uppercase text-slate-400">{day.split(" ")[0]}</span>
-            <span className="text-lg font-black">{day.split(" ")[1]}</span>
+          <button key={day} className={`min-w-16 rounded-2xl border p-3 text-sm ${index === 0 ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+            <span className="block text-[10px] uppercase text-slate-400">{dateLabel(day).split(" ")[0]}</span>
+            <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
           </button>
         ))}
       </div>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-bold">Today's Focus</h2>
-          <span className="rounded-md bg-red-500/15 px-2 py-1 text-[10px] font-bold uppercase text-red-300">Overdue</span>
-        </div>
-        <AssignmentCard assignment={assignments[0]} featured />
-      </section>
+      {focus ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-bold">Heute im Fokus</h2>
+            <span className="rounded-md bg-blue-500/15 px-2 py-1 text-[10px] font-bold uppercase text-blue-300">{focus.done ? "Erledigt" : "Offen"}</span>
+          </div>
+          <AssignmentCard assignment={focus} featured />
+        </section>
+      ) : <EmptyCard title="Keine Einsätze" text="In der Tabelle tasks wurden für diesen Mitarbeiter keine passenden Einträge gefunden." />}
 
       <section>
         <h2 className="mb-2 font-bold">Nächste Einsätze</h2>
         <div className="space-y-3">
-          {assignments.slice(1).map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} />)}
+          {nextAssignments.length ? nextAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} />) : <p className="text-sm text-slate-500">Keine weiteren Einsätze.</p>}
         </div>
       </section>
     </div>
@@ -349,7 +631,7 @@ function AssignmentCard({ assignment, featured }: { assignment: Assignment; feat
     <article className={`rounded-3xl border border-slate-800 ${featured ? "bg-slate-800" : "bg-slate-900/70"} p-4`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-bold text-blue-200">{assignment.time}</p>
+          <p className="text-xs font-bold text-blue-200">{dateLabel(assignment.date)} · {assignment.time}</p>
           <h3 className="mt-2 font-black text-white">{assignment.title}</h3>
           <p className="mt-1 text-xs text-slate-400">{assignment.address}</p>
         </div>
@@ -360,84 +642,84 @@ function AssignmentCard({ assignment, featured }: { assignment: Assignment; feat
         <span className="rounded-lg bg-slate-700/70 px-2 py-1 text-[11px] text-slate-300">{assignment.customer}</span>
       </div>
       <div className="mt-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-slate-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
+        <div className="flex items-center gap-2 text-xs text-slate-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.done ? "Erledigt" : assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
         <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Öffnen</button>
       </div>
     </article>
   );
 }
 
-function Clock({ entries, setEntries }: { entries: TimeEntry[]; setEntries: (entries: TimeEntry[]) => void }) {
+function Clock({ data, onReload }: { data: AppData | null; onReload: () => Promise<void> }) {
   const [status, setStatus] = useState<ClockStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
+  const sites = useMemo(() => {
+    const fromAssignments = assignments.map((assignment) => ({ workSiteId: assignment.workSiteId || null, siteName: assignment.address || assignment.title }));
+    const fromEmployeeSites = (data?.employeeWorkSites || []).filter((site) => site.active !== false).map((site) => ({ workSiteId: site.work_site_id || null, siteName: site.site_name || "Objekt" }));
+    const combined = [...fromAssignments, ...fromEmployeeSites].filter((site) => site.siteName);
+    const unique = new Map<string, { workSiteId: string | null; siteName: string }>();
+    combined.forEach((site) => unique.set(`${site.workSiteId || ""}-${site.siteName}`, site));
+    return Array.from(unique.values());
+  }, [assignments, data?.employeeWorkSites]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem("cleantrack-clock");
-    if (!raw) return;
-    try {
-      const data = JSON.parse(raw) as { status: ClockStatus; startedAt: number | null };
-      setStatus(data.status || "idle");
-      setStartedAt(data.startedAt || null);
-    } catch {
-      window.localStorage.removeItem("cleantrack-clock");
-    }
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem("cleantrack-clock", JSON.stringify({ status, startedAt }));
-  }, [status, startedAt]);
+    const latest = latestClock(data?.timeEntries || []);
+    setStatus(latest.status);
+    setStartedAt(latest.startedAt);
+  }, [data?.timeEntries]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (!startedAt || status === "idle") {
-        setSeconds(0);
+        setSeconds(dailyWorkedSeconds(data?.timeEntries || []));
         return;
       }
-      setSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+      setSeconds(dailyWorkedSeconds(data?.timeEntries || []));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [startedAt, status]);
+  }, [startedAt, status, data?.timeEntries]);
 
-  function clockIn() {
-    setStatus("working");
-    setStartedAt(Date.now());
+  async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out") {
+    if (!data?.employee) return;
+    setSaving(true);
+    setMessage(null);
+    const selectedSite = sites[selectedIndex] || null;
+    try {
+      const response = await fetch("/api/mobile/time-entry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeName: data.employee.name,
+          employeeId: data.employee.id,
+          action,
+          workSiteId: selectedSite?.workSiteId || null,
+          workSiteName: selectedSite?.siteName || assignments[0]?.title || "Ohne Objekt"
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen");
+      setMessage("Gespeichert.");
+      await onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Speichern fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function startBreak() {
-    if (status === "working") setStatus("break");
-  }
-
-  function endBreak() {
-    if (status === "break") setStatus("working");
-  }
-
-  function clockOut() {
-    const minutes = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 60000)) : 1;
-    const newEntry: TimeEntry = {
-      id: safeId(),
-      day: "Heute",
-      start: startedAt ? new Date(startedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : timeNow(),
-      end: timeNow(),
-      site: "Terminal B · Karl-Hall Cleaning",
-      status: "open",
-      minutes,
-      note: "Neu erfasst"
-    };
-    const nextEntries = [newEntry, ...entries].slice(0, 12);
-    setEntries(nextEntries);
-    window.localStorage.setItem("cleantrack-entries", JSON.stringify(nextEntries));
-    setStatus("idle");
-    setStartedAt(null);
-  }
-
-  const statusText = status === "working" ? "In Progress" : status === "break" ? "Pause läuft" : "Bereit";
+  const statusText = status === "working" ? "In Arbeit" : status === "break" ? "Pause läuft" : "Bereit";
+  const selectedSiteName = sites[selectedIndex]?.siteName || assignments[0]?.title || "Kein Objekt gewählt";
+  const latestTwo = (data?.timeEntries || []).slice(0, 4);
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Stempeluhr</h1>
-        <p className="text-xs text-slate-400">GPS-Prüfung und Tageszeit</p>
+        <p className="text-xs text-slate-400">Speichert direkt in time_entries</p>
       </div>
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 text-center">
@@ -447,16 +729,16 @@ function Clock({ entries, setEntries }: { entries: TimeEntry[]; setEntries: (ent
             <p className="font-bold text-blue-200">• {statusText}</p>
           </div>
           <div className="text-right">
-            <p className="uppercase tracking-wide text-slate-500">Daily Total</p>
-            <p className="font-bold text-blue-100">06:42:15</p>
+            <p className="uppercase tracking-wide text-slate-500">Heute</p>
+            <p className="font-bold text-blue-100">{minutesToHours(Math.round(seconds / 60))}</p>
           </div>
         </div>
-        <p className="mt-8 text-5xl font-black tracking-[0.15em] text-blue-100">{formatDuration(seconds || 8045)}</p>
-        <p className="mt-2 text-sm italic text-slate-400">Shift: Terminal B · Janitorial</p>
+        <p className="mt-8 text-5xl font-black tracking-[0.15em] text-blue-100">{formatDuration(seconds)}</p>
+        <p className="mt-2 text-sm italic text-slate-400">{selectedSiteName}</p>
         <div className="mt-6 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-3 text-left text-xs">
           <div>
-            <p className="font-bold text-slate-100">Position GPS aktiv</p>
-            <p className="text-slate-500">Innerhalb 15m vom Einsatzort</p>
+            <p className="font-bold text-slate-100">Supabase aktiv</p>
+            <p className="text-slate-500">Aktionen werden als Zeit-Einträge gespeichert</p>
           </div>
           <span className="grid h-7 w-7 place-items-center rounded-full border border-blue-500 text-blue-300">✓</span>
         </div>
@@ -464,41 +746,32 @@ function Clock({ entries, setEntries }: { entries: TimeEntry[]; setEntries: (ent
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
         <p className="text-xs uppercase tracking-wide text-slate-500">Aktueller Einsatz</p>
-        <select className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
-          <option>Terminal B · Karl-Hall Cleaning</option>
-          <option>Nexus Hub Station</option>
-          <option>Silverline Towers</option>
+        <select value={selectedIndex} onChange={(event) => setSelectedIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+          {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
         </select>
         <div className="mt-4 grid grid-cols-2 gap-3">
           {status === "idle" ? (
-            <button onClick={clockIn} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow">Clock In</button>
+            <button disabled={saving || !data?.employee} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">Einstempeln</button>
           ) : (
             <>
               {status === "break" ? (
-                <button onClick={endBreak} className="rounded-2xl bg-blue-600 py-4 font-black text-white">Pause beenden</button>
+                <button disabled={saving} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">Pause beenden</button>
               ) : (
-                <button onClick={startBreak} className="rounded-2xl bg-slate-800 py-4 font-black text-white">Pause</button>
+                <button disabled={saving} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">Pause</button>
               )}
-              <button onClick={clockOut} className="rounded-2xl bg-red-600 py-4 font-black text-white">Clock Out</button>
+              <button disabled={saving} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">Ausstempeln</button>
             </>
           )}
         </div>
-      </section>
-
-      <section className="rounded-3xl border border-blue-400/20 bg-blue-400/10 p-4">
-        <h2 className="font-black">Schichtlimit erreicht</h2>
-        <p className="mt-2 text-sm text-slate-300">Du hast die geplanten 8.0 Stunden erreicht. Überstunden können separat angefragt werden.</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button className="rounded-xl bg-slate-900 py-3 text-sm font-bold text-slate-200">Schließen</button>
-          <button className="rounded-xl bg-blue-200 py-3 text-sm font-black text-slate-950">+1h anfragen</button>
-        </div>
+        {message && <p className="mt-3 rounded-xl bg-slate-950 px-3 py-2 text-xs text-blue-100">{message}</p>}
       </section>
 
       <section>
         <h2 className="mb-2 font-bold">Timeline</h2>
         <div className="space-y-2">
-          <Timeline label="Clock In" details="Main Entrance · GPS verified" time="08:00" />
-          <Timeline label="Break Start" details="30 Minuten geplant" time="12:15" />
+          {latestTwo.length ? latestTwo.map((entry) => (
+            <Timeline key={entry.id} label={actionLabel(entry.action)} details={entry.work_site_name || "Ohne Objekt"} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
+          )) : <p className="text-sm text-slate-500">Noch keine Stempelzeit vorhanden.</p>}
         </div>
       </section>
     </div>
@@ -520,14 +793,16 @@ function Timeline({ label, details, time }: { label: string; details: string; ti
   );
 }
 
-function Timesheet({ entries }: { entries: TimeEntry[] }) {
+function Timesheet({ entries, absences }: { entries: TimeEntry[]; absences: Absence[] }) {
   const total = useMemo(() => entries.reduce((sum, entry) => sum + entry.minutes, 0), [entries]);
+  const vacationCount = absences.filter((absence) => `${absence.request_type || absence.absence_type || ""}`.toLowerCase().includes("urlaub")).length;
+  const sickCount = absences.filter((absence) => `${absence.request_type || absence.absence_type || ""}`.toLowerCase().includes("krank")).length;
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black">Stundenzettel</h1>
-          <p className="text-xs text-slate-400">Oktober 2026</p>
+          <p className="text-xs text-slate-400">{monthLabel()}</p>
         </div>
         <div className="flex gap-2">
           <button className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-900 text-blue-200">‹</button>
@@ -536,11 +811,11 @@ function Timesheet({ entries }: { entries: TimeEntry[] }) {
       </div>
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-        <p className="text-[11px] uppercase tracking-wide text-slate-500">Total Work Hours</p>
+        <p className="text-[11px] uppercase tracking-wide text-slate-500">Arbeitsstunden</p>
         <div className="mt-2 flex items-end justify-between gap-4">
           <div>
             <p className="text-3xl font-black text-white">{minutesToHours(total)}</p>
-            <p className="text-xs text-slate-400">von 168h</p>
+            <p className="text-xs text-slate-400">aus time_entries berechnet</p>
           </div>
           <div className="h-16 flex-1 rounded-2xl bg-slate-950 p-3">
             <div className="mt-8 h-2 rounded-full bg-blue-600" style={{ width: `${Math.min(100, Math.round((total / (168 * 60)) * 100))}%` }} />
@@ -549,8 +824,8 @@ function Timesheet({ entries }: { entries: TimeEntry[] }) {
       </section>
 
       <div className="grid grid-cols-2 gap-3">
-        <MetricCard title="Urlaub" value="18 Tage" caption="verfügbar" accent="text-blue-100" />
-        <MetricCard title="Krank" value="2 Tage" caption="laufender Monat" accent="text-red-200" />
+        <MetricCard title="Urlaub" value={`${vacationCount}`} caption="Anträge" accent="text-blue-100" />
+        <MetricCard title="Krank" value={`${sickCount}`} caption="Meldungen" accent="text-red-200" />
       </div>
 
       <section>
@@ -559,7 +834,7 @@ function Timesheet({ entries }: { entries: TimeEntry[] }) {
           <button className="text-xs font-semibold text-blue-300">Filter</button>
         </div>
         <div className="space-y-2">
-          {entries.map((entry) => <TimeRow key={entry.id} entry={entry} />)}
+          {entries.length ? entries.map((entry) => <TimeRow key={entry.id} entry={entry} />) : <EmptyCard title="Noch keine Zeiten" text="Sobald gestempelt wird, erscheinen die Einträge hier." />}
         </div>
       </section>
     </div>
@@ -591,39 +866,51 @@ function TimeRow({ entry }: { entry: TimeEntry }) {
   );
 }
 
-function Tasks() {
-  const tasks = [
-    ["Eingangsbereich wischen", "Terminal B", true],
-    ["Sanitärkontrolle dokumentieren", "Nexus Hub", false],
-    ["Materialbestand prüfen", "Silverline Towers", false]
-  ] as const;
+function Tasks({ tasks, onReload }: { tasks: RawTask[]; onReload: () => Promise<void> }) {
+  const [savingId, setSavingId] = useState<string | null>(null);
+  async function toggleTask(task: RawTask, done: boolean) {
+    setSavingId(task.id);
+    try {
+      const response = await fetch("/api/mobile/task", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, done })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Aufgabe konnte nicht gespeichert werden.");
+      await onReload();
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Aufgaben</h1>
-        <p className="text-xs text-slate-400">Heute abhaken und sauber dokumentieren</p>
+        <p className="text-xs text-slate-400">tasks-Tabelle live abhaken</p>
       </div>
       <div className="space-y-3">
-        {tasks.map(([title, site, done]) => (
-          <label key={title} className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900 p-4">
-            <input type="checkbox" defaultChecked={done} className="h-5 w-5 accent-blue-600" />
-            <div>
-              <p className="font-black">{title}</p>
-              <p className="text-xs text-slate-500">{site}</p>
+        {tasks.length ? tasks.map((task) => (
+          <label key={task.id} className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <input type="checkbox" checked={Boolean(task.done)} disabled={savingId === task.id} onChange={(event) => toggleTask(task, event.target.checked)} className="h-5 w-5 accent-blue-600" />
+            <div className="min-w-0">
+              <p className="font-black">{task.title || "Aufgabe"}</p>
+              <p className="truncate text-xs text-slate-500">{dateLabel(task.task_date)} · {task.site || task.customer_name || "Ohne Objekt"}</p>
             </div>
           </label>
-        ))}
+        )) : <EmptyCard title="Keine Aufgaben gefunden" text="Für diesen Mitarbeiter gibt es aktuell keine Aufgaben im Zeitraum." />}
       </div>
     </div>
   );
 }
 
-function Menu() {
+function Menu({ data, employeeName, onEmployeeChange }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void }) {
   const items = [
-    ["Material melden", "Verbrauchsmaterial nachbestellen", "box"],
-    ["Abwesenheit", "Urlaub oder Krankheit einreichen", "calendar"],
-    ["Chat", "Nachricht an die Verwaltung", "chat"],
-    ["Profil", "Stammdaten und Einstellungen", "user"]
+    ["Material melden", "Nächster Schritt: material_reports anbinden", "box"],
+    ["Abwesenheit", `${data?.absences?.length || 0} vorhandene Anträge`, "calendar"],
+    ["Chat", `${data?.notifications?.length || 0} Meldungen / Benachrichtigungen`, "chat"],
+    ["Profil", data?.employee?.email || "Stammdaten", "user"]
   ];
   return (
     <div className="space-y-4">
@@ -631,13 +918,18 @@ function Menu() {
         <h1 className="text-2xl font-black">Mehr</h1>
         <p className="text-xs text-slate-400">Weitere Funktionen für den Arbeitsalltag</p>
       </div>
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Mitarbeiter wählen</p>
+        <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
+        <p className="mt-3 text-xs text-slate-500">Später wird das automatisch über den Login gewählt.</p>
+      </section>
       <div className="space-y-3">
         {items.map(([title, subtitle, icon]) => (
           <button key={title} className="flex w-full items-center gap-4 rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
             <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-500/15 text-blue-200"><Icon name={icon} /></div>
-            <div>
+            <div className="min-w-0">
               <p className="font-black">{title}</p>
-              <p className="text-xs text-slate-500">{subtitle}</p>
+              <p className="truncate text-xs text-slate-500">{subtitle}</p>
             </div>
           </button>
         ))}
@@ -646,34 +938,88 @@ function Menu() {
   );
 }
 
+function LoadingScreen() {
+  return (
+    <div className="grid min-h-[60vh] place-items-center text-center">
+      <div>
+        <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-slate-800 border-t-blue-500" />
+        <p className="font-black">Lade echte Daten…</p>
+        <p className="mt-1 text-sm text-slate-500">Supabase wird verbunden.</p>
+      </div>
+    </div>
+  );
+}
+
+function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4">
+        <p className="font-black text-red-100">Daten konnten nicht geladen werden</p>
+        <p className="mt-2 text-sm text-red-100/80">{error}</p>
+      </div>
+      <button onClick={onRetry} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white">Erneut laden</button>
+      <p className="text-xs text-slate-500">Prüfe in Vercel die Variablen NEXT_PUBLIC_SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY.</p>
+    </div>
+  );
+}
+
 export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: string }) {
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
-  const [entries, setEntriesState] = useState<TimeEntry[]>(starterEntries);
+  const [data, setData] = useState<AppData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [employeeName, setEmployeeName] = useState("");
+
+  const loadData = useCallback(async (name?: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const storedName = typeof window !== "undefined" ? window.localStorage.getItem("cleantrack-employee-name") || "" : "";
+      const wantedName = name || employeeName || storedName;
+      const query = wantedName ? `?employee=${encodeURIComponent(wantedName)}` : "";
+      const response = await fetch(`/api/mobile/bootstrap${query}`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Supabase konnte nicht geladen werden.");
+      setData(result);
+      const selectedName = result.employee?.name || result.employees?.[0]?.name || "";
+      setEmployeeName(selectedName);
+      if (selectedName) window.localStorage.setItem("cleantrack-employee-name", selectedName);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
+    } finally {
+      setLoading(false);
+    }
+  }, [employeeName]);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem("cleantrack-entries");
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as TimeEntry[];
-      if (Array.isArray(parsed) && parsed.length) setEntriesState(parsed);
-    } catch {
-      window.localStorage.removeItem("cleantrack-entries");
-    }
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function setEntries(nextEntries: TimeEntry[]) {
-    setEntriesState(nextEntries);
-    if (typeof window !== "undefined") window.localStorage.setItem("cleantrack-entries", JSON.stringify(nextEntries));
+  async function handleEmployeeChange(name: string) {
+    setEmployeeName(name);
+    window.localStorage.setItem("cleantrack-employee-name", name);
+    await loadData(name);
   }
+
+  const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
+
+  const timeEntries = useMemo(() => groupTimeEntries(data?.timeEntries || []), [data?.timeEntries]);
 
   return (
     <AppShell active={active} setActive={setActive}>
-      {active === "home" && <Dashboard setActive={setActive} />}
-      {active === "schedule" && <Schedule />}
-      {active === "clock" && <Clock entries={entries} setEntries={setEntries} />}
-      {active === "timesheet" && <Timesheet entries={entries} />}
-      {active === "tasks" && <Tasks />}
-      {active === "menu" && <Menu />}
+      {loading && <LoadingScreen />}
+      {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
+      {!loading && !error && (
+        <>
+          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} />}
+          {active === "schedule" && <Schedule assignments={assignments} />}
+          {active === "clock" && <Clock data={data} onReload={() => loadData(employeeName)} />}
+          {active === "timesheet" && <Timesheet entries={timeEntries} absences={data?.absences || []} />}
+          {active === "tasks" && <Tasks tasks={data?.tasks || []} onReload={() => loadData(employeeName)} />}
+          {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} />}
+        </>
+      )}
     </AppShell>
   );
 }
