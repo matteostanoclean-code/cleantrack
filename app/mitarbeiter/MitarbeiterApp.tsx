@@ -1270,7 +1270,10 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
           <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Admin-Auswahl</p>
           <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
           <p className="mt-3 text-xs text-slate-500">Nur Admins dürfen Mitarbeiter wechseln.</p>
-          <a href="/mitarbeiter/aktivieren" className="mt-4 block rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-black text-white shadow-glow">Mitarbeiter aktivieren</a>
+          <div className="mt-4 grid grid-cols-1 gap-2">
+            <a href="/mitarbeiter/freigaben" className="block rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-black text-white shadow-glow">Admin-Freigaben</a>
+            <a href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Mitarbeiter aktivieren</a>
+          </div>
         </section>
       ) : (
         <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">

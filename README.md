@@ -57,3 +57,13 @@ Diese Version ergänzt in der Mitarbeiter-App unter **Mehr**:
 - Profil → zeigt die eingeloggten Mitarbeiterdaten
 
 Falls eine Tabelle oder Spalte fehlt, kann die Datei `supabase/mobile_mehr_funktionen.sql` im Supabase SQL Editor ausgeführt werden.
+
+## Admin-Freigaben
+
+Neue Seite:
+
+```text
+/mitarbeiter/freigaben
+```
+
+Damit kann der Admin offene Abwesenheiten, Materialmeldungen, Chat-Nachrichten und Admin-Meldungen bearbeiten. Die Seite nutzt Supabase Auth und ist nur für Profile mit `role = admin` freigeschaltet.
