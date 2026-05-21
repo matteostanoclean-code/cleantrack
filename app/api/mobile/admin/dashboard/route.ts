@@ -36,6 +36,91 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+
+function parseDateOnly(value: unknown) {
+  const text = clean(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = new Date(`${text}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  const day = next.getDate();
+  next.setMonth(next.getMonth() + months);
+  if (next.getDate() !== day) next.setDate(0);
+  return next;
+}
+
+function normalizeWeekdays(value: unknown) {
+  if (!Array.isArray(value)) return [] as number[];
+  return value
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
+}
+
+function buildTaskRows(basePayload: AnyRow, body: AnyRow) {
+  const mode = clean(body.repeat_mode || "none");
+  const start = parseDateOnly(basePayload.task_date);
+  const end = parseDateOnly(body.recurrence_end_date);
+  const interval = Math.max(1, Math.min(52, nullableNumber(body.recurrence_interval) ?? 1));
+  const weekdays = normalizeWeekdays(body.recurrence_days);
+
+  if (!start || mode === "none" || mode === "once" || !end || end < start) {
+    return [{ ...basePayload, repeat_mode: "none", recurrence_unit: null, recurrence_interval: null, recurrence_days: null, recurrence_end_date: null }];
+  }
+
+  const rows: AnyRow[] = [];
+  const groupId = crypto.randomUUID();
+  const pushRow = (date: Date) => {
+    if (rows.length >= 180) return;
+    const taskDate = isoDate(date);
+    rows.push({
+      ...basePayload,
+      task_date: taskDate,
+      due_date: taskDate,
+      recurrence_group_id: groupId,
+      repeat_mode: mode,
+      recurrence_unit: mode,
+      recurrence_interval: interval,
+      recurrence_days: weekdays.length ? weekdays : null,
+      recurrence_end_date: isoDate(end)
+    });
+  };
+
+  if (mode === "daily") {
+    for (let cursor = new Date(start); cursor <= end && rows.length < 180; cursor = addDays(cursor, interval)) pushRow(cursor);
+    return rows.length ? rows : [basePayload];
+  }
+
+  if (mode === "weekly") {
+    const selected = weekdays.length ? weekdays : [start.getDay()];
+    for (let cursor = new Date(start); cursor <= end && rows.length < 180; cursor = addDays(cursor, 1)) {
+      const diffDays = Math.floor((cursor.getTime() - start.getTime()) / 86400000);
+      const weekIndex = Math.floor(diffDays / 7);
+      if (weekIndex % interval === 0 && selected.includes(cursor.getDay())) pushRow(cursor);
+    }
+    return rows.length ? rows : [basePayload];
+  }
+
+  if (mode === "monthly") {
+    for (let cursor = new Date(start); cursor <= end && rows.length < 180; cursor = addMonths(cursor, interval)) pushRow(cursor);
+    return rows.length ? rows : [basePayload];
+  }
+
+  return [basePayload];
+}
+
 async function requireAdmin(request: Request) {
   const auth = await getAuthenticatedMobileProfile(request);
   if (!auth.ok) return { ok: false, response: NextResponse.json({ ok: false, error: auth.error }, { status: auth.status }) };
@@ -207,6 +292,11 @@ function taskPayload(body: AnyRow, customer?: AnyRow | null, site?: AnyRow | nul
     due_date: nullableText(body.due_date || body.task_date),
     notes: nullableText(body.notes),
     done: booleanValue(body.done, false),
+    repeat_mode: clean(body.repeat_mode || "none"),
+    recurrence_unit: clean(body.recurrence_unit || body.repeat_mode) || null,
+    recurrence_interval: nullableNumber(body.recurrence_interval),
+    recurrence_days: Array.isArray(body.recurrence_days) ? body.recurrence_days : null,
+    recurrence_end_date: nullableText(body.recurrence_end_date),
     notify_employee: booleanValue(body.notify_employee, true)
   };
 }
@@ -274,27 +364,30 @@ export async function POST(request: Request) {
       const customer = await readCustomer(supabase, nullableUuid(body.customer_id));
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);
-      const { data, error } = await supabase.from("tasks").insert(payload).select("*").single();
+      const rows = buildTaskRows(payload, body);
+      const { data, error } = await supabase.from("tasks").insert(rows).select("*");
       if (error) throw new Error(error.message);
 
-      if (payload.notify_employee && payload.employee_name) {
+      const insertedTasks = Array.isArray(data) ? data : [];
+      if (payload.notify_employee && payload.employee_name && insertedTasks.length) {
+        const first = insertedTasks[0];
         await supabase.from("admin_notifications").insert({
-          title: "Neuer Einsatz",
-          message: `${profile.name} hat einen Einsatz erstellt: ${payload.title}${payload.site ? ` bei ${payload.site}` : ""}.`,
+          title: insertedTasks.length > 1 ? "Neue Einsatz-Serie" : "Neuer Einsatz",
+          message: `${profile.name} hat ${insertedTasks.length > 1 ? `${insertedTasks.length} Einsätze` : "einen Einsatz"} erstellt: ${payload.title}${payload.site ? ` bei ${payload.site}` : ""}.`,
           employee_name: payload.employee_name,
           work_site_name: payload.site,
           object_name: payload.site,
           site: payload.site,
-          notification_type: "task_created",
+          notification_type: insertedTasks.length > 1 ? "task_series_created" : "task_created",
           status: "open",
           read: false,
-          task_id: data.id,
+          task_id: first.id,
           work_site_id: payload.work_site_id,
           created_at: new Date().toISOString()
         });
       }
 
-      return NextResponse.json({ ok: true, item: data });
+      return NextResponse.json({ ok: true, item: insertedTasks[0] || null, items: insertedTasks, count: insertedTasks.length });
     }
 
     return NextResponse.json({ ok: false, error: "Unbekannter Typ." }, { status: 400 });

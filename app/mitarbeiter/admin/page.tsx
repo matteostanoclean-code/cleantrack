@@ -26,7 +26,17 @@ const today = new Date().toISOString().slice(0, 10);
 const emptyEmployee = { id: "", name: "", email: "", phone: "", role: "employee", active: false, monthly_hour_limit: "0", vacation_days: "0" };
 const emptyCustomer = { id: "", name: "", address: "", phone: "", email: "", customer_number: "", notes: "", active: true };
 const emptySite = { id: "", name: "", customer_id: "", address: "", allowed_radius_m: "150", monthly_hour_quota: "0", notes: "", active: true };
-const emptyTask = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", employee_name: "", customer_id: "", work_site_id: "", site: "", priority: "Normal", status: "open", notes: "", notify_employee: true };
+const emptyTask: Row = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", employee_name: "", customer_id: "", work_site_id: "", site: "", priority: "Normal", status: "open", notes: "", notify_employee: true, repeat_mode: "none", recurrence_interval: "1", recurrence_end_date: "", recurrence_days: [] as string[] };
+
+const weekdayOptions = [
+  { value: "1", label: "Mo" },
+  { value: "2", label: "Di" },
+  { value: "3", label: "Mi" },
+  { value: "4", label: "Do" },
+  { value: "5", label: "Fr" },
+  { value: "6", label: "Sa" },
+  { value: "0", label: "So" }
+];
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
@@ -259,7 +269,8 @@ export default function AdminDashboardPage() {
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen.");
-      setMessage(form.id ? "Änderung gespeichert." : "Neuer Datensatz gespeichert.");
+      const savedCount = Number(result.count || 0);
+      setMessage(form.id ? "Änderung gespeichert." : savedCount > 1 ? `${savedCount} Einsätze gespeichert.` : "Neuer Datensatz gespeichert.");
       reset();
       await load();
     } catch (saveError) {
@@ -288,6 +299,13 @@ export default function AdminDashboardPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+
+  function toggleTaskWeekday(value: string) {
+    const current = Array.isArray(taskForm.recurrence_days) ? taskForm.recurrence_days.map(String) : [];
+    const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+    setTaskForm({ ...taskForm, recurrence_days: next });
   }
 
   const filtered = useMemo(() => {
@@ -416,6 +434,36 @@ export default function AdminDashboardPage() {
                 <Field label="Start"><input type="time" value={taskForm.start_time} onChange={(event) => setTaskForm({ ...taskForm, start_time: event.target.value })} className={inputClass} /></Field>
                 <Field label="Ende"><input type="time" value={taskForm.end_time} onChange={(event) => setTaskForm({ ...taskForm, end_time: event.target.value })} className={inputClass} /></Field>
               </div>
+              <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-3">
+                <Field label="Wiederholung">
+                  <select value={taskForm.repeat_mode || "none"} onChange={(event) => setTaskForm({ ...taskForm, repeat_mode: event.target.value, recurrence_days: event.target.value === "weekly" ? taskForm.recurrence_days : [] })} className={inputClass}>
+                    <option value="none">Einmaliger Einsatz</option>
+                    <option value="daily">Täglich</option>
+                    <option value="weekly">Wöchentlich</option>
+                    <option value="monthly">Monatlich</option>
+                  </select>
+                </Field>
+                {taskForm.repeat_mode && taskForm.repeat_mode !== "none" && (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Alle X"><input type="number" min="1" max="52" value={taskForm.recurrence_interval || "1"} onChange={(event) => setTaskForm({ ...taskForm, recurrence_interval: event.target.value })} className={inputClass} /></Field>
+                      <Field label="Bis Datum"><input type="date" required value={taskForm.recurrence_end_date || ""} onChange={(event) => setTaskForm({ ...taskForm, recurrence_end_date: event.target.value })} className={inputClass} /></Field>
+                    </div>
+                    {taskForm.repeat_mode === "weekly" && (
+                      <div>
+                        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Wochentage</p>
+                        <div className="grid grid-cols-7 gap-1">
+                          {weekdayOptions.map((day) => {
+                            const active = Array.isArray(taskForm.recurrence_days) && taskForm.recurrence_days.map(String).includes(day.value);
+                            return <button key={day.value} type="button" onClick={() => toggleTaskWeekday(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-black ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-700 bg-slate-900 text-slate-300"}`}>{day.label}</button>;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-500">Die App erstellt beim Speichern automatisch mehrere Einsätze bis zum Enddatum.</p>
+                  </div>
+                )}
+              </div>
               <Field label="Mitarbeiter">
                 <select value={taskForm.employee_name} onChange={(event) => setTaskForm({ ...taskForm, employee_name: event.target.value })} className={inputClass}>
                   <option value="">Ohne Mitarbeiter</option>
@@ -449,11 +497,12 @@ export default function AdminDashboardPage() {
                       <p className="font-black">{task.title || "Einsatz"}</p>
                       <p className="text-xs text-slate-400">{dateText(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
                       <p className="mt-1 text-xs text-slate-500">{task.employee_name || "Ohne Mitarbeiter"} · {task.site || task.customer_name || "Ohne Objekt"}</p>
+                      {task.recurrence_group_id && <p className="mt-1 text-[11px] font-bold text-blue-300">Serien-Einsatz</p>}
                     </div>
                     <StatusPill value={task.done ? "done" : task.status} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setTaskForm({ ...emptyTask, ...task, planned_minutes: String(task.planned_minutes || task.max_minutes || ""), notify_employee: true })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => setTaskForm({ ...emptyTask, ...task, planned_minutes: String(task.planned_minutes || task.max_minutes || ""), recurrence_interval: String(task.recurrence_interval || "1"), recurrence_end_date: clean(task.recurrence_end_date), recurrence_days: Array.isArray(task.recurrence_days) ? task.recurrence_days.map(String) : [], repeat_mode: clean(task.repeat_mode || "none"), notify_employee: true })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
                     <button onClick={() => patch({ type: "task_status", id: task.id, done: !task.done, status: task.done ? "open" : "done" }, task.done ? "Einsatz wieder geöffnet." : "Einsatz erledigt.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-emerald-100">{task.done ? "Öffnen" : "Erledigt"}</button>
                   </div>
                 </div>

@@ -67,3 +67,14 @@ Neue Seite:
 ```
 
 Damit kann der Admin offene Abwesenheiten, Materialmeldungen, Chat-Nachrichten und Admin-Meldungen bearbeiten. Die Seite nutzt Supabase Auth und ist nur für Profile mit `role = admin` freigeschaltet.
+
+## Update: Serien-Einsätze
+
+Im mobilen Admin-Dashboard unter `/mitarbeiter/admin` können Einsätze jetzt auch als Serie angelegt werden:
+
+- einmalig
+- täglich
+- wöchentlich mit Wochentagen
+- monatlich
+
+Beim Speichern werden echte Einträge in `tasks` erstellt und mit `recurrence_group_id` verbunden.
