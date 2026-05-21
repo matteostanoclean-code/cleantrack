@@ -150,6 +150,8 @@ type MaterialReport = {
   comment?: string | null;
   notes?: string | null;
   status?: string | null;
+  photo_urls?: string[] | null;
+  photo_count?: number | null;
   created_at?: string | null;
 };
 
@@ -192,6 +194,8 @@ type QualityReport = {
   checked_items?: string[] | null;
   notes?: string | null;
   status?: string | null;
+  photo_urls?: string[] | null;
+  photo_count?: number | null;
   created_at?: string | null;
 };
 
@@ -1050,6 +1054,8 @@ function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | 
   const [taskIndex, setTaskIndex] = useState(0);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState("");
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoInputKey, setPhotoInputKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -1061,6 +1067,7 @@ function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | 
   useEffect(() => {
     setChecked({});
     setNotes("");
+    setPhotos([]);
     setMessage(null);
   }, [selectedTask?.id]);
 
@@ -1070,20 +1077,22 @@ function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | 
     setSaving(true);
     setMessage(null);
     try {
+      const formData = new FormData();
+      formData.append("taskId", selectedTask.id);
+      formData.append("workSiteId", selectedTask.work_site_id || "");
+      formData.append("workSiteName", selectedTask.site || selectedTask.customer_name || "Ohne Objekt");
+      formData.append("checkedItems", JSON.stringify(checkedLabels));
+      formData.append("notes", notes);
+      photos.slice(0, 6).forEach((file) => formData.append("photos", file));
+
       const response = await fetch("/api/mobile/quality-report", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          workSiteId: selectedTask.work_site_id || null,
-          workSiteName: selectedTask.site || selectedTask.customer_name || "Ohne Objekt",
-          checkedItems: checkedLabels,
-          notes
-        })
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Qualitätsnachweis konnte nicht gespeichert werden.");
-      setMessage("Qualitätsnachweis wurde gespeichert und an den Admin gesendet.");
+      setMessage(photos.length ? "Qualitätsnachweis mit Foto wurde gespeichert und an den Admin gesendet." : "Qualitätsnachweis wurde gespeichert und an den Admin gesendet.");
       await onReload();
     } catch (submitError) {
       setMessage(submitError instanceof Error ? submitError.message : "Qualitätsnachweis konnte nicht gespeichert werden.");
@@ -1142,8 +1151,32 @@ function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | 
               <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz / Besonderheit</span>
               <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z.B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt" />
             </label>
-            <div className="mt-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-xs text-blue-100">
-              Foto-Upload kommt im nächsten Schritt. Dieser Nachweis wird jetzt schon mit Checkliste und Notiz gespeichert.
+            <div className="mt-4 space-y-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
+              <div>
+                <p className="text-sm font-black text-blue-100">Fotos hinzufügen</p>
+                <p className="mt-1 text-xs text-slate-400">Bis zu 6 Bilder, z. B. Vorher/Nachher, Schaden oder fertiger Bereich.</p>
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={(event) => {
+                  const selected = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/")).slice(0, 6);
+                  setPhotos(selected);
+                }}
+                className="block w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-xs text-slate-200 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+              />
+              {photos.length ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {photos.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="rounded-2xl border border-slate-700 bg-slate-950 p-2 text-center text-[11px] text-slate-300">
+                      <div className="mb-1 text-lg">📷</div>
+                      <p className="truncate">{file.name}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -1160,7 +1193,8 @@ function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | 
               <p className="font-black">{report.work_site_name || "Objekt"}</p>
               <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] font-black text-emerald-300">{report.status || "submitted"}</span>
             </div>
-            <p className="mt-1 text-xs text-slate-500">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
+            <p className="mt-1 text-xs text-slate-500">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · {report.photo_count || report.photo_urls?.length || 0} Foto(s)</p>
+            {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Qualitätsfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
           </article>
         )) : <EmptyCard title="Noch keine Nachweise" text="Gesendete Qualitätsnachweise erscheinen nach dem Speichern hier." />}
       </section>
@@ -1176,6 +1210,8 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
   const [customMaterial, setCustomMaterial] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoInputKey, setPhotoInputKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -1189,23 +1225,26 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
     setMessage(null);
     try {
       const site = sites[siteIndex] || null;
+      const formData = new FormData();
+      formData.set("workSiteId", site?.workSiteId || "");
+      formData.set("workSiteName", site?.siteName || "");
+      formData.set("materialProductId", productId || "");
+      formData.set("materialName", customMaterial || "");
+      formData.set("quantity", quantity);
+      formData.set("notes", notes);
+      photos.forEach((photo) => formData.append("photos", photo));
       const response = await fetch("/api/mobile/material/report", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({
-          workSiteId: site?.workSiteId || null,
-          workSiteName: site?.siteName || null,
-          materialProductId: productId || null,
-          materialName: customMaterial || null,
-          quantity,
-          notes
-        })
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Materialmeldung konnte nicht gesendet werden.");
-      setMessage("Materialmeldung wurde an den Admin gesendet.");
+      setMessage(photos.length ? "Materialmeldung mit Foto wurde an den Admin gesendet." : "Materialmeldung wurde an den Admin gesendet.");
       setNotes("");
       setCustomMaterial("");
+      setPhotos([]);
+      setPhotoInputKey((key) => key + 1);
       await onReload();
     } catch (submitError) {
       setMessage(submitError instanceof Error ? submitError.message : "Materialmeldung konnte nicht gesendet werden.");
@@ -1262,6 +1301,24 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was fehlt? Wo genau?" />
         </label>
 
+        <label className="block rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-4">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Foto optional</span>
+          <input
+            key={photoInputKey}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
+            className="mt-3 block w-full text-xs text-slate-300 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+          />
+          <p className="mt-2 text-xs text-slate-500">Bis zu 6 Fotos, max. 8 MB pro Foto.</p>
+          {photos.length ? (
+            <div className="mt-3 space-y-1">
+              {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-slate-900 px-3 py-2 text-xs text-blue-100">📷 {photo.name}</p>)}
+            </div>
+          ) : null}
+        </label>
+
         {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
         <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Materialmeldung senden"}</button>
       </form>
@@ -1270,8 +1327,14 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
         <h2 className="font-black">Letzte Materialmeldungen</h2>
         {(data?.materialReports || []).length ? (data?.materialReports || []).slice(0, 5).map((report) => (
           <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-            <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
-            <p className="text-xs text-slate-500">{report.object_name || report.site || "Objekt"} · {report.status || "open"}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
+                <p className="text-xs text-slate-500">{report.object_name || report.site || "Objekt"} · {report.status || "open"}</p>
+              </div>
+              {(report.photo_count || report.photo_urls?.length) ? <span className="rounded-full bg-blue-500/15 px-2 py-1 text-[11px] font-black text-blue-200">📷 {report.photo_count || report.photo_urls?.length}</span> : null}
+            </div>
+            {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Materialfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
           </article>
         )) : <EmptyCard title="Noch keine Materialmeldung" text="Sobald etwas gemeldet wird, erscheint es hier." />}
       </section>

@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     if (!guard.ok) return guard.response;
     const { supabase } = guard.auth;
 
-    const [absenceResult, materialResult, chatResult, notificationResult, employeeResult] = await Promise.all([
+    const [absenceResult, materialResult, chatResult, notificationResult, qualityResult, employeeResult] = await Promise.all([
       supabase
         .from("absence_requests")
         .select("id, employee_name, request_type, absence_type, start_date, end_date, reason, status, created_at, admin_response, decided_at")
@@ -49,12 +49,17 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(120),
       supabase
+        .from("quality_reports")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(80),
+      supabase
         .from("employee_profiles")
         .select("id, name, email, role, active")
         .order("name", { ascending: true })
     ]);
 
-    const errors = [absenceResult.error, materialResult.error, chatResult.error, notificationResult.error, employeeResult.error].filter(Boolean);
+    const errors = [absenceResult.error, materialResult.error, chatResult.error, notificationResult.error, qualityResult.error, employeeResult.error].filter(Boolean);
     if (errors.length) throw new Error(errors[0]?.message || "Daten konnten nicht geladen werden.");
 
     const openAbsences = (absenceResult.data || []).filter(isOpen);
@@ -65,6 +70,7 @@ export async function GET(request: Request) {
       return senderRole !== "admin" && unread;
     });
     const openNotifications = (notificationResult.data || []).filter(isOpen);
+    const openQualityReports = (qualityResult.data || []).filter(isOpen);
 
     return NextResponse.json({
       ok: true,
@@ -72,6 +78,7 @@ export async function GET(request: Request) {
       materialReports: openMaterialReports,
       chatMessages: openChats,
       notifications: openNotifications,
+      qualityReports: openQualityReports,
       employees: employeeResult.data || []
     });
   } catch (error) {
@@ -197,6 +204,36 @@ export async function PATCH(request: Request) {
         .update({ status: "resolved", read: true, resolved_at: new Date().toISOString(), admin_response: adminResponse || "Gelesen" })
         .eq("employee_name", data.employee_name)
         .eq("notification_type", "chat_message");
+
+      return NextResponse.json({ ok: true, item: data });
+    }
+
+
+    if (type === "quality") {
+      const status = action === "reject" || action === "rejected" ? "rejected" : action === "approve" || action === "approved" ? "approved" : "done";
+      const { data, error } = await supabase
+        .from("quality_reports")
+        .update({ status })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) return NextResponse.json({ ok: false, error: "Qualitätsnachweis wurde nicht gefunden." }, { status: 404 });
+
+      await supabase.from("chat_messages").insert({
+        employee_name: data.employee_name,
+        sender_name: profile.name,
+        sender_role: "admin",
+        message: `Dein Qualitätsnachweis wurde ${status === "rejected" ? "abgelehnt" : status === "approved" ? "freigegeben" : "erledigt"}.${adminResponse ? ` ${adminResponse}` : ""}`,
+        body: `Dein Qualitätsnachweis wurde ${status === "rejected" ? "abgelehnt" : status === "approved" ? "freigegeben" : "erledigt"}.${adminResponse ? ` ${adminResponse}` : ""}`,
+        text: `Dein Qualitätsnachweis wurde ${status === "rejected" ? "abgelehnt" : status === "approved" ? "freigegeben" : "erledigt"}.${adminResponse ? ` ${adminResponse}` : ""}`,
+        read_by_admin: true,
+        read_by_employee: false,
+        status: "open",
+        todo_status: "open",
+        created_at: new Date().toISOString()
+      });
 
       return NextResponse.json({ ok: true, item: data });
     }

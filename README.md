@@ -108,3 +108,19 @@ Vor dem Testen bitte in Supabase ausführen:
 
 - `supabase/mobile_foto_qualitaetsnachweise.sql`
 - falls die Stempeluhr blockiert: `supabase/mobile_stempeluhr_action_fix.sql`
+
+## Update: Foto-Upload für Materialmeldungen
+
+Neu: Mitarbeiter können bei **Mehr → Material melden** Fotos anhängen. Die Bilder landen im Supabase Storage Bucket `material-photos` und werden in `material_reports.photo_urls` gespeichert.
+
+Vor dem Testen bitte in Supabase ausführen:
+
+```text
+supabase/mobile_material_foto_upload.sql
+```
+
+Der Admin sieht die Fotos anschließend unter:
+
+```text
+/mitarbeiter/freigaben → Material
+```

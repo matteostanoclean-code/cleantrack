@@ -30,6 +30,22 @@ type MaterialRow = {
   comment?: string | null;
   notes?: string | null;
   status?: string | null;
+  photo_urls?: string[] | null;
+  photo_count?: number | null;
+  created_at?: string | null;
+};
+
+type QualityRow = {
+  id: string;
+  task_id?: string | null;
+  employee_name?: string | null;
+  work_site_id?: string | null;
+  work_site_name?: string | null;
+  checked_items?: string[] | null;
+  notes?: string | null;
+  status?: string | null;
+  photo_urls?: string[] | null;
+  photo_count?: number | null;
   created_at?: string | null;
 };
 
@@ -67,9 +83,10 @@ type AdminData = {
   materialReports: MaterialRow[];
   chatMessages: ChatRow[];
   notifications: NotificationRow[];
+  qualityReports: QualityRow[];
 };
 
-type Tab = "overview" | "absence" | "material" | "chat" | "notifications";
+type Tab = "overview" | "absence" | "material" | "quality" | "chat" | "notifications";
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -196,10 +213,11 @@ function AdminPage() {
     absence: data?.absences?.length || 0,
     material: data?.materialReports?.length || 0,
     chat: data?.chatMessages?.length || 0,
-    notifications: data?.notifications?.length || 0
+    notifications: data?.notifications?.length || 0,
+    quality: data?.qualityReports?.length || 0
   }), [data]);
 
-  const total = counts.absence + counts.material + counts.chat + counts.notifications;
+  const total = counts.absence + counts.material + counts.quality + counts.chat + counts.notifications;
 
   const load = useCallback(async (tokenOverride?: string) => {
     const currentToken = tokenOverride || token;
@@ -248,7 +266,7 @@ function AdminPage() {
     await load(accessToken);
   }
 
-  async function patchItem(type: "absence" | "material" | "chat" | "notification", id: string, action: string) {
+  async function patchItem(type: "absence" | "material" | "quality" | "chat" | "notification", id: string, action: string) {
     setSavingId(id);
     setError(null);
     try {
@@ -322,9 +340,10 @@ function AdminPage() {
             </div>
             <button onClick={() => load()} disabled={loading} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">{loading ? "Lade…" : "Aktualisieren"}</button>
           </div>
-          <div className="mt-4 grid grid-cols-4 gap-2 text-center text-xs">
+          <div className="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.absence}</p><p className="text-slate-500">Urlaub</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.material}</p><p className="text-slate-500">Material</p></div>
+            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.quality}</p><p className="text-slate-500">Qualität</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.chat}</p><p className="text-slate-500">Chat</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.notifications}</p><p className="text-slate-500">Meldung</p></div>
           </div>
@@ -336,6 +355,7 @@ function AdminPage() {
           <SectionButton active={tab === "overview"} label="Übersicht" count={total} onClick={() => setTab("overview")} />
           <SectionButton active={tab === "absence"} label="Urlaub" count={counts.absence} onClick={() => setTab("absence")} />
           <SectionButton active={tab === "material"} label="Material" count={counts.material} onClick={() => setTab("material")} />
+          <SectionButton active={tab === "quality"} label="Qualität" count={counts.quality} onClick={() => setTab("quality")} />
           <SectionButton active={tab === "chat"} label="Chat" count={counts.chat} onClick={() => setTab("chat")} />
           <SectionButton active={tab === "notifications"} label="Meldungen" count={counts.notifications} onClick={() => setTab("notifications")} />
         </nav>
@@ -377,6 +397,15 @@ function AdminPage() {
                   <StatusBadge status={row.status} />
                 </div>
                 {(row.comment || row.notes || row.message) && <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-sm text-slate-300">{row.comment || row.notes || row.message}</p>}
+                {row.photo_urls?.length ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {row.photo_urls.slice(0, 6).map((url) => (
+                      <a key={url} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-slate-700 bg-slate-950">
+                        <img src={url} alt="Materialfoto" className="h-24 w-full object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
                 <textarea value={noteById[row.id] || ""} onChange={(event) => setNoteById((old) => ({ ...old, [row.id]: event.target.value }))} rows={2} className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500" placeholder="Antwort / Hinweis" />
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <button disabled={savingId === row.id} onClick={() => patchItem("material", row.id, "approve")} className="rounded-2xl bg-blue-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Freigeben</button>
@@ -385,6 +414,41 @@ function AdminPage() {
                 </div>
               </article>
             )) : <EmptyCard title="Keine offenen Materialmeldungen" text="Wenn ein Mitarbeiter Material meldet, landet es hier." />}
+          </section>
+        )}
+
+        {(tab === "overview" || tab === "quality") && (
+          <section className="space-y-3">
+            <h2 className="font-black">Qualitätsnachweise</h2>
+            {data?.qualityReports?.length ? data.qualityReports.map((row) => (
+              <article key={row.id} className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-black">{row.work_site_name || "Objekt"}</p>
+                    <p className="mt-1 text-sm text-slate-400">{row.employee_name || "Mitarbeiter"} · {formatDateTime(row.created_at)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{row.photo_count || row.photo_urls?.length || 0} Foto(s) · {(row.checked_items || []).length} Punkte</p>
+                  </div>
+                  <StatusBadge status={row.status} />
+                </div>
+                {row.photo_urls?.length ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {row.photo_urls.slice(0, 6).map((url) => (
+                      <a key={url} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-slate-700 bg-slate-950">
+                        <img src={url} alt="Qualitätsfoto" className="h-24 w-full object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+                {row.checked_items?.length ? <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-sm text-slate-300">{row.checked_items.join(" · ")}</p> : null}
+                {row.notes && <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-sm text-slate-300">{row.notes}</p>}
+                <textarea value={noteById[row.id] || ""} onChange={(event) => setNoteById((old) => ({ ...old, [row.id]: event.target.value }))} rows={2} className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500" placeholder="Antwort / Hinweis" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <button disabled={savingId === row.id} onClick={() => patchItem("quality", row.id, "approve")} className="rounded-2xl bg-blue-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Freigeben</button>
+                  <button disabled={savingId === row.id} onClick={() => patchItem("quality", row.id, "done")} className="rounded-2xl bg-emerald-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Erledigt</button>
+                  <button disabled={savingId === row.id} onClick={() => patchItem("quality", row.id, "reject")} className="rounded-2xl bg-red-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Ablehnen</button>
+                </div>
+              </article>
+            )) : <EmptyCard title="Keine offenen Qualitätsnachweise" text="Wenn Mitarbeiter einen Nachweis senden, erscheint er hier mit Foto und Checkliste." />}
           </section>
         )}
 
