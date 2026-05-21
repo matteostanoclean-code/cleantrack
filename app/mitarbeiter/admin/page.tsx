@@ -271,8 +271,10 @@ export default function AdminDashboardPage() {
       if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen.");
       const savedCount = Number(result.count || 0);
       setMessage(form.id ? "Änderung gespeichert." : savedCount > 1 ? `${savedCount} Einsätze gespeichert.` : "Neuer Datensatz gespeichert.");
+      setQuery("");
+      if (type === "task") setTab("tasks");
       reset();
-      await load();
+      await load(token);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Speichern fehlgeschlagen.");
     } finally {
@@ -486,7 +488,7 @@ export default function AdminDashboardPage() {
                 )}
               </div>
               <Field label="Mitarbeiter">
-                <select value={taskForm.employee_name} onChange={(event) => setTaskForm({ ...taskForm, employee_name: event.target.value })} className={inputClass}>
+                <select value={taskForm.employee_name} onChange={(event) => setTaskForm({ ...taskForm, employee_name: event.target.value })} required className={inputClass}>
                   <option value="">Ohne Mitarbeiter</option>
                   {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                 </select>

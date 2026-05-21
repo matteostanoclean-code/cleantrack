@@ -567,12 +567,12 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
   ];
 
   return (
-    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="relative flex min-h-[calc(100vh-2rem)] flex-col bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
+    <main className="phone-bg h-[100dvh] overflow-hidden bg-slate-950 px-3 py-3 text-slate-50 sm:px-5">
+      <div className="mx-auto h-full max-h-[calc(100dvh-1.5rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
+        <div className="relative flex h-full min-h-0 flex-col bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
           <Header />
-          <section className="flex-1 overflow-y-auto px-4 pb-28 pt-3">{children}</section>
-          <nav className="absolute bottom-4 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
+          <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
+          <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
               const selected = active === item.key || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality"].includes(active));
               return (
@@ -646,7 +646,7 @@ function EmployeeSelect({ employees, employeeName, onChange }: { employees: Empl
   );
 }
 
-function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void }) {
+function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange, onStartClock }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void; onStartClock: (assignment: Assignment) => void }) {
   const employee = data?.employee;
   const todayTasks = assignments.filter((assignment) => assignment.date === todayIso());
   const doneToday = todayTasks.filter((assignment) => assignment.done).length;
@@ -698,7 +698,7 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
             </div>
             <div className="grid grid-cols-2 border-t border-slate-700 text-sm">
               <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="map" />Route</button>
-              <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="shield" />Info</button>
+              <button onClick={() => onStartClock(nextAssignment)} className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="clock" />Stempeln</button>
             </div>
           </div>
         ) : (
@@ -755,7 +755,7 @@ function Activity({ label, time }: { label: string; time: string }) {
   );
 }
 
-function Schedule({ assignments }: { assignments: Assignment[] }) {
+function Schedule({ assignments, onStartClock }: { assignments: Assignment[]; onStartClock: (assignment: Assignment) => void }) {
   const days = Array.from({ length: 5 }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() + index);
@@ -786,21 +786,21 @@ function Schedule({ assignments }: { assignments: Assignment[] }) {
             <h2 className="font-bold">Heute im Fokus</h2>
             <span className="rounded-md bg-blue-500/15 px-2 py-1 text-[10px] font-bold uppercase text-blue-300">{focus.done ? "Erledigt" : "Offen"}</span>
           </div>
-          <AssignmentCard assignment={focus} featured />
+          <AssignmentCard assignment={focus} featured onStartClock={onStartClock} />
         </section>
       ) : <EmptyCard title="Keine Einsätze" text="In der Tabelle tasks wurden für diesen Mitarbeiter keine passenden Einträge gefunden." />}
 
       <section>
         <h2 className="mb-2 font-bold">Nächste Einsätze</h2>
         <div className="space-y-3">
-          {nextAssignments.length ? nextAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} />) : <p className="text-sm text-slate-500">Keine weiteren Einsätze.</p>}
+          {nextAssignments.length ? nextAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onStartClock={onStartClock} />) : <p className="text-sm text-slate-500">Keine weiteren Einsätze.</p>}
         </div>
       </section>
     </div>
   );
 }
 
-function AssignmentCard({ assignment, featured }: { assignment: Assignment; featured?: boolean }) {
+function AssignmentCard({ assignment, featured, onStartClock }: { assignment: Assignment; featured?: boolean; onStartClock?: (assignment: Assignment) => void }) {
   const priorityColor = assignment.priority === "urgent" ? "bg-orange-400" : assignment.priority === "overdue" ? "bg-red-400" : "bg-blue-400";
   return (
     <article className={`rounded-3xl border border-slate-800 ${featured ? "bg-slate-800" : "bg-slate-900/70"} p-4`}>
@@ -818,13 +818,20 @@ function AssignmentCard({ assignment, featured }: { assignment: Assignment; feat
       </div>
       <div className="mt-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-slate-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.done ? "Erledigt" : assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
-        <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Öffnen</button>
+        <button onClick={() => onStartClock?.(assignment)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Stempeln</button>
       </div>
     </article>
   );
 }
 
-function Clock({ data, authToken, onReload }: { data: AppData | null; authToken: string; onReload: () => Promise<void> }) {
+function expectedStartIso(task: RawTask | null) {
+  if (!task?.task_date || !task.start_time) return null;
+  const value = `${task.task_date}T${task.start_time.length === 5 ? `${task.start_time}:00` : task.start_time}`;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { data: AppData | null; authToken: string; onReload: () => Promise<void>; selectedTaskId: string | null; onOpenSchedule: () => void }) {
   const [status, setStatus] = useState<ClockStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -833,29 +840,18 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
   const [message, setMessage] = useState<string | null>(null);
   const [lastGps, setLastGps] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
+  const selectedTask = useMemo(() => (data?.tasks || []).find((task) => task.id === selectedTaskId) || null, [data?.tasks, selectedTaskId]);
+  const selectedAssignment = useMemo(() => selectedTask ? assignmentFromTask(selectedTask) : null, [selectedTask]);
   const siteById = useMemo(() => new Map((data?.workSites || []).map((site) => [site.id, site])), [data?.workSites]);
-  const sites = useMemo(() => {
-    const normalize = (workSiteId: string | null, fallbackName: string): ClockSite => {
-      const site = workSiteId ? siteById.get(workSiteId) : null;
-      return {
-        workSiteId,
-        siteName: site?.name || site?.site || site?.object_name || site?.site_name || fallbackName || "Objekt",
-        latitude: getSiteLatitude(site),
-        longitude: getSiteLongitude(site),
-        allowedRadiusM: site ? getSiteRadius(site) : null,
-        gpsRequired: site?.gps_required === true
-      };
-    };
-    const fromAssignments = assignments.map((assignment) => normalize(assignment.workSiteId || null, assignment.address || assignment.title));
-    const fromEmployeeSites = (data?.employeeWorkSites || [])
-      .filter((site) => site.active !== false)
-      .map((site) => normalize(site.work_site_id || null, site.site_name || "Objekt"));
-    const combined = [...fromAssignments, ...fromEmployeeSites].filter((site) => site.siteName);
-    const unique = new Map<string, ClockSite>();
-    combined.forEach((site) => unique.set(`${site.workSiteId || ""}-${site.siteName}`, site));
-    return Array.from(unique.values());
-  }, [assignments, data?.employeeWorkSites, siteById]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const selectedSite = selectedTask?.work_site_id ? siteById.get(selectedTask.work_site_id) || null : null;
+  const selectedClockSite: ClockSite | null = selectedTask ? {
+    workSiteId: selectedTask.work_site_id || null,
+    siteName: selectedSite?.name || selectedSite?.site || selectedSite?.object_name || selectedSite?.site_name || selectedTask.site || selectedTask.customer_name || selectedTask.title || "Termin",
+    latitude: getSiteLatitude(selectedSite),
+    longitude: getSiteLongitude(selectedSite),
+    allowedRadiusM: selectedSite ? getSiteRadius(selectedSite) : null,
+    gpsRequired: selectedSite?.gps_required === true
+  } : null;
 
   useEffect(() => {
     const latest = latestClock(data?.timeEntries || []);
@@ -865,10 +861,6 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (!startedAt || status === "idle") {
-        setSeconds(dailyWorkedSeconds(data?.timeEntries || []));
-        return;
-      }
       setSeconds(dailyWorkedSeconds(data?.timeEntries || []));
     }, 1000);
     return () => window.clearInterval(timer);
@@ -876,10 +868,14 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
 
   async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out") {
     if (!data?.employee) return;
+    if (!selectedTask) {
+      setMessage("Bitte zuerst im Einsatzplan einen Termin öffnen. Manuelles Buchen ohne Termin ist gesperrt.");
+      return;
+    }
+
     setSaving(true);
     setLocating(true);
     setMessage("GPS-Standort wird geprüft…");
-    const selectedSite = sites[selectedIndex] || null;
     let gps: { latitude: number; longitude: number; accuracy: number | null } | null = null;
     try {
       gps = await getBrowserPosition();
@@ -896,15 +892,14 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
+          taskId: selectedTask.id,
           employeeName: data.employee.name,
           employeeId: data.employee.id,
           action,
-          workSiteId: selectedSite?.workSiteId || null,
-          workSiteName: selectedSite?.siteName || assignments[0]?.title || "Ohne Objekt",
           latitude: gps?.latitude ?? null,
           longitude: gps?.longitude ?? null,
           accuracyM: gps?.accuracy ?? null,
-          allowedRadiusM: selectedSite?.allowedRadiusM ?? null
+          expectedStartTime: expectedStartIso(selectedTask)
         })
       });
       const result = await response.json();
@@ -922,17 +917,24 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
   }
 
   const statusText = status === "working" ? "In Arbeit" : status === "break" ? "Pause läuft" : "Bereit";
-  const selectedSite = sites[selectedIndex] || null;
-  const selectedSiteName = selectedSite?.siteName || assignments[0]?.title || "Kein Objekt gewählt";
-  const selectedSiteHasGps = selectedSite?.latitude !== null && selectedSite?.longitude !== null;
+  const selectedSiteName = selectedClockSite?.siteName || "Kein Termin gewählt";
+  const selectedSiteHasGps = Boolean(selectedClockSite && selectedClockSite.latitude !== null && selectedClockSite.longitude !== null);
   const latestTwo = (data?.timeEntries || []).slice(0, 4);
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Stempeluhr</h1>
-        <p className="text-xs text-slate-400">Speichert direkt in time_entries</p>
+        <p className="text-xs text-slate-400">Stempeln ist nur aus einem Termin heraus möglich.</p>
       </div>
+
+      {!selectedTask ? (
+        <section className="rounded-3xl border border-yellow-500/30 bg-yellow-500/10 p-4">
+          <p className="font-black text-yellow-100">Kein Termin ausgewählt</p>
+          <p className="mt-2 text-sm text-yellow-100/80">Ich habe manuelle Buchungen gesperrt. Bitte öffne im Einsatzplan einen Termin und tippe dort auf „Stempeln“.</p>
+          <button onClick={onOpenSchedule} className="mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Zum Einsatzplan</button>
+        </section>
+      ) : null}
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 text-center">
         <div className="flex items-center justify-between text-xs">
@@ -947,40 +949,52 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
         </div>
         <p className="mt-8 text-5xl font-black tracking-[0.15em] text-blue-100">{formatDuration(seconds)}</p>
         <p className="mt-2 text-sm italic text-slate-400">{selectedSiteName}</p>
-        <div className="mt-6 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-3 text-left text-xs">
-          <div>
-            <p className="font-bold text-slate-100">GPS + Supabase aktiv</p>
-            <p className="text-slate-500">Standort wird beim Stempeln gespeichert und geprüft</p>
+        {selectedAssignment ? (
+          <div className="mt-6 rounded-2xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-left text-xs text-blue-100">
+            <p className="font-black">Aktiver Termin</p>
+            <p className="mt-1">{dateLabel(selectedAssignment.date)} · {selectedAssignment.time} · {selectedAssignment.title}</p>
+            <p className="mt-1 opacity-80">{selectedAssignment.customer}</p>
           </div>
-          <span className="grid h-7 w-7 place-items-center rounded-full border border-blue-500 text-blue-300">✓</span>
-        </div>
+        ) : (
+          <div className="mt-6 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-3 text-left text-xs">
+            <div>
+              <p className="font-bold text-slate-100">Manuelle Buchung gesperrt</p>
+              <p className="text-slate-500">Kein Start ohne Termin.</p>
+            </div>
+            <span className="grid h-7 w-7 place-items-center rounded-full border border-yellow-500 text-yellow-300">!</span>
+          </div>
+        )}
       </section>
 
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">Aktueller Einsatz</p>
-        <select value={selectedIndex} onChange={(event) => setSelectedIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
-          {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
-        </select>
-        <div className={`mt-3 rounded-2xl border px-3 py-3 text-xs ${selectedSiteHasGps ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-100"}`}>
-          <p className="font-black">{selectedSiteHasGps ? "Objekt-GPS aktiv" : "Objekt-GPS fehlt noch"}</p>
-          <p className="mt-1 opacity-80">
-            {selectedSiteHasGps
-              ? `Radius-Prüfung: ${selectedSite?.allowedRadiusM || 150} m erlaubt.`
-              : "Ich speichere den Mitarbeiter-Standort, prüfe aber noch keinen Radius. GPS-Koordinaten im Admin-Objekt eintragen."}
-          </p>
-          {lastGps ? <p className="mt-1 opacity-70">Letzter Standort: Genauigkeit ca. {lastGps.accuracy || "—"} m</p> : null}
+        <p className="text-xs uppercase tracking-wide text-slate-500">Termin-Standort</p>
+        <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3 text-sm font-semibold text-white">
+          {selectedTask ? selectedSiteName : "Bitte Termin im Einsatzplan auswählen"}
         </div>
+        {selectedTask ? (
+          <div className={`mt-3 rounded-2xl border px-3 py-3 text-xs ${selectedSiteHasGps ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-100"}`}>
+            <p className="font-black">{selectedSiteHasGps ? "Objekt-GPS aktiv" : selectedTask.work_site_id ? "Objekt-GPS fehlt noch" : "Termin hat kein Objekt"}</p>
+            <p className="mt-1 opacity-80">
+              {selectedSiteHasGps
+                ? `Radius-Prüfung: ${selectedClockSite?.allowedRadiusM || 150} m erlaubt.`
+                : selectedTask.work_site_id
+                  ? "Ich speichere den Mitarbeiter-Standort, prüfe aber noch keinen Radius. GPS-Koordinaten im Admin-Objekt eintragen."
+                  : "Bitte im Admin-Dashboard ein Objekt für diesen Termin auswählen, damit GPS sauber geprüft werden kann."}
+            </p>
+            {lastGps ? <p className="mt-1 opacity-70">Letzter Standort: Genauigkeit ca. {lastGps.accuracy || "—"} m</p> : null}
+          </div>
+        ) : null}
         <div className="mt-4 grid grid-cols-2 gap-3">
           {status === "idle" ? (
-            <button disabled={saving || locating || !data?.employee} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
+            <button disabled={saving || locating || !data?.employee || !selectedTask} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
           ) : (
             <>
               {status === "break" ? (
-                <button disabled={saving || locating} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
+                <button disabled={saving || locating || !selectedTask} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
               ) : (
-                <button disabled={saving || locating} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
+                <button disabled={saving || locating || !selectedTask} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
               )}
-              <button disabled={saving || locating} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
+              <button disabled={saving || locating || !selectedTask} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
             </>
           )}
         </div>
@@ -988,7 +1002,10 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
       </section>
 
       <section>
-        <h2 className="mb-2 font-bold">Timeline</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-bold">Timeline</h2>
+          {!selectedTask && assignments.length ? <button onClick={onOpenSchedule} className="text-xs font-black text-blue-200">Termin wählen</button> : null}
+        </div>
         <div className="space-y-2">
           {latestTwo.length ? latestTwo.map((entry) => (
             <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
@@ -1766,6 +1783,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   const [error, setError] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState("");
   const [authToken, setAuthToken] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const loadData = useCallback(async (name?: string, tokenOverride?: string) => {
     const token = tokenOverride || authToken;
@@ -1836,6 +1854,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
     setEmployeeName("");
     setData(null);
     setError(null);
+    setSelectedTaskId(null);
     setActive("home");
   }
 
@@ -1848,6 +1867,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
 
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
   const timeEntries = useMemo(() => groupTimeEntries(data?.timeEntries || []), [data?.timeEntries]);
+
+  function openClockForAssignment(assignment: Assignment) {
+    setSelectedTaskId(assignment.id);
+    setActive("clock");
+  }
 
   if (authLoading) {
     return (
@@ -1869,9 +1893,9 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && (
         <>
-          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} />}
-          {active === "schedule" && <Schedule assignments={assignments} />}
-          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} />}
+          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onStartClock={openClockForAssignment} />}
+          {active === "schedule" && <Schedule assignments={assignments} onStartClock={openClockForAssignment} />}
+          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
           {active === "timesheet" && <Timesheet entries={timeEntries} absences={data?.absences || []} />}
           {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
           {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}

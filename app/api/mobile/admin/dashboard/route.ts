@@ -142,9 +142,9 @@ function customerAddress(row: AnyRow | null | undefined) {
 async function loadAdminData(supabase: any) {
   const now = new Date();
   const fromDate = new Date(now);
-  fromDate.setDate(fromDate.getDate() - 21);
+  fromDate.setDate(fromDate.getDate() - 90);
   const toDate = new Date(now);
-  toDate.setDate(toDate.getDate() + 60);
+  toDate.setDate(toDate.getDate() + 365);
 
   const [employees, customers, sites, tasks, timeEntries, absences, materialReports, notifications] = await Promise.all([
     supabase
@@ -169,7 +169,7 @@ async function loadAdminData(supabase: any) {
       .lte("task_date", toDate.toISOString().slice(0, 10))
       .order("task_date", { ascending: true })
       .order("start_time", { ascending: true })
-      .limit(300),
+      .limit(1000),
     supabase
       .from("time_entries")
       .select("*")
@@ -364,6 +364,7 @@ export async function POST(request: Request) {
     }
 
     if (type === "task") {
+      if (!clean(body.employee_name)) return NextResponse.json({ ok: false, error: "Bitte einen Mitarbeiter auswählen. Termine ohne Mitarbeiter werden nicht in der Mitarbeiter-App angezeigt." }, { status: 400 });
       const customer = await readCustomer(supabase, nullableUuid(body.customer_id));
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);
@@ -434,6 +435,7 @@ export async function PATCH(request: Request) {
     }
 
     if (type === "task") {
+      if (!clean(body.employee_name)) return NextResponse.json({ ok: false, error: "Bitte einen Mitarbeiter auswählen. Termine ohne Mitarbeiter werden nicht in der Mitarbeiter-App angezeigt." }, { status: 400 });
       const customer = await readCustomer(supabase, nullableUuid(body.customer_id));
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);

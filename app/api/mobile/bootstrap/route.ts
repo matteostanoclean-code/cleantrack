@@ -52,8 +52,8 @@ export async function GET(request: Request) {
     }
 
     const employeeName = selectedEmployee.name;
-    const fromDate = dateOffset(-30);
-    const toDate = dateOffset(45);
+    const fromDate = dateOffset(-90);
+    const toDate = dateOffset(365);
 
     const [tasksResult, timeEntriesResult, absencesResult, notificationsResult, chatMessagesResult, employeeWorkSitesResult] = await Promise.all([
       supabase

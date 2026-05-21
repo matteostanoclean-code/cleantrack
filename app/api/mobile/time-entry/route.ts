@@ -5,6 +5,10 @@ export const dynamic = "force-dynamic";
 
 const allowedActions = new Set(["clock_in", "break_start", "break_end", "clock_out"]);
 
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const number = typeof value === "number" ? value : Number(String(value).replace(",", "."));
@@ -12,8 +16,17 @@ function numberOrNull(value: unknown) {
 }
 
 function textOrNull(value: unknown) {
-  const text = String(value ?? "").trim();
+  const text = clean(value);
   return text ? text : null;
+}
+
+function uuidOrNull(value: unknown) {
+  const text = clean(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text) ? text : null;
+}
+
+function sameName(a?: unknown, b?: unknown) {
+  return clean(a).toLowerCase() === clean(b).toLowerCase();
 }
 
 function pickNumber(row: Record<string, any> | null | undefined, keys: string[]) {
@@ -45,6 +58,15 @@ function pickText(row: Record<string, any> | null | undefined, keys: string[]) {
   return null;
 }
 
+function taskExpectedStart(task: Record<string, any>) {
+  const date = clean(task.task_date);
+  const start = clean(task.start_time);
+  if (!date || !start) return null;
+  const value = `${date}T${start.length === 5 ? `${start}:00` : start}`;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
   const earthRadius = 6371000;
   const toRad = (degree: number) => (degree * Math.PI) / 180;
@@ -56,10 +78,33 @@ function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) 
   return Math.round(earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
 }
 
+function latestStatus(action?: string | null) {
+  if (action === "clock_in" || action === "break_end") return "working";
+  if (action === "break_start") return "break";
+  return "idle";
+}
+
+function validateSequence(currentStatus: "idle" | "working" | "break", action: string) {
+  if (action === "clock_in" && currentStatus !== "idle") return "Du bist bereits eingestempelt. Bitte erst ausstempeln.";
+  if (action === "break_start" && currentStatus !== "working") return "Pause kann nur gestartet werden, wenn du eingestempelt bist.";
+  if (action === "break_end" && currentStatus !== "break") return "Pause kann nur beendet werden, wenn eine Pause läuft.";
+  if (action === "clock_out" && currentStatus === "idle") return "Ausstempeln geht erst nach dem Einstempeln.";
+  return null;
+}
+
 async function insertTimeEntry(auth: any, payload: Record<string, any>) {
   const { data, error } = await auth.supabase.from("time_entries").insert(payload).select("*").single();
-  if (error) throw new Error(error.message);
-  return data;
+  if (!error) return data;
+
+  // Fallback, falls die SQL-Erweiterung für task_id noch nicht ausgeführt wurde.
+  if (String(error.message || "").toLowerCase().includes("task_id")) {
+    const { task_id, ...withoutTaskId } = payload;
+    const fallback = await auth.supabase.from("time_entries").insert(withoutTaskId).select("*").single();
+    if (fallback.error) throw new Error(fallback.error.message);
+    return fallback.data;
+  }
+
+  throw new Error(error.message);
 }
 
 export async function POST(request: Request) {
@@ -70,17 +115,22 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const action = String(body.action || "").trim();
+    const action = clean(body.action);
 
     if (!allowedActions.has(action)) {
       return NextResponse.json({ ok: false, error: "Ungültige Stempel-Aktion." }, { status: 400 });
     }
 
-    const requestedEmployeeName = String(body.employeeName || "").trim();
+    const taskId = uuidOrNull(body.taskId);
+    if (!taskId) {
+      return NextResponse.json({ ok: false, error: "Bitte zuerst einen Termin im Einsatzplan öffnen. Manuelle Buchungen sind gesperrt." }, { status: 400 });
+    }
+
+    const requestedEmployeeName = clean(body.employeeName);
     const employeeName = auth.isAdmin && requestedEmployeeName ? requestedEmployeeName : auth.profile.name;
     let employeeId = auth.profile.id;
 
-    if (auth.isAdmin && requestedEmployeeName && requestedEmployeeName !== auth.profile.name) {
+    if (auth.isAdmin && requestedEmployeeName && !sameName(requestedEmployeeName, auth.profile.name)) {
       const { data: selectedEmployee, error } = await auth.supabase
         .from("employee_profiles")
         .select("id, name, active")
@@ -94,7 +144,36 @@ export async function POST(request: Request) {
       employeeId = selectedEmployee.id;
     }
 
-    const workSiteId = textOrNull(body.workSiteId);
+    const { data: task, error: taskError } = await auth.supabase
+      .from("tasks")
+      .select("*")
+      .eq("id", taskId)
+      .maybeSingle();
+
+    if (taskError) throw new Error(taskError.message);
+    if (!task) {
+      return NextResponse.json({ ok: false, error: "Der ausgewählte Termin wurde nicht gefunden." }, { status: 404 });
+    }
+    if (!sameName(task.employee_name, employeeName)) {
+      return NextResponse.json({ ok: false, error: "Dieser Termin gehört nicht zu diesem Mitarbeiter." }, { status: 403 });
+    }
+
+    const latestResult = await auth.supabase
+      .from("time_entries")
+      .select("id, action, success, created_at")
+      .eq("employee_name", employeeName)
+      .neq("success", false)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (latestResult.error) throw new Error(latestResult.error.message);
+
+    const currentStatus = latestStatus(latestResult.data?.[0]?.action);
+    const sequenceError = validateSequence(currentStatus, action);
+    if (sequenceError) {
+      return NextResponse.json({ ok: false, error: sequenceError }, { status: 409 });
+    }
+
+    const workSiteId = textOrNull(task.work_site_id);
     let site: Record<string, any> | null = null;
 
     if (workSiteId) {
@@ -111,10 +190,10 @@ export async function POST(request: Request) {
     const employeeLng = numberOrNull(body.longitude);
     const siteLat = pickNumber(site, ["latitude", "lat", "gps_latitude", "object_latitude"]);
     const siteLng = pickNumber(site, ["longitude", "lng", "lon", "gps_longitude", "object_longitude"]);
-    const allowedRadius = Math.round(numberOrNull(body.allowedRadiusM) ?? pickNumber(site, ["allowed_radius_m", "radius_m", "gps_radius_m", "geofence_radius_m"]) ?? 150);
+    const allowedRadius = Math.round(pickNumber(site, ["allowed_radius_m", "radius_m", "gps_radius_m", "geofence_radius_m"]) ?? 150);
     const gpsRequired = pickBoolean(site, ["gps_required", "geofence_required", "location_required"], false);
     const hasSiteGps = siteLat !== null && siteLng !== null;
-    const siteName = pickText(site, ["name", "site", "object_name", "site_name"]) || textOrNull(body.workSiteName) || null;
+    const siteName = pickText(site, ["name", "site", "object_name", "site_name"]) || textOrNull(task.site || task.customer_name || task.title) || null;
 
     let distance: number | null = null;
     let gpsStatus: "unchecked" | "missing_employee_position" | "inside_radius" | "outside_radius" = "unchecked";
@@ -129,6 +208,7 @@ export async function POST(request: Request) {
     }
 
     const basePayload = {
+      task_id: task.id,
       employee_name: employeeName,
       employee_id: employeeId,
       work_site_id: workSiteId,
@@ -139,7 +219,7 @@ export async function POST(request: Request) {
       distance_m: distance,
       allowed_radius_m: hasSiteGps ? allowedRadius : null,
       created_at: new Date().toISOString(),
-      expected_start_time: body.expectedStartTime || null
+      expected_start_time: taskExpectedStart(task) || body.expectedStartTime || null
     };
 
     if (hasSiteGps && gpsStatus === "missing_employee_position") {
@@ -166,7 +246,11 @@ export async function POST(request: Request) {
       error_message: hasSiteGps ? `GPS geprüft: ${distance} m von ${allowedRadius} m Radius.` : employeeLat !== null && employeeLng !== null ? "GPS gespeichert. Objekt hat noch keine Koordinaten für Radius-Prüfung." : null
     });
 
-    return NextResponse.json({ ok: true, entry, gpsStatus, distanceM: distance, allowedRadiusM: hasSiteGps ? allowedRadius : null, hasSiteGps });
+    if (action === "clock_out") {
+      await auth.supabase.from("tasks").update({ status: "done", done: true }).eq("id", task.id);
+    }
+
+    return NextResponse.json({ ok: true, entry, gpsStatus, distanceM: distance, allowedRadiusM: hasSiteGps ? allowedRadius : null, hasSiteGps, taskId: task.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Stempeln fehlgeschlagen.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

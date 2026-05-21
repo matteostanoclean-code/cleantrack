@@ -148,3 +148,13 @@ Danach beim Mitarbeiter testen:
 ```text
 /mitarbeiter → Stempeluhr → Objekt wählen → Einstempeln
 ```
+
+## Fix: Termine + Stempeluhr
+
+Diese Version koppelt die Stempeluhr an einen konkreten Termin. Manuelles Buchen ohne Termin ist in der App und in der API gesperrt.
+
+Nach dem Upload bitte einmal in Supabase ausführen:
+
+```text
+supabase/mobile_termin_stempeluhr_fix.sql
+```
