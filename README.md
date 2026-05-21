@@ -99,3 +99,12 @@ Optionale SQL-Datei:
 ```text
 supabase/mobile_qualitaetsnachweise.sql
 ```
+
+## Update: Foto-Upload für Qualitätsnachweise
+
+Neu: Mitarbeiter können beim Qualitätsnachweis Fotos hochladen. Die Bilder landen im Supabase Storage Bucket `quality-photos` und werden in `quality_reports.photo_urls` gespeichert.
+
+Vor dem Testen bitte in Supabase ausführen:
+
+- `supabase/mobile_foto_qualitaetsnachweise.sql`
+- falls die Stempeluhr blockiert: `supabase/mobile_stempeluhr_action_fix.sql`
