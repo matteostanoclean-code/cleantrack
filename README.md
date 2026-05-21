@@ -124,3 +124,27 @@ Der Admin sieht die Fotos anschließend unter:
 ```text
 /mitarbeiter/freigaben → Material
 ```
+
+
+## GPS-Stempeluhr
+
+Diese Version speichert beim Stempeln den Browser-GPS-Standort in `time_entries.latitude` und `time_entries.longitude`.
+Wenn beim Objekt in `work_sites` die Felder `latitude` und `longitude` gesetzt sind, prüft die API den Abstand gegen `allowed_radius_m`.
+
+Vor dem Testen bitte einmal in Supabase ausführen:
+
+```text
+supabase/mobile_gps_stempeluhr.sql
+```
+
+Objekt-GPS setzen:
+
+```text
+/mitarbeiter/admin → Objekte → Objekt bearbeiten → Hier bin ich → Objekt speichern
+```
+
+Danach beim Mitarbeiter testen:
+
+```text
+/mitarbeiter → Stempeluhr → Objekt wählen → Einstempeln
+```

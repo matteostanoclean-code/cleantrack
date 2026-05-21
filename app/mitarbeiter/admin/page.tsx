@@ -25,7 +25,7 @@ const today = new Date().toISOString().slice(0, 10);
 
 const emptyEmployee = { id: "", name: "", email: "", phone: "", role: "employee", active: false, monthly_hour_limit: "0", vacation_days: "0" };
 const emptyCustomer = { id: "", name: "", address: "", phone: "", email: "", customer_number: "", notes: "", active: true };
-const emptySite = { id: "", name: "", customer_id: "", address: "", allowed_radius_m: "150", monthly_hour_quota: "0", notes: "", active: true };
+const emptySite = { id: "", name: "", customer_id: "", address: "", latitude: "", longitude: "", gps_required: false, allowed_radius_m: "150", monthly_hour_quota: "0", notes: "", active: true };
 const emptyTask: Row = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", employee_name: "", customer_id: "", work_site_id: "", site: "", priority: "Normal", status: "open", notes: "", notify_employee: true, repeat_mode: "none", recurrence_interval: "1", recurrence_end_date: "", recurrence_days: [] as string[] };
 
 const weekdayOptions = [
@@ -306,6 +306,27 @@ export default function AdminDashboardPage() {
     const current = Array.isArray(taskForm.recurrence_days) ? taskForm.recurrence_days.map(String) : [];
     const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
     setTaskForm({ ...taskForm, recurrence_days: next });
+  }
+
+  async function useCurrentLocationForSite() {
+    setError(null);
+    setMessage("Standort wird gelesen…");
+    try {
+      if (typeof navigator === "undefined" || !navigator.geolocation) throw new Error("GPS wird auf diesem Gerät nicht unterstützt.");
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+      });
+      setSiteForm((current) => ({
+        ...current,
+        latitude: position.coords.latitude.toFixed(7),
+        longitude: position.coords.longitude.toFixed(7),
+        gps_required: true
+      }));
+      setMessage("GPS-Koordinaten wurden ins Objektformular übernommen.");
+    } catch (locationError) {
+      setMessage(null);
+      setError(locationError instanceof Error ? locationError.message : "Standort konnte nicht gelesen werden.");
+    }
   }
 
   const filtered = useMemo(() => {
@@ -597,6 +618,23 @@ export default function AdminDashboardPage() {
               <Field label="Objektname"><input value={siteForm.name} onChange={(event) => setSiteForm({ ...siteForm, name: event.target.value })} required className={inputClass} /></Field>
               <Field label="Kunde"><select value={siteForm.customer_id} onChange={(event) => setSiteForm({ ...siteForm, customer_id: event.target.value })} className={inputClass}><option value="">Ohne Kunde</option>{(data?.customers || []).map((customer) => <option key={customer.id} value={customer.id}>{labelCustomer(customer)}</option>)}</select></Field>
               <Field label="Adresse"><input value={siteForm.address} onChange={(event) => setSiteForm({ ...siteForm, address: event.target.value })} className={inputClass} /></Field>
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-blue-200">GPS-Prüfung</p>
+                    <p className="mt-1 text-xs text-blue-100/80">Standort am Objekt speichern, damit Mitarbeiter nur vor Ort stempeln.</p>
+                  </div>
+                  <button type="button" onClick={useCurrentLocationForSite} className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Hier bin ich</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Latitude"><input value={siteForm.latitude} onChange={(event) => setSiteForm({ ...siteForm, latitude: event.target.value })} className={inputClass} placeholder="48.1234567" /></Field>
+                  <Field label="Longitude"><input value={siteForm.longitude} onChange={(event) => setSiteForm({ ...siteForm, longitude: event.target.value })} className={inputClass} placeholder="8.1234567" /></Field>
+                </div>
+                <label className="mt-3 flex items-center gap-2 text-sm font-bold text-blue-100">
+                  <input type="checkbox" checked={Boolean(siteForm.gps_required)} onChange={(event) => setSiteForm({ ...siteForm, gps_required: event.target.checked })} />
+                  GPS für dieses Objekt erzwingen
+                </label>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Radius m"><input type="number" value={siteForm.allowed_radius_m} onChange={(event) => setSiteForm({ ...siteForm, allowed_radius_m: event.target.value })} className={inputClass} /></Field>
                 <Field label="Monatsstunden"><input type="number" value={siteForm.monthly_hour_quota} onChange={(event) => setSiteForm({ ...siteForm, monthly_hour_quota: event.target.value })} className={inputClass} /></Field>
@@ -612,12 +650,13 @@ export default function AdminDashboardPage() {
                       <p className="font-black">{labelSite(site)}</p>
                       <p className="text-xs text-slate-400">{rowAddress(site) || "Keine Adresse"}</p>
                       <p className="mt-1 text-xs text-slate-500">{site.customer_name || "Ohne Kunde"} · Radius {site.allowed_radius_m || 150} m</p>
+                      <p className="mt-1 text-xs text-slate-500">GPS: {site.latitude && site.longitude ? `${site.latitude}, ${site.longitude}` : "nicht gesetzt"}{site.gps_required ? " · Pflicht" : ""}</p>
                     </div>
                     <StatusPill value={site.active === false ? "inactive" : "active"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setSiteForm({ ...emptySite, id: site.id, name: labelSite(site), customer_id: clean(site.customer_id), address: rowAddress(site), allowed_radius_m: String(site.allowed_radius_m || 150), monthly_hour_quota: String(site.monthly_hour_quota || site.hour_quota || 0), notes: clean(site.notes), active: site.active !== false })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
-                    <button onClick={() => patch({ type: "site", id: site.id, name: labelSite(site), customer_id: site.customer_id, address: rowAddress(site), allowed_radius_m: site.allowed_radius_m, monthly_hour_quota: site.monthly_hour_quota || site.hour_quota, notes: site.notes, active: site.active === false }, site.active === false ? "Objekt aktiviert." : "Objekt deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{site.active === false ? "Aktivieren" : "Deaktivieren"}</button>
+                    <button onClick={() => setSiteForm({ ...emptySite, id: site.id, name: labelSite(site), customer_id: clean(site.customer_id), address: rowAddress(site), latitude: clean(site.latitude), longitude: clean(site.longitude), gps_required: Boolean(site.gps_required), allowed_radius_m: String(site.allowed_radius_m || 150), monthly_hour_quota: String(site.monthly_hour_quota || site.hour_quota || 0), notes: clean(site.notes), active: site.active !== false })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => patch({ type: "site", id: site.id, name: labelSite(site), customer_id: site.customer_id, address: rowAddress(site), latitude: site.latitude, longitude: site.longitude, gps_required: site.gps_required, allowed_radius_m: site.allowed_radius_m, monthly_hour_quota: site.monthly_hour_quota || site.hour_quota, notes: site.notes, active: site.active === false }, site.active === false ? "Objekt aktiviert." : "Objekt deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{site.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
               ))}
@@ -634,6 +673,7 @@ export default function AdminDashboardPage() {
                     <p className="font-black">{entry.employee_name || "Mitarbeiter"}</p>
                     <p className="text-xs text-slate-400">{entry.work_site_name || "Ohne Objekt"}</p>
                     <p className="mt-1 text-xs text-slate-500">{dateTimeText(entry.created_at)} · {entry.action || "Stempel"}</p>
+                    <p className="mt-1 text-xs text-slate-500">GPS: {entry.latitude && entry.longitude ? `${entry.latitude}, ${entry.longitude}` : "nicht gespeichert"}{typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m / ${entry.allowed_radius_m || 150} m` : ""}</p>
                   </div>
                   <StatusPill value={entry.success === false ? "Fehler" : "OK"} />
                 </div>

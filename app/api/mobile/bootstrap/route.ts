@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       : profile;
 
     if (!selectedEmployee) {
-      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [], cleaningPlans: [], cleaningPlanItems: [], qualityReports: [] });
+      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [], workSites: [], cleaningPlans: [], cleaningPlanItems: [], qualityReports: [] });
     }
 
     const employeeName = selectedEmployee.name;
@@ -108,8 +108,15 @@ export async function GET(request: Request) {
     let cleaningPlans: any[] = [];
     let cleaningPlanItems: any[] = [];
     let qualityReports: any[] = [];
+    let workSites: any[] = [];
 
     if (workSiteIds.length) {
+      const sitesResult = await supabase
+        .from("work_sites")
+        .select("*")
+        .in("id", workSiteIds);
+      if (!sitesResult.error) workSites = sitesResult.data || [];
+
       const plansResult = await supabase
         .from("cleaning_plans")
         .select("id, name, customer_id, customer_name, work_site_id, site_name, description, comments, status, language, template_type, created_at, updated_at")
@@ -169,6 +176,7 @@ export async function GET(request: Request) {
       materialProducts,
       materialReports,
       employeeWorkSites: employeeWorkSitesResult.data || [],
+      workSites,
       cleaningPlans,
       cleaningPlanItems,
       qualityReports

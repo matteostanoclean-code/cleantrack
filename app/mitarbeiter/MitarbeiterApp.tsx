@@ -104,6 +104,34 @@ type EmployeeWorkSite = {
   created_at?: string | null;
 };
 
+type WorkSite = {
+  id: string;
+  name?: string | null;
+  site?: string | null;
+  object_name?: string | null;
+  site_name?: string | null;
+  address?: string | null;
+  customer_name?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  lat?: number | string | null;
+  lng?: number | string | null;
+  lon?: number | string | null;
+  allowed_radius_m?: number | string | null;
+  radius_m?: number | string | null;
+  gps_required?: boolean | null;
+  active?: boolean | null;
+};
+
+type ClockSite = {
+  workSiteId: string | null;
+  siteName: string;
+  latitude: number | null;
+  longitude: number | null;
+  allowedRadiusM: number | null;
+  gpsRequired: boolean;
+};
+
 type ChatMessage = {
   id: string;
   employee_name?: string | null;
@@ -213,6 +241,7 @@ type AppData = {
   materialProducts: MaterialProduct[];
   materialReports: MaterialReport[];
   employeeWorkSites: EmployeeWorkSite[];
+  workSites: WorkSite[];
   cleaningPlans: CleaningPlan[];
   cleaningPlanItems: CleaningPlanItem[];
   qualityReports: QualityReport[];
@@ -325,6 +354,49 @@ function formatTime(value?: string | null) {
   const date = new Date(value);
   if (!Number.isNaN(date.getTime())) return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   return value;
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function getSiteLatitude(site?: WorkSite | null) {
+  return numberOrNull(site?.latitude ?? site?.lat);
+}
+
+function getSiteLongitude(site?: WorkSite | null) {
+  return numberOrNull(site?.longitude ?? site?.lng ?? site?.lon);
+}
+
+function getSiteRadius(site?: WorkSite | null) {
+  return numberOrNull(site?.allowed_radius_m ?? site?.radius_m) ?? 150;
+}
+
+function getBrowserPosition(): Promise<{ latitude: number; longitude: number; accuracy: number | null }> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("GPS wird auf diesem Gerät nicht unterstützt."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null
+      }),
+      (error) => {
+        const messages: Record<number, string> = {
+          1: "Standort wurde blockiert. Bitte Standortfreigabe im Browser erlauben.",
+          2: "Standort konnte nicht ermittelt werden.",
+          3: "Standort-Ermittlung hat zu lange gedauert."
+        };
+        reject(new Error(messages[error.code] || "GPS-Standort konnte nicht gelesen werden."));
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+    );
+  });
 }
 
 function actionLabel(action?: string | null) {
@@ -757,16 +829,32 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [lastGps, setLastGps] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
+  const siteById = useMemo(() => new Map((data?.workSites || []).map((site) => [site.id, site])), [data?.workSites]);
   const sites = useMemo(() => {
-    const fromAssignments = assignments.map((assignment) => ({ workSiteId: assignment.workSiteId || null, siteName: assignment.address || assignment.title }));
-    const fromEmployeeSites = (data?.employeeWorkSites || []).filter((site) => site.active !== false).map((site) => ({ workSiteId: site.work_site_id || null, siteName: site.site_name || "Objekt" }));
+    const normalize = (workSiteId: string | null, fallbackName: string): ClockSite => {
+      const site = workSiteId ? siteById.get(workSiteId) : null;
+      return {
+        workSiteId,
+        siteName: site?.name || site?.site || site?.object_name || site?.site_name || fallbackName || "Objekt",
+        latitude: getSiteLatitude(site),
+        longitude: getSiteLongitude(site),
+        allowedRadiusM: site ? getSiteRadius(site) : null,
+        gpsRequired: site?.gps_required === true
+      };
+    };
+    const fromAssignments = assignments.map((assignment) => normalize(assignment.workSiteId || null, assignment.address || assignment.title));
+    const fromEmployeeSites = (data?.employeeWorkSites || [])
+      .filter((site) => site.active !== false)
+      .map((site) => normalize(site.work_site_id || null, site.site_name || "Objekt"));
     const combined = [...fromAssignments, ...fromEmployeeSites].filter((site) => site.siteName);
-    const unique = new Map<string, { workSiteId: string | null; siteName: string }>();
+    const unique = new Map<string, ClockSite>();
     combined.forEach((site) => unique.set(`${site.workSiteId || ""}-${site.siteName}`, site));
     return Array.from(unique.values());
-  }, [assignments, data?.employeeWorkSites]);
+  }, [assignments, data?.employeeWorkSites, siteById]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -789,8 +877,20 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
   async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out") {
     if (!data?.employee) return;
     setSaving(true);
-    setMessage(null);
+    setLocating(true);
+    setMessage("GPS-Standort wird geprüft…");
     const selectedSite = sites[selectedIndex] || null;
+    let gps: { latitude: number; longitude: number; accuracy: number | null } | null = null;
+    try {
+      gps = await getBrowserPosition();
+      setLastGps(gps);
+    } catch (gpsError) {
+      setLastGps(null);
+      setMessage(gpsError instanceof Error ? gpsError.message : "GPS-Standort konnte nicht gelesen werden.");
+    } finally {
+      setLocating(false);
+    }
+
     try {
       const response = await fetch("/api/mobile/time-entry", {
         method: "POST",
@@ -800,22 +900,31 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
           employeeId: data.employee.id,
           action,
           workSiteId: selectedSite?.workSiteId || null,
-          workSiteName: selectedSite?.siteName || assignments[0]?.title || "Ohne Objekt"
+          workSiteName: selectedSite?.siteName || assignments[0]?.title || "Ohne Objekt",
+          latitude: gps?.latitude ?? null,
+          longitude: gps?.longitude ?? null,
+          accuracyM: gps?.accuracy ?? null,
+          allowedRadiusM: selectedSite?.allowedRadiusM ?? null
         })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen");
-      setMessage("Gespeichert.");
+      const distanceText = typeof result.distanceM === "number" ? ` · Entfernung ${result.distanceM} m` : "";
+      setMessage(result.hasSiteGps ? `Gespeichert. GPS geprüft${distanceText}.` : "Gespeichert. GPS wurde gespeichert, am Objekt fehlen noch GPS-Koordinaten für die Radius-Prüfung.");
       await onReload();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Speichern fehlgeschlagen.");
+      await onReload();
     } finally {
       setSaving(false);
+      setLocating(false);
     }
   }
 
   const statusText = status === "working" ? "In Arbeit" : status === "break" ? "Pause läuft" : "Bereit";
-  const selectedSiteName = sites[selectedIndex]?.siteName || assignments[0]?.title || "Kein Objekt gewählt";
+  const selectedSite = sites[selectedIndex] || null;
+  const selectedSiteName = selectedSite?.siteName || assignments[0]?.title || "Kein Objekt gewählt";
+  const selectedSiteHasGps = selectedSite?.latitude !== null && selectedSite?.longitude !== null;
   const latestTwo = (data?.timeEntries || []).slice(0, 4);
 
   return (
@@ -840,8 +949,8 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
         <p className="mt-2 text-sm italic text-slate-400">{selectedSiteName}</p>
         <div className="mt-6 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-3 text-left text-xs">
           <div>
-            <p className="font-bold text-slate-100">Supabase aktiv</p>
-            <p className="text-slate-500">Aktionen werden als Zeit-Einträge gespeichert</p>
+            <p className="font-bold text-slate-100">GPS + Supabase aktiv</p>
+            <p className="text-slate-500">Standort wird beim Stempeln gespeichert und geprüft</p>
           </div>
           <span className="grid h-7 w-7 place-items-center rounded-full border border-blue-500 text-blue-300">✓</span>
         </div>
@@ -852,17 +961,26 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
         <select value={selectedIndex} onChange={(event) => setSelectedIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
           {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
         </select>
+        <div className={`mt-3 rounded-2xl border px-3 py-3 text-xs ${selectedSiteHasGps ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-100"}`}>
+          <p className="font-black">{selectedSiteHasGps ? "Objekt-GPS aktiv" : "Objekt-GPS fehlt noch"}</p>
+          <p className="mt-1 opacity-80">
+            {selectedSiteHasGps
+              ? `Radius-Prüfung: ${selectedSite?.allowedRadiusM || 150} m erlaubt.`
+              : "Ich speichere den Mitarbeiter-Standort, prüfe aber noch keinen Radius. GPS-Koordinaten im Admin-Objekt eintragen."}
+          </p>
+          {lastGps ? <p className="mt-1 opacity-70">Letzter Standort: Genauigkeit ca. {lastGps.accuracy || "—"} m</p> : null}
+        </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
           {status === "idle" ? (
-            <button disabled={saving || !data?.employee} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">Einstempeln</button>
+            <button disabled={saving || locating || !data?.employee} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
           ) : (
             <>
               {status === "break" ? (
-                <button disabled={saving} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">Pause beenden</button>
+                <button disabled={saving || locating} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
               ) : (
-                <button disabled={saving} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">Pause</button>
+                <button disabled={saving || locating} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
               )}
-              <button disabled={saving} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">Ausstempeln</button>
+              <button disabled={saving || locating} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
             </>
           )}
         </div>
@@ -873,7 +991,7 @@ function Clock({ data, authToken, onReload }: { data: AppData | null; authToken:
         <h2 className="mb-2 font-bold">Timeline</h2>
         <div className="space-y-2">
           {latestTwo.length ? latestTwo.map((entry) => (
-            <Timeline key={entry.id} label={actionLabel(entry.action)} details={entry.work_site_name || "Ohne Objekt"} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
+            <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
           )) : <p className="text-sm text-slate-500">Noch keine Stempelzeit vorhanden.</p>}
         </div>
       </section>
