@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       : profile;
 
     if (!selectedEmployee) {
-      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [] });
+      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [], cleaningPlans: [], cleaningPlanItems: [], qualityReports: [] });
     }
 
     const employeeName = selectedEmployee.name;
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
     const [tasksResult, timeEntriesResult, absencesResult, notificationsResult, chatMessagesResult, employeeWorkSitesResult] = await Promise.all([
       supabase
         .from("tasks")
-        .select("id, title, site, employee_name, task_date, done, created_at, start_time, end_time, max_minutes, work_site_id, planned_minutes, overtime_requested, notes, status, priority, identifier, due_date, customer_id, customer_name, task_type, schedule_type, break_minutes, approved_overtime_minutes, overtime_status, item_type, task_category, paid_minutes, wage_minutes, quality_required, quality_photo_required")
+        .select("id, title, site, employee_name, task_date, done, created_at, start_time, end_time, max_minutes, work_site_id, planned_minutes, overtime_requested, notes, status, priority, identifier, due_date, customer_id, customer_name, task_type, schedule_type, break_minutes, approved_overtime_minutes, overtime_status, item_type, task_category, paid_minutes, wage_minutes, quality_required, quality_photo_required, quality_checklist")
         .eq("employee_name", employeeName)
         .gte("task_date", fromDate)
         .lte("task_date", toDate)
@@ -100,6 +100,44 @@ export async function GET(request: Request) {
     const error = results.find((result) => result.error)?.error;
     if (error) throw new Error(error.message);
 
+    const workSiteIds = Array.from(new Set([
+      ...((tasksResult.data || []).map((task: any) => task.work_site_id).filter(Boolean)),
+      ...((employeeWorkSitesResult.data || []).map((site: any) => site.work_site_id).filter(Boolean))
+    ]));
+
+    let cleaningPlans: any[] = [];
+    let cleaningPlanItems: any[] = [];
+    let qualityReports: any[] = [];
+
+    if (workSiteIds.length) {
+      const plansResult = await supabase
+        .from("cleaning_plans")
+        .select("id, name, customer_id, customer_name, work_site_id, site_name, description, comments, status, language, template_type, created_at, updated_at")
+        .in("work_site_id", workSiteIds)
+        .order("updated_at", { ascending: false });
+      if (!plansResult.error) {
+        cleaningPlans = plansResult.data || [];
+        const planIds = cleaningPlans.map((plan: any) => plan.id).filter(Boolean);
+        if (planIds.length) {
+          const itemsResult = await supabase
+            .from("cleaning_plan_items")
+            .select("id, plan_id, area, task_title, task_description, interval_type, weekdays, quantity, unit, notes, active, sort_order, calculation_minutes, created_at, updated_at")
+            .in("plan_id", planIds)
+            .neq("active", false)
+            .order("sort_order", { ascending: true });
+          if (!itemsResult.error) cleaningPlanItems = itemsResult.data || [];
+        }
+      }
+    }
+
+    const qualityResult = await supabase
+      .from("quality_reports")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (!qualityResult.error) qualityReports = qualityResult.data || [];
+
     let materialProducts: any[] = [];
     let materialReports: any[] = [];
 
@@ -130,7 +168,10 @@ export async function GET(request: Request) {
       chatMessages: chatMessagesResult.data || [],
       materialProducts,
       materialReports,
-      employeeWorkSites: employeeWorkSitesResult.data || []
+      employeeWorkSites: employeeWorkSitesResult.data || [],
+      cleaningPlans,
+      cleaningPlanItems,
+      qualityReports
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unbekannter Supabase-Fehler";

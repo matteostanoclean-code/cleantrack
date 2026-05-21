@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile";
+type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -47,6 +47,7 @@ type RawTask = {
   break_minutes?: number | null;
   quality_required?: boolean | null;
   quality_photo_required?: boolean | null;
+  quality_checklist?: string[] | null;
 };
 
 type RawTimeEntry = {
@@ -152,6 +153,48 @@ type MaterialReport = {
   created_at?: string | null;
 };
 
+type CleaningPlan = {
+  id: string;
+  name?: string | null;
+  customer_name?: string | null;
+  work_site_id?: string | null;
+  site_name?: string | null;
+  description?: string | null;
+  comments?: string | null;
+  status?: string | null;
+  template_type?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type CleaningPlanItem = {
+  id: string;
+  plan_id?: string | null;
+  area?: string | null;
+  task_title?: string | null;
+  task_description?: string | null;
+  interval_type?: string | null;
+  weekdays?: string[] | null;
+  quantity?: number | null;
+  unit?: string | null;
+  notes?: string | null;
+  active?: boolean | null;
+  sort_order?: number | null;
+  calculation_minutes?: number | null;
+};
+
+type QualityReport = {
+  id: string;
+  task_id?: string | null;
+  employee_name?: string | null;
+  work_site_id?: string | null;
+  work_site_name?: string | null;
+  checked_items?: string[] | null;
+  notes?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type AppData = {
   ok: boolean;
   error?: string;
@@ -166,6 +209,9 @@ type AppData = {
   materialProducts: MaterialProduct[];
   materialReports: MaterialReport[];
   employeeWorkSites: EmployeeWorkSite[];
+  cleaningPlans: CleaningPlan[];
+  cleaningPlanItems: CleaningPlanItem[];
+  qualityReports: QualityReport[];
 };
 
 type TimeEntry = {
@@ -235,7 +281,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile") return value;
+  if (value === "schedule" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -452,7 +498,7 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
           <section className="flex-1 overflow-y-auto px-4 pb-28 pt-3">{children}</section>
           <nav className="absolute bottom-4 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "menu" && ["material", "absence", "chat", "profile"].includes(active));
+              const selected = active === item.key || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -971,6 +1017,157 @@ function menuSites(data: AppData | null, tasks: RawTask[] = []) {
   return Array.from(unique.values());
 }
 
+function planForTask(data: AppData | null, task: RawTask | null) {
+  if (!task?.work_site_id) return null;
+  return (data?.cleaningPlans || []).find((plan) => plan.work_site_id === task.work_site_id) || null;
+}
+
+function planItemsForTask(data: AppData | null, task: RawTask | null) {
+  const plan = planForTask(data, task);
+  if (!plan) return [] as CleaningPlanItem[];
+  return (data?.cleaningPlanItems || [])
+    .filter((item) => item.plan_id === plan.id && item.active !== false)
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+}
+
+function checklistLabels(data: AppData | null, task: RawTask | null) {
+  const fromPlan = planItemsForTask(data, task).map((item) => [item.area, item.task_title, item.task_description].filter(Boolean).join(" · "));
+  const fromTask = Array.isArray(task?.quality_checklist) ? task?.quality_checklist || [] : [];
+  const base = [...fromPlan, ...fromTask].map((item) => String(item || "").trim()).filter(Boolean);
+  if (base.length) return Array.from(new Set(base));
+  return [
+    "Sichtkontrolle durchgeführt",
+    "Reinigungsleistung geprüft",
+    "Material und Räume ordentlich hinterlassen"
+  ];
+}
+
+function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const tasks = useMemo(() => {
+    const rows = data?.tasks || [];
+    return [...rows].sort((a, b) => `${a.done ? 1 : 0}-${a.task_date || ""}-${a.start_time || ""}`.localeCompare(`${b.done ? 1 : 0}-${b.task_date || ""}-${b.start_time || ""}`));
+  }, [data?.tasks]);
+  const [taskIndex, setTaskIndex] = useState(0);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const selectedTask = tasks[taskIndex] || null;
+  const selectedPlan = planForTask(data, selectedTask);
+  const labels = useMemo(() => checklistLabels(data, selectedTask), [data, selectedTask]);
+  const checkedLabels = labels.filter((label) => checked[label]);
+
+  useEffect(() => {
+    setChecked({});
+    setNotes("");
+    setMessage(null);
+  }, [selectedTask?.id]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTask) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/quality-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          taskId: selectedTask.id,
+          workSiteId: selectedTask.work_site_id || null,
+          workSiteName: selectedTask.site || selectedTask.customer_name || "Ohne Objekt",
+          checkedItems: checkedLabels,
+          notes
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Qualitätsnachweis konnte nicht gespeichert werden.");
+      setMessage("Qualitätsnachweis wurde gespeichert und an den Admin gesendet.");
+      await onReload();
+    } catch (submitError) {
+      setMessage(submitError instanceof Error ? submitError.message : "Qualitätsnachweis konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Qualitätsnachweis</h1>
+          <p className="text-xs text-slate-400">Reinigungsplan prüfen und Einsatz abschließen</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      {tasks.length ? (
+        <form onSubmit={submit} className="space-y-4">
+          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Einsatz</span>
+              <select value={taskIndex} onChange={(event) => setTaskIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+                {tasks.map((task, index) => (
+                  <option key={task.id} value={index}>{dateLabel(task.task_date)} · {formatTime(task.start_time)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <MetricCard title="Objekt" value={selectedTask?.site || "—"} caption={selectedTask?.customer_name || "Kunde offen"} accent="text-blue-100" />
+              <MetricCard title="Plan" value={selectedPlan ? "aktiv" : "Standard"} caption={selectedPlan?.name || "Fallback-Checkliste"} accent="text-emerald-200" />
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-black">Checkliste</h2>
+                <p className="text-xs text-slate-500">{checkedLabels.length}/{labels.length} Punkte abgehakt</p>
+              </div>
+              <button type="button" onClick={() => setChecked(Object.fromEntries(labels.map((label) => [label, true])))} className="rounded-2xl border border-slate-700 px-3 py-2 text-xs font-black text-blue-100">Alle</button>
+            </div>
+            <div className="space-y-2">
+              {labels.map((label) => (
+                <label key={label} className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                  <input type="checkbox" checked={Boolean(checked[label])} onChange={(event) => setChecked((current) => ({ ...current, [label]: event.target.checked }))} className="mt-1 h-5 w-5 accent-blue-600" />
+                  <span className="text-sm font-semibold text-slate-100">{label}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz / Besonderheit</span>
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z.B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt" />
+            </label>
+            <div className="mt-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-xs text-blue-100">
+              Foto-Upload kommt im nächsten Schritt. Dieser Nachweis wird jetzt schon mit Checkliste und Notiz gespeichert.
+            </div>
+          </section>
+
+          {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
+          <button disabled={saving || !selectedTask} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Nachweis senden & Einsatz abschließen"}</button>
+        </form>
+      ) : <EmptyCard title="Kein Einsatz für Nachweis" text="Sobald ein Einsatz in tasks vorhanden ist, kann hier ein Qualitätsnachweis erstellt werden." />}
+
+      <section className="space-y-2">
+        <h2 className="font-black">Letzte Nachweise</h2>
+        {(data?.qualityReports || []).length ? (data?.qualityReports || []).slice(0, 5).map((report) => (
+          <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-black">{report.work_site_name || "Objekt"}</p>
+              <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] font-black text-emerald-300">{report.status || "submitted"}</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
+          </article>
+        )) : <EmptyCard title="Noch keine Nachweise" text="Gesendete Qualitätsnachweise erscheinen nach dem Speichern hier." />}
+      </section>
+    </div>
+  );
+}
+
 function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
   const sites = useMemo(() => menuSites(data, data?.tasks || []), [data]);
   const products = data?.materialProducts || [];
@@ -1253,7 +1450,9 @@ function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBac
 }
 
 function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
+  const qualityOpen = (data?.tasks || []).filter((task) => !task.done).length;
   const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
+    { title: "Qualitätsnachweis", subtitle: `${qualityOpen} offene Einsätze`, icon: "shield", tab: "quality" },
     { title: "Material melden", subtitle: `${data?.materialReports?.length || 0} vorhandene Meldungen`, icon: "box", tab: "material" },
     { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} vorhandene Anträge`, icon: "calendar", tab: "absence" },
     { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
@@ -1496,6 +1695,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
           {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}
           {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "quality" && <QualityScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}

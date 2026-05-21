@@ -78,3 +78,24 @@ Im mobilen Admin-Dashboard unter `/mitarbeiter/admin` können Einsätze jetzt au
 - monatlich
 
 Beim Speichern werden echte Einträge in `tasks` erstellt und mit `recurrence_group_id` verbunden.
+
+## Version: Qualitätsnachweise
+
+Neue Mitarbeiter-Funktion unter `Mehr → Qualitätsnachweis` bzw. `/mitarbeiter/quality`.
+
+Die App lädt Reinigungspläne aus:
+
+- `cleaning_plans`
+- `cleaning_plan_items`
+
+und speichert Nachweise über:
+
+- `quality_reports` (optional, SQL-Datei ausführen)
+- `admin_notifications` (immer als Admin-Meldung)
+- `tasks` (`done=true`, `status=done`)
+
+Optionale SQL-Datei:
+
+```text
+supabase/mobile_qualitaetsnachweise.sql
+```
