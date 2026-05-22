@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -319,7 +319,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -416,6 +416,21 @@ function actionLabel(action?: string | null) {
 
 function isSuccessfulTimeEntry(entry: RawTimeEntry) {
   return entry.success !== false;
+}
+
+function unreadCountFromData(data: AppData | null) {
+  if (!data) return 0;
+  const unreadNotifications = (data.notifications || []).filter((item) => item.read === false || String(item.status || "open").toLowerCase() === "open").length;
+  const unreadChats = (data.chatMessages || []).filter((item) => String(item.sender_role || "").toLowerCase() === "admin" && item.read_by_employee === false).length;
+  const pendingAbsences = (data.absences || []).filter((item) => ["approved", "rejected"].includes(String(item.status || "").toLowerCase()) && item.admin_response).length;
+  return unreadNotifications + unreadChats + pendingAbsences;
+}
+
+function notificationTone(item: Notification) {
+  const text = `${item.notification_type || ""} ${item.status || ""} ${item.title || ""}`.toLowerCase();
+  if (text.includes("reject") || text.includes("abgelehnt") || text.includes("gps") || text.includes("warning")) return "border-red-500/30 bg-red-500/10 text-red-100";
+  if (text.includes("approved") || text.includes("genehmigt") || text.includes("done") || text.includes("erledigt")) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
+  return "border-blue-500/25 bg-blue-500/10 text-blue-100";
 }
 
 function normalizePriority(task: RawTask): Assignment["priority"] {
@@ -566,7 +581,7 @@ function Icon({ name }: { name: string }) {
   );
 }
 
-function AppShell({ children, active, setActive }: { children: React.ReactNode; active: Tab; setActive: (tab: Tab) => void }) {
+function AppShell({ children, active, setActive, unreadCount = 0 }: { children: React.ReactNode; active: Tab; setActive: (tab: Tab) => void; unreadCount?: number }) {
   const nav: Array<{ key: Tab; label: string; icon: string }> = [
     { key: "home", label: "Home", icon: "home" },
     { key: "timesheet", label: "Zeiten", icon: "sheet" },
@@ -579,11 +594,11 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
     <main className="phone-bg h-[100dvh] overflow-hidden bg-slate-950 px-3 py-3 text-slate-50 sm:px-5">
       <div className="mx-auto h-full max-h-[calc(100dvh-1.5rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
         <div className="relative flex h-full min-h-0 flex-col bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
-          <Header />
+          <Header unreadCount={unreadCount} onOpenNotifications={() => setActive("notifications")} />
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -602,7 +617,7 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
   );
 }
 
-function Header() {
+function Header({ unreadCount = 0, onOpenNotifications }: { unreadCount?: number; onOpenNotifications: () => void }) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 px-4 py-3 backdrop-blur">
       <div className="flex items-center justify-between">
@@ -613,8 +628,9 @@ function Header() {
             <p className="text-[11px] text-slate-500">Mobile Team-App</p>
           </div>
         </div>
-        <button className="rounded-2xl border border-slate-800 bg-slate-900 p-2 text-blue-200">
+        <button onClick={onOpenNotifications} className="relative rounded-2xl border border-slate-800 bg-slate-900 p-2 text-blue-200" aria-label="Benachrichtigungen öffnen">
           <Icon name="bell" />
+          {unreadCount > 0 ? <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
         </button>
       </div>
     </header>
@@ -1310,6 +1326,108 @@ function TimeRow({ entry }: { entry: TimeEntry }) {
   );
 }
 
+function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const notifications = data?.notifications || [];
+  const chatReplies = (data?.chatMessages || []).filter((item) => String(item.sender_role || "").toLowerCase() === "admin");
+  const absenceUpdates = (data?.absences || []).filter((item) => ["approved", "rejected"].includes(String(item.status || "").toLowerCase()));
+  const unread = unreadCountFromData(data);
+
+  async function markAllRead() {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ mode: "all", employeeName: data?.employee?.name || "" })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Meldungen konnten nicht gelesen markiert werden.");
+      setMessage("Meldungen wurden als gelesen markiert.");
+      await onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Meldungen konnten nicht gelesen markiert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Meldungen</h1>
+          <p className="text-xs text-slate-400">Freigaben, Chat-Antworten und Systemhinweise</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Ungelesen</p>
+            <p className="mt-1 text-3xl font-black text-white">{unread}</p>
+            <p className="text-xs text-slate-400">für {data?.employee?.name || "Mitarbeiter"}</p>
+          </div>
+          <button disabled={saving || unread === 0} onClick={markAllRead} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">Gelesen</button>
+        </div>
+        {message ? <p className="mt-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-blue-100">{message}</p> : null}
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-bold">Systemmeldungen</h2>
+        <div className="space-y-3">
+          {notifications.length ? notifications.map((item) => (
+            <article key={item.id} className={`rounded-3xl border p-4 ${notificationTone(item)}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-black">{item.title || "Meldung"}</p>
+                  <p className="mt-1 text-sm opacity-90">{item.message || item.work_site_name || item.object_name || "Neue Meldung"}</p>
+                  <p className="mt-2 text-xs opacity-70">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
+                </div>
+                {item.read === false ? <span className="rounded-full bg-red-500 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
+              </div>
+            </article>
+          )) : <EmptyCard title="Keine Systemmeldungen" text="Neue Admin-Hinweise und Freigaben erscheinen hier." />}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-bold">Chat-Antworten vom Büro</h2>
+        <div className="space-y-3">
+          {chatReplies.length ? chatReplies.slice(0, 8).map((item) => (
+            <article key={item.id} className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-black text-blue-100">{item.sender_name || "Büro"}</p>
+                  <p className="mt-1 text-sm text-slate-200">{item.message || item.body || item.text || "Neue Antwort"}</p>
+                  <p className="mt-2 text-xs text-slate-500">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
+                </div>
+                {item.read_by_employee === false ? <span className="rounded-full bg-blue-600 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
+              </div>
+            </article>
+          )) : <EmptyCard title="Keine Chat-Antworten" text="Antworten vom Admin/Büro landen zusätzlich hier." />}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-bold">Abwesenheiten</h2>
+        <div className="space-y-3">
+          {absenceUpdates.length ? absenceUpdates.slice(0, 6).map((item) => (
+            <article key={item.id} className={`rounded-3xl border p-4 ${String(item.status).toLowerCase() === "approved" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-red-500/30 bg-red-500/10 text-red-100"}`}>
+              <p className="font-black">{String(item.status).toLowerCase() === "approved" ? "Genehmigt" : "Abgelehnt"}</p>
+              <p className="mt-1 text-sm opacity-90">{item.start_date} bis {item.end_date} · {item.absence_type || item.request_type || "Abwesenheit"}</p>
+              {item.admin_response ? <p className="mt-2 text-sm opacity-80">{item.admin_response}</p> : null}
+            </article>
+          )) : <EmptyCard title="Keine neuen Abwesenheitsmeldungen" text="Genehmigungen und Ablehnungen erscheinen hier." />}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: string; onReload: () => Promise<void> }) {
   const [savingId, setSavingId] = useState<string | null>(null);
   async function toggleTask(task: RawTask, done: boolean) {
@@ -1867,6 +1985,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Material melden", subtitle: `${data?.materialReports?.length || 0} vorhandene Meldungen`, icon: "box", tab: "material" },
     { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} vorhandene Anträge`, icon: "calendar", tab: "absence" },
     { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
+    { title: "Meldungen", subtitle: `${unreadCountFromData(data)} ungelesen`, icon: "bell", tab: "notifications" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
   return (
@@ -2113,7 +2232,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   }
 
   return (
-    <AppShell active={active} setActive={setActive}>
+    <AppShell active={active} setActive={setActive} unreadCount={unreadCountFromData(data)}>
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && (
@@ -2129,6 +2248,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "quality" && <QualityScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => selectedTaskId ? setActive("taskdetail") : setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "notifications" && <NotificationsScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
