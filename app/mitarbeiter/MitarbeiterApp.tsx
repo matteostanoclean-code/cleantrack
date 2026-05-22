@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -572,7 +572,8 @@ function Icon({ name }: { name: string }) {
     shield: "M12 3l7 3v5c0 5-3 9-7 10-4-1-7-5-7-10V6l7-3Z",
     box: "M4 7l8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10",
     chat: "M21 12a8 8 0 0 1-8 8H6l-3 3v-6.5A8 8 0 1 1 21 12Z",
-    user: "M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"
+    user: "M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z",
+    building: "M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M3 21h18M8 7h2M8 11h2M8 15h2M14 9h3M14 13h3M14 17h3"
   };
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -598,7 +599,7 @@ function AppShell({ children, active, setActive, unreadCount = 0 }: { children: 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -2206,6 +2207,150 @@ function RoutePlanScreen({ assignments, onBack, onOpenAssignment }: { assignment
   );
 }
 
+function workSiteName(site: WorkSite | null | undefined) {
+  return site?.name || site?.site_name || site?.object_name || site?.site || "Unbenanntes Objekt";
+}
+
+function workSiteAddress(site: WorkSite | null | undefined) {
+  return site?.address || site?.site || site?.site_name || site?.object_name || "Keine Adresse hinterlegt";
+}
+
+function tasksForWorkSite(tasks: RawTask[], site: WorkSite | null) {
+  if (!site?.id) return [];
+  return tasks.filter((task) => task.work_site_id === site.id || task.site === workSiteName(site) || task.site === site.site_name || task.site === site.object_name || task.site === site.name);
+}
+
+function ObjectsScreen({ data, onBack, onOpenAssignment }: { data: AppData | null; onBack: () => void; onOpenAssignment: (assignment: Assignment) => void }) {
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
+  const sites = useMemo(() => {
+    const map = new Map<string, WorkSite>();
+    (data?.workSites || []).forEach((site) => {
+      if (site.id) map.set(site.id, site);
+    });
+    (data?.employeeWorkSites || []).forEach((site) => {
+      if (!site.work_site_id) return;
+      if (!map.has(site.work_site_id)) {
+        map.set(site.work_site_id, {
+          id: site.work_site_id,
+          name: site.site_name,
+          site_name: site.site_name,
+          active: site.active
+        });
+      }
+    });
+    (data?.tasks || []).forEach((task) => {
+      const key = task.work_site_id || task.site || task.customer_name || task.id;
+      if (!key || map.has(key)) return;
+      map.set(key, {
+        id: key,
+        name: task.site || task.customer_name || task.title || "Objekt",
+        site_name: task.site || task.customer_name || task.title || "Objekt",
+        customer_name: task.customer_name,
+        active: true
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => workSiteName(a).localeCompare(workSiteName(b), "de"));
+  }, [data]);
+
+  const selectedSite = sites.find((site) => site.id === selectedSiteId) || sites[0] || null;
+  const siteTasks = useMemo(() => tasksForWorkSite(data?.tasks || [], selectedSite).sort((a, b) => String(a.task_date || "9999-12-31").localeCompare(String(b.task_date || "9999-12-31"))), [data?.tasks, selectedSite]);
+  const futureTasks = siteTasks.filter((task) => (task.task_date || "") >= todayIso()).slice(0, 5);
+  const siteAssignments = assignments.filter((assignment) => siteTasks.some((task) => task.id === assignment.id));
+  const plan = planForTask(data, siteTasks[0] || null) || (data?.cleaningPlans || []).find((item) => item.work_site_id === selectedSite?.id) || null;
+  const planItems = plan ? (data?.cleaningPlanItems || []).filter((item) => item.plan_id === plan.id) : [];
+  const materials = (data?.materialProducts || []).filter((item) => !item.work_site_id || item.work_site_id === selectedSite?.id || item.object_name === workSiteName(selectedSite));
+  const gpsReady = selectedSite ? getSiteLatitude(selectedSite) !== null && getSiteLongitude(selectedSite) !== null : false;
+  const radius = selectedSite ? getSiteRadius(selectedSite) : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <BackButton onBack={onBack} />
+        <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">Objektmappe</span>
+      </div>
+
+      <section className="rounded-3xl border border-blue-500/25 bg-slate-900/80 p-4">
+        <p className="text-xs font-black uppercase tracking-wide text-blue-200">Objektmappe</p>
+        <h1 className="mt-2 text-2xl font-black text-white">Objekte & Reinigungspläne</h1>
+        <p className="mt-1 text-sm text-slate-400">Alle Objektinfos, Tages-Termine, Checklisten und Material auf einen Blick.</p>
+      </section>
+
+      <label className="block rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Objekt auswählen</span>
+        <select value={selectedSite?.id || ""} onChange={(event) => setSelectedSiteId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500">
+          {sites.map((site) => <option key={site.id} value={site.id}>{workSiteName(site)}</option>)}
+        </select>
+      </label>
+
+      {!selectedSite ? <EmptyCard title="Keine Objekte gefunden" text="Ordne dem Mitarbeiter ein Objekt zu oder lege einen Einsatz mit Objekt an." /> : (
+        <>
+          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-xl font-black text-white">{workSiteName(selectedSite)}</h2>
+                <p className="mt-1 text-sm text-slate-400">{selectedSite.customer_name || plan?.customer_name || "Kein Kunde hinterlegt"}</p>
+                <p className="mt-1 text-xs text-slate-500">{workSiteAddress(selectedSite)}</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-black ${gpsReady ? "bg-emerald-500/15 text-emerald-200" : "bg-yellow-500/15 text-yellow-100"}`}>{gpsReady ? "GPS aktiv" : "GPS fehlt"}</span>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="rounded-2xl bg-slate-950 p-3"><p className="text-slate-500">Einsätze</p><p className="mt-1 text-xl font-black text-white">{siteTasks.length}</p></div>
+              <div className="rounded-2xl bg-slate-950 p-3"><p className="text-slate-500">Planpunkte</p><p className="mt-1 text-xl font-black text-blue-100">{planItems.length}</p></div>
+              <div className="rounded-2xl bg-slate-950 p-3"><p className="text-slate-500">Radius</p><p className="mt-1 text-xl font-black text-emerald-100">{radius ? `${radius}m` : "—"}</p></div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <a href={mapSearchUrl(siteTasks[0] || { site: workSiteName(selectedSite), customer_name: selectedSite.customer_name || null })} target="_blank" rel="noreferrer" className="rounded-2xl bg-blue-600 px-3 py-3 text-center text-sm font-black text-white shadow-glow">Route öffnen</a>
+              <button onClick={() => futureTasks[0] && onOpenAssignment(assignmentsFromTasks([futureTasks[0]])[0])} disabled={!futureTasks.length} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-black text-blue-100 disabled:text-slate-600">Nächsten Termin</button>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+            <h2 className="font-black">Nächste Einsätze</h2>
+            <div className="mt-3 space-y-3">
+              {futureTasks.length ? futureTasks.map((task) => {
+                const assignment = siteAssignments.find((item) => item.id === task.id) || assignmentFromTask(task);
+                return <button key={task.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start justify-between gap-3 rounded-2xl bg-slate-950 p-3 text-left"><span><span className="block text-sm font-black text-white">{dateLabel(task.task_date)} · {taskTime(task)}</span><span className="mt-1 block text-xs text-slate-500">{task.title || "Einsatz"}</span></span><span className="rounded-xl bg-blue-500/15 px-2 py-1 text-[11px] font-bold text-blue-100">Öffnen</span></button>;
+              }) : <p className="text-sm text-slate-500">Keine kommenden Einsätze für dieses Objekt.</p>}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+            <h2 className="font-black">Reinigungsplan</h2>
+            {plan ? <p className="mt-1 text-xs text-slate-500">{plan.name || plan.site_name || "Plan"} · {plan.status || "aktiv"}</p> : <p className="mt-1 text-xs text-slate-500">Kein Reinigungsplan gefunden.</p>}
+            <div className="mt-3 space-y-2">
+              {planItems.length ? planItems.slice(0, 12).map((item) => (
+                <div key={item.id} className="rounded-2xl bg-slate-950 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-white">{item.task_title || item.area || "Aufgabe"}</p>
+                      <p className="mt-1 text-xs text-slate-500">{item.area || "Bereich offen"} · {item.interval_type || "Intervall offen"}</p>
+                    </div>
+                    {item.calculation_minutes ? <span className="rounded-lg bg-blue-500/15 px-2 py-1 text-[11px] font-bold text-blue-100">{item.calculation_minutes} min</span> : null}
+                  </div>
+                  {item.task_description ? <p className="mt-2 text-xs text-slate-400">{item.task_description}</p> : null}
+                </div>
+              )) : <p className="text-sm text-slate-500">Noch keine Planpunkte für dieses Objekt.</p>}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+            <h2 className="font-black">Material am Objekt</h2>
+            <div className="mt-3 space-y-2">
+              {materials.length ? materials.slice(0, 8).map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-950 p-3">
+                  <span><span className="block text-sm font-black text-white">{item.name || "Material"}</span><span className="block text-xs text-slate-500">{item.category || item.supplier || ""}</span></span>
+                  <span className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{item.current_stock ?? "—"} {item.unit || ""}</span>
+                </div>
+              )) : <p className="text-sm text-slate-500">Kein Material zugeordnet.</p>}
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
   const qualityOpen = (data?.tasks || []).filter((task) => !task.done).length;
   const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
@@ -2214,6 +2359,8 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} vorhandene Anträge`, icon: "calendar", tab: "absence" },
     { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
     { title: "Meldungen", subtitle: `${unreadCountFromData(data)} ungelesen`, icon: "bell", tab: "notifications" },
+    { title: "Tagesroute", subtitle: "Heute sauber abfahren", icon: "map", tab: "route" },
+    { title: "Objektmappe", subtitle: `${(data?.workSites?.length || data?.employeeWorkSites?.length || 0)} Objekte`, icon: "building", tab: "objects" },
     { title: "Tagesabschluss", subtitle: "Arbeitsende ans Büro melden", icon: "sheet", tab: "dayclose" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
@@ -2480,6 +2627,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "notifications" && <NotificationsScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "dayclose" && <DayCloseScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "route" && <RoutePlanScreen assignments={assignments} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
+          {active === "objects" && <ObjectsScreen data={data} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}

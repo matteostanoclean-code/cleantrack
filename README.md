@@ -36,3 +36,8 @@ SUPABASE_SERVICE_ROLE_KEY=
 - Zeigt nur Einsätze des gewählten Tages
 - Öffnet Google Maps mit den offenen Einsätzen in Reihenfolge
 - Kein neues SQL nötig
+
+
+## Update: Objektmappe
+
+Neu: `/mitarbeiter/objects` und Menüpunkt `Objektmappe`. Mitarbeiter sehen Objektinfos, kommende Einsätze, Reinigungsplan, GPS-Status und Material je Objekt. Außerdem ist die Tagesroute jetzt direkt im Mehr-Menü sichtbar.
