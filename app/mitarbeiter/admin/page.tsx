@@ -410,7 +410,8 @@ export default function AdminDashboardPage() {
             <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
               <p className="font-black">Schnellzugriff</p>
               <div className="mt-3 grid gap-2">
-                <button onClick={() => setTab("tasks")} className="rounded-2xl bg-blue-600 px-4 py-3 text-left font-black text-white">Einsatz erstellen</button>
+                <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">Tageszentrale öffnen</Link>
+                <button onClick={() => setTab("tasks")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Einsatz erstellen</button>
                 <button onClick={() => setTab("customers")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Kunde anlegen</button>
                 <Link href="/mitarbeiter/freigaben" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-blue-100">Freigaben bearbeiten</Link>
                 <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-blue-100">Mitarbeiter aktivieren</Link>

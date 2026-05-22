@@ -176,3 +176,22 @@ git add .
 git commit -m "Add task detail workflow"
 git push
 ```
+
+## Update: Admin-Tageszentrale
+
+Neue Seite:
+
+```text
+/mitarbeiter/admin/tageszentrale
+```
+
+Funktion:
+
+- zeigt nur heutige Einsätze
+- zeigt Live-Status: Offen, Geplant, In Arbeit, Pause, Überfällig, Erledigt
+- filtert alte Aufträge aus der Tagesansicht
+- zeigt letzte Stempelaktion und GPS-Abstand, falls vorhanden
+- Admin kann Einsätze direkt als erledigt markieren oder wieder öffnen
+- Link ist unter Mehr → Tageszentrale und im Admin-Dashboard ergänzt
+
+Für dieses Update ist kein neues SQL nötig.
