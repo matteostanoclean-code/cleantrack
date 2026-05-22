@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -319,7 +319,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -598,7 +598,7 @@ function AppShell({ children, active, setActive, unreadCount = 0 }: { children: 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -894,6 +894,21 @@ function AssignmentCard({ assignment, featured, onOpenAssignment }: { assignment
 function mapSearchUrl(task: RawTask | null) {
   const query = [task?.site, task?.customer_name, "Deutschland"].filter(Boolean).join(" ");
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query || "")}`;
+}
+
+function routeDestination(task: RawTask | null) {
+  return [task?.site, task?.customer_name, "Deutschland"].filter(Boolean).join(" ");
+}
+
+function mapsDirectionsUrl(tasks: RawTask[]) {
+  const destinations = tasks.map(routeDestination).filter(Boolean);
+  if (!destinations.length) return "https://www.google.com/maps";
+  if (destinations.length === 1) {
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent("Current Location")}&destination=${encodeURIComponent(destinations[0])}`;
+  }
+  const destination = destinations[destinations.length - 1];
+  const waypoints = destinations.slice(0, -1).join("|");
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent("Current Location")}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}`;
 }
 
 function taskEntriesForTask(entries: RawTimeEntry[], task: RawTask | null) {
@@ -2097,6 +2112,100 @@ function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBac
   );
 }
 
+function RoutePlanScreen({ assignments, onBack, onOpenAssignment }: { assignments: Assignment[]; onBack: () => void; onOpenAssignment: (assignment: Assignment) => void }) {
+  const [selectedDay, setSelectedDay] = useState(todayIso());
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
+  const dayAssignments = useMemo(() => assignments
+    .filter((assignment) => assignment.date === selectedDay)
+    .sort((a, b) => String(a.raw?.start_time || "99:99").localeCompare(String(b.raw?.start_time || "99:99"))), [assignments, selectedDay]);
+  const openAssignments = dayAssignments.filter((assignment) => !assignment.done);
+  const plannedMinutes = dayAssignments.reduce((sum, assignment) => sum + Number(assignment.raw?.planned_minutes || assignment.raw?.max_minutes || assignment.raw?.paid_minutes || assignment.raw?.wage_minutes || 0), 0);
+  const nextAssignment = openAssignments[0] || dayAssignments[0] || null;
+  const routeTasks = openAssignments.length ? openAssignments.map((assignment) => assignment.raw).filter(Boolean) as RawTask[] : dayAssignments.map((assignment) => assignment.raw).filter(Boolean) as RawTask[];
+  const routeUrl = mapsDirectionsUrl(routeTasks);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <BackButton onBack={onBack} />
+        <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">Tagesroute</span>
+      </div>
+
+      <section className="rounded-3xl border border-blue-500/25 bg-slate-900/80 p-4">
+        <p className="text-xs font-black uppercase tracking-wide text-blue-200">Route planen</p>
+        <h1 className="mt-2 text-2xl font-black text-white">Tagesroute</h1>
+        <p className="mt-1 text-sm text-slate-400">Nur Einsätze vom gewählten Tag. Alte Aufträge werden hier nicht angezeigt.</p>
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Einsätze</p>
+            <p className="mt-1 text-xl font-black text-white">{dayAssignments.length}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Offen</p>
+            <p className="mt-1 text-xl font-black text-yellow-100">{openAssignments.length}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Geplant</p>
+            <p className="mt-1 text-xl font-black text-blue-100">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+        {days.map((day) => {
+          const selected = day === selectedDay;
+          const count = assignments.filter((assignment) => assignment.date === day).length;
+          return (
+            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+              <span className="block text-[10px] uppercase text-slate-400">{dateLabel(day).split(" ")[0]}</span>
+              <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
+              <span className="mt-1 block text-[10px] text-slate-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {nextAssignment ? (
+        <section className="rounded-3xl border border-emerald-500/25 bg-emerald-500/10 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-emerald-200">Nächster Einsatz</p>
+          <p className="mt-2 text-lg font-black text-white">{nextAssignment.title}</p>
+          <p className="mt-1 text-sm text-emerald-100/80">{nextAssignment.time} · {nextAssignment.address}</p>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <a href={mapSearchUrl(nextAssignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-2xl border border-emerald-500/30 bg-slate-950 px-3 py-3 text-center text-sm font-black text-emerald-100">Route</a>
+            <button onClick={() => onOpenAssignment(nextAssignment)} className="rounded-2xl bg-blue-600 px-3 py-3 text-sm font-black text-white shadow-glow">Termin öffnen</button>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-black">Route für den Tag</h2>
+            <p className="text-xs text-slate-500">Google Maps öffnet die offenen Einsätze in Reihenfolge.</p>
+          </div>
+          <a href={routeUrl} target="_blank" rel="noreferrer" className={`rounded-2xl px-4 py-3 text-sm font-black ${routeTasks.length ? "bg-blue-600 text-white shadow-glow" : "bg-slate-800 text-slate-500"}`}>Route öffnen</a>
+        </div>
+        <div className="mt-4 space-y-3">
+          {dayAssignments.length ? dayAssignments.map((assignment, index) => (
+            <button key={assignment.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start gap-3 rounded-2xl bg-slate-950 p-3 text-left">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl text-sm font-black ${assignment.done ? "bg-emerald-500/15 text-emerald-200" : "bg-blue-500/15 text-blue-200"}`}>{index + 1}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-black text-white">{assignment.time} · {assignment.title}</span>
+                <span className="mt-1 block truncate text-xs text-slate-500">{assignment.address}</span>
+                <span className="mt-1 block text-[11px] text-slate-600">{assignment.done ? "Erledigt" : "Offen"} · {assignment.customer}</span>
+              </span>
+            </button>
+          )) : <EmptyCard title="Keine Einsätze an diesem Tag" text="Lege im Admin-Dashboard einen Termin an oder wähle einen anderen Tag." />}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
   const qualityOpen = (data?.tasks || []).filter((task) => !task.done).length;
   const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
@@ -2370,6 +2479,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "notifications" && <NotificationsScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "dayclose" && <DayCloseScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "route" && <RoutePlanScreen assignments={assignments} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
