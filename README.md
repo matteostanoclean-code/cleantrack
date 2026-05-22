@@ -158,3 +158,21 @@ Nach dem Upload bitte einmal in Supabase ausführen:
 ```text
 supabase/mobile_termin_stempeluhr_fix.sql
 ```
+
+## Update: Termin-Detail Pflichtablauf
+
+Diese Version führt einen saubereren Mitarbeiter-Ablauf ein:
+
+- Einsätze im Einsatzplan werden zuerst als Termin-Detail geöffnet.
+- Stempeln startet nur noch aus dem Termin-Detail heraus.
+- Die Termin-Detailseite zeigt Datum, Uhrzeit, Objekt, Kunde, GPS-Status, Checkliste und zugehörige Zeitbuchungen.
+- Von dort kann der Mitarbeiter Route, Stempeluhr und Qualitätsnachweis öffnen.
+- Zeiten werden weiterhin mit `task_id` an den konkreten Termin gekoppelt.
+
+Nach dem Upload wie gewohnt:
+
+```powershell
+git add .
+git commit -m "Add task detail workflow"
+git push
+```

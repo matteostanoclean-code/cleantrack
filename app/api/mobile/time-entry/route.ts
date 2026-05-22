@@ -174,6 +174,9 @@ export async function POST(request: Request) {
     }
 
     const workSiteId = textOrNull(task.work_site_id);
+    if (!workSiteId) {
+      return NextResponse.json({ ok: false, error: "Dieser Termin hat kein Objekt. Bitte im Admin-Dashboard ein Objekt hinterlegen, erst dann kann gestempelt werden." }, { status: 400 });
+    }
     let site: Record<string, any> | null = null;
 
     if (workSiteId) {
@@ -222,28 +225,25 @@ export async function POST(request: Request) {
       expected_start_time: taskExpectedStart(task) || body.expectedStartTime || null
     };
 
-    if (hasSiteGps && gpsStatus === "missing_employee_position") {
+    if (!hasSiteGps) {
+      const errorMessage = "Für dieses Objekt fehlen GPS-Koordinaten. Bitte im Admin-Dashboard beim Objekt den Standort speichern. Stempeln ist bis dahin gesperrt.";
+      return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 409 });
+    }
+
+    if (gpsStatus === "missing_employee_position") {
       const errorMessage = "GPS-Standort konnte nicht gelesen werden. Bitte Standortfreigabe erlauben und erneut stempeln.";
-      const failedEntry = await insertTimeEntry(auth, { ...basePayload, success: false, error_message: errorMessage });
-      return NextResponse.json({ ok: false, error: errorMessage, entry: failedEntry, gpsStatus }, { status: 400 });
+      return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 400 });
     }
 
-    if (hasSiteGps && gpsStatus === "outside_radius") {
+    if (gpsStatus === "outside_radius") {
       const errorMessage = `Du bist ca. ${distance} m vom Objekt entfernt. Erlaubt sind ${allowedRadius} m.`;
-      const failedEntry = await insertTimeEntry(auth, { ...basePayload, success: false, error_message: errorMessage });
-      return NextResponse.json({ ok: false, error: errorMessage, entry: failedEntry, gpsStatus, distanceM: distance, allowedRadiusM: allowedRadius }, { status: 403 });
-    }
-
-    if (gpsRequired && !hasSiteGps) {
-      const errorMessage = "Für dieses Objekt ist GPS-Prüfung aktiv, aber am Objekt sind noch keine GPS-Koordinaten gespeichert.";
-      const failedEntry = await insertTimeEntry(auth, { ...basePayload, success: false, error_message: errorMessage });
-      return NextResponse.json({ ok: false, error: errorMessage, entry: failedEntry, gpsStatus }, { status: 409 });
+      return NextResponse.json({ ok: false, error: errorMessage, gpsStatus, distanceM: distance, allowedRadiusM: allowedRadius }, { status: 403 });
     }
 
     const entry = await insertTimeEntry(auth, {
       ...basePayload,
       success: true,
-      error_message: hasSiteGps ? `GPS geprüft: ${distance} m von ${allowedRadius} m Radius.` : employeeLat !== null && employeeLng !== null ? "GPS gespeichert. Objekt hat noch keine Koordinaten für Radius-Prüfung." : null
+      error_message: `GPS geprüft: ${distance} m von ${allowedRadius} m Radius.`
     });
 
     if (action === "clock_out") {

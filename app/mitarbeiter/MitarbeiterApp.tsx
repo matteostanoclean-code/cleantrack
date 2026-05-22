@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -52,6 +52,7 @@ type RawTask = {
 
 type RawTimeEntry = {
   id: string;
+  task_id?: string | null;
   employee_name?: string | null;
   employee_id?: string | null;
   work_site_id?: string | null;
@@ -69,6 +70,7 @@ type RawTimeEntry = {
 
 type Absence = {
   id: string;
+  task_id?: string | null;
   employee_name?: string | null;
   request_type?: string | null;
   absence_type?: string | null;
@@ -97,6 +99,7 @@ type Notification = {
 
 type EmployeeWorkSite = {
   id: string;
+  task_id?: string | null;
   employee_name?: string | null;
   work_site_id?: string | null;
   site_name?: string | null;
@@ -134,6 +137,7 @@ type ClockSite = {
 
 type ChatMessage = {
   id: string;
+  task_id?: string | null;
   employee_name?: string | null;
   sender_name?: string | null;
   sender_role?: string | null;
@@ -164,6 +168,7 @@ type MaterialProduct = {
 
 type MaterialReport = {
   id: string;
+  task_id?: string | null;
   employee_name?: string | null;
   material_id?: string | null;
   material_product_id?: string | null;
@@ -314,7 +319,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -409,6 +414,10 @@ function actionLabel(action?: string | null) {
   return labels[action || ""] || action || "Zeit erfasst";
 }
 
+function isSuccessfulTimeEntry(entry: RawTimeEntry) {
+  return entry.success !== false;
+}
+
 function normalizePriority(task: RawTask): Assignment["priority"] {
   const priority = `${task.priority || ""}`.toLowerCase();
   const status = `${task.status || ""}`.toLowerCase();
@@ -457,7 +466,7 @@ function assignmentsFromTasks(tasks: RawTask[]) {
 
 function groupTimeEntries(entries: RawTimeEntry[]): TimeEntry[] {
   const groups = new Map<string, RawTimeEntry[]>();
-  const sorted = [...entries].filter((entry) => entry.created_at).sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+  const sorted = [...entries].filter((entry) => entry.created_at && isSuccessfulTimeEntry(entry)).sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
 
   for (const entry of sorted) {
     const day = (entry.created_at || "").slice(0, 10);
@@ -493,7 +502,7 @@ function groupTimeEntries(entries: RawTimeEntry[]): TimeEntry[] {
 function dailyWorkedSeconds(entries: RawTimeEntry[]) {
   const today = todayIso();
   const rows = entries
-    .filter((entry) => entry.created_at?.slice(0, 10) === today)
+    .filter((entry) => isSuccessfulTimeEntry(entry) && entry.created_at?.slice(0, 10) === today)
     .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
 
   let seconds = 0;
@@ -527,7 +536,7 @@ function dailyWorkedSeconds(entries: RawTimeEntry[]) {
 }
 
 function latestClock(entries: RawTimeEntry[]) {
-  const latest = [...entries].filter((entry) => entry.action).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+  const latest = [...entries].filter((entry) => entry.action && isSuccessfulTimeEntry(entry)).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
   if (!latest) return { status: "idle" as ClockStatus, startedAt: null as number | null };
   if (latest.action === "clock_in" || latest.action === "break_end") return { status: "working" as ClockStatus, startedAt: latest.created_at ? new Date(latest.created_at).getTime() : null };
   if (latest.action === "break_start") return { status: "break" as ClockStatus, startedAt: latest.created_at ? new Date(latest.created_at).getTime() : null };
@@ -574,7 +583,7 @@ function AppShell({ children, active, setActive }: { children: React.ReactNode; 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -646,15 +655,16 @@ function EmployeeSelect({ employees, employeeName, onChange }: { employees: Empl
   );
 }
 
-function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange, onStartClock }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void; onStartClock: (assignment: Assignment) => void }) {
+function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange, onOpenAssignment }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void; onOpenAssignment: (assignment: Assignment) => void }) {
   const employee = data?.employee;
   const todayTasks = assignments.filter((assignment) => assignment.date === todayIso());
   const doneToday = todayTasks.filter((assignment) => assignment.done).length;
   const progress = todayTasks.length ? Math.round((doneToday / todayTasks.length) * 100) : 0;
   const todaySeconds = dailyWorkedSeconds(data?.timeEntries || []);
   const todayHours = todaySeconds / 3600;
-  const nextAssignment = todayTasks.find((assignment) => !assignment.done) || assignments.find((assignment) => !assignment.done) || assignments[0];
-  const latestActivity = data?.timeEntries?.slice(0, 3) || [];
+  const futureAssignments = assignments.filter((assignment) => (assignment.date || "") >= todayIso()).sort((a, b) => `${a.date || "9999-12-31"}-${a.raw?.start_time || "99:99"}`.localeCompare(`${b.date || "9999-12-31"}-${b.raw?.start_time || "99:99"}`));
+  const nextAssignment = todayTasks.find((assignment) => !assignment.done) || futureAssignments.find((assignment) => !assignment.done) || futureAssignments[0];
+  const latestActivity = (data?.timeEntries || []).filter(isSuccessfulTimeEntry).slice(0, 3);
 
   return (
     <div className="space-y-4">
@@ -666,7 +676,7 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
         {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <button onClick={() => setActive("timesheet")} className="block w-full rounded-3xl border border-slate-800 bg-slate-900/70 p-4 text-left transition hover:border-blue-600">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-slate-500">Tagesfortschritt</p>
@@ -678,8 +688,8 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
         <div className="mt-4 h-2 rounded-full bg-slate-800">
           <div className="h-2 rounded-full bg-blue-600" style={{ width: `${progress}%` }} />
         </div>
-        <p className="mt-3 text-[11px] text-slate-400">Daten live aus Supabase · {monthLabel()}</p>
-      </section>
+        <p className="mt-3 text-[11px] text-slate-400">Antippen öffnet die Tageszeiten · {monthLabel()}</p>
+      </button>
 
       <section>
         <div className="mb-2 flex items-center justify-between">
@@ -697,8 +707,8 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
               <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-blue-300 via-slate-700 to-slate-950 shadow-inner" />
             </div>
             <div className="grid grid-cols-2 border-t border-slate-700 text-sm">
-              <button className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="map" />Route</button>
-              <button onClick={() => onStartClock(nextAssignment)} className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="clock" />Stempeln</button>
+              <a href={mapSearchUrl(nextAssignment.raw || null)} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="map" />Route</a>
+              <button onClick={() => onOpenAssignment(nextAssignment)} className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="calendar" />Termin</button>
             </div>
           </div>
         ) : (
@@ -755,72 +765,256 @@ function Activity({ label, time }: { label: string; time: string }) {
   );
 }
 
-function Schedule({ assignments, onStartClock }: { assignments: Assignment[]; onStartClock: (assignment: Assignment) => void }) {
-  const days = Array.from({ length: 5 }, (_, index) => {
+function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]; onOpenAssignment: (assignment: Assignment) => void }) {
+  const [selectedDay, setSelectedDay] = useState(todayIso());
+  const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() + index);
     return date.toISOString().slice(0, 10);
   });
-  const todays = assignments.filter((assignment) => assignment.date === todayIso());
-  const focus = todays[0] || assignments[0];
-  const nextAssignments = assignments.filter((assignment) => assignment.id !== focus?.id).slice(0, 8);
+
+  const futureAssignments = useMemo(() => assignments
+    .filter((assignment) => (assignment.date || "") >= todayIso())
+    .sort((a, b) => `${a.date || "9999-12-31"}-${a.raw?.start_time || "99:99"}`.localeCompare(`${b.date || "9999-12-31"}-${b.raw?.start_time || "99:99"}`)), [assignments]);
+
+  const selectedAssignments = futureAssignments.filter((assignment) => assignment.date === selectedDay);
+  const doneSelected = selectedAssignments.filter((assignment) => assignment.done).length;
+  const openSelected = selectedAssignments.length - doneSelected;
+  const plannedMinutes = selectedAssignments.reduce((sum, assignment) => sum + Number(assignment.raw?.planned_minutes || assignment.raw?.max_minutes || assignment.raw?.paid_minutes || assignment.raw?.wage_minutes || 0), 0);
+  const upcomingAssignments = futureAssignments.filter((assignment) => assignment.date !== selectedDay).slice(0, 6);
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Einsatzplan</h1>
-        <p className="text-xs text-slate-400">Echte Einsätze aus Supabase</p>
+        <p className="text-xs text-slate-400">Nur heute und kommende Einsätze.</p>
       </div>
       <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-        {days.map((day, index) => (
-          <button key={day} className={`min-w-16 rounded-2xl border p-3 text-sm ${index === 0 ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
-            <span className="block text-[10px] uppercase text-slate-400">{dateLabel(day).split(" ")[0]}</span>
-            <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
-          </button>
-        ))}
+        {days.map((day) => {
+          const selected = day === selectedDay;
+          const count = futureAssignments.filter((assignment) => assignment.date === day).length;
+          return (
+            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+              <span className="block text-[10px] uppercase text-slate-400">{dateLabel(day).split(" ")[0]}</span>
+              <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
+              <span className="mt-1 block text-[10px] text-slate-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {focus ? (
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-bold">Heute im Fokus</h2>
-            <span className="rounded-md bg-blue-500/15 px-2 py-1 text-[10px] font-bold uppercase text-blue-300">{focus.done ? "Erledigt" : "Offen"}</span>
+      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="font-black">Tagesübersicht</h2>
+            <p className="text-xs text-slate-500">{dateLabel(selectedDay)}</p>
           </div>
-          <AssignmentCard assignment={focus} featured onStartClock={onStartClock} />
-        </section>
-      ) : <EmptyCard title="Keine Einsätze" text="In der Tabelle tasks wurden für diesen Mitarbeiter keine passenden Einträge gefunden." />}
+          <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">{openSelected} offen</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Einsätze</p>
+            <p className="mt-1 text-xl font-black text-white">{selectedAssignments.length}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Erledigt</p>
+            <p className="mt-1 text-xl font-black text-emerald-200">{doneSelected}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Geplant</p>
+            <p className="mt-1 text-xl font-black text-blue-100">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
+          </div>
+        </div>
+      </section>
 
       <section>
-        <h2 className="mb-2 font-bold">Nächste Einsätze</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-bold">Einsätze an diesem Tag</h2>
+          <span className="text-xs text-slate-500">{selectedAssignments.length} gefunden</span>
+        </div>
         <div className="space-y-3">
-          {nextAssignments.length ? nextAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onStartClock={onStartClock} />) : <p className="text-sm text-slate-500">Keine weiteren Einsätze.</p>}
+          {selectedAssignments.length ? selectedAssignments.map((assignment, index) => <AssignmentCard key={assignment.id} assignment={assignment} featured={index === 0} onOpenAssignment={onOpenAssignment} />) : <EmptyCard title="Keine Einsätze an diesem Tag" text="Wähle oben einen anderen Tag oder lege im Admin-Dashboard einen neuen Termin an." />}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-bold">Kommende Einsätze</h2>
+        <div className="space-y-3">
+          {upcomingAssignments.length ? upcomingAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />) : <p className="text-sm text-slate-500">Keine weiteren kommenden Einsätze.</p>}
         </div>
       </section>
     </div>
   );
 }
 
-function AssignmentCard({ assignment, featured, onStartClock }: { assignment: Assignment; featured?: boolean; onStartClock?: (assignment: Assignment) => void }) {
+function AssignmentCard({ assignment, featured, onOpenAssignment }: { assignment: Assignment; featured?: boolean; onOpenAssignment?: (assignment: Assignment) => void }) {
   const priorityColor = assignment.priority === "urgent" ? "bg-orange-400" : assignment.priority === "overdue" ? "bg-red-400" : "bg-blue-400";
   return (
     <article className={`rounded-3xl border border-slate-800 ${featured ? "bg-slate-800" : "bg-slate-900/70"} p-4`}>
-      <div className="flex items-start justify-between gap-3">
+      <button onClick={() => onOpenAssignment?.(assignment)} className="flex w-full items-start justify-between gap-3 text-left">
         <div className="min-w-0">
           <p className="text-xs font-bold text-blue-200">{dateLabel(assignment.date)} · {assignment.time}</p>
           <h3 className="mt-2 font-black text-white">{assignment.title}</h3>
           <p className="mt-1 text-xs text-slate-400">{assignment.address}</p>
         </div>
         <span className="rounded-full bg-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200">{assignment.duration}</span>
-      </div>
+      </button>
       <div className="mt-4 flex flex-wrap gap-2">
         <span className="rounded-lg bg-blue-500/15 px-2 py-1 text-[11px] font-semibold text-blue-200">{assignment.tag}</span>
         <span className="rounded-lg bg-slate-700/70 px-2 py-1 text-[11px] text-slate-300">{assignment.customer}</span>
       </div>
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs text-slate-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.done ? "Erledigt" : assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
-        <button onClick={() => onStartClock?.(assignment)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Stempeln</button>
+        <div className="flex gap-2">
+          <a href={mapSearchUrl(assignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold text-blue-100">Route</a>
+          <button onClick={() => onOpenAssignment?.(assignment)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Termin</button>
+        </div>
       </div>
     </article>
+  );
+}
+
+
+function mapSearchUrl(task: RawTask | null) {
+  const query = [task?.site, task?.customer_name, "Deutschland"].filter(Boolean).join(" ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query || "")}`;
+}
+
+function taskEntriesForTask(entries: RawTimeEntry[], task: RawTask | null) {
+  if (!task) return [];
+  return entries
+    .filter((entry) => isSuccessfulTimeEntry(entry) && (entry.task_id === task.id || (!entry.task_id && entry.work_site_id && task.work_site_id && entry.work_site_id === task.work_site_id && entry.created_at?.slice(0, 10) === task.task_date)))
+    .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+}
+
+function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQuality, onReload }: { data: AppData | null; authToken: string; taskId: string | null; onBack: () => void; onOpenClock: (task: RawTask) => void; onOpenQuality: (task: RawTask) => void; onReload: () => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const task = useMemo(() => (data?.tasks || []).find((row) => row.id === taskId) || null, [data?.tasks, taskId]);
+  const site = useMemo(() => task?.work_site_id ? (data?.workSites || []).find((row) => row.id === task.work_site_id) || null : null, [data?.workSites, task?.work_site_id]);
+  const planItems = useMemo(() => planItemsForTask(data, task), [data, task]);
+  const entries = useMemo(() => taskEntriesForTask(data?.timeEntries || [], task), [data?.timeEntries, task]);
+  const hasClockIn = entries.some((entry) => entry.action === "clock_in");
+  const hasClockOut = entries.some((entry) => entry.action === "clock_out");
+  const siteHasGps = Boolean(site && getSiteLatitude(site) !== null && getSiteLongitude(site) !== null);
+
+  async function toggleDone(done: boolean) {
+    if (!task) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/task", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ id: task.id, done })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Termin konnte nicht gespeichert werden.");
+      setMessage(done ? "Termin wurde als erledigt markiert." : "Termin wurde wieder geöffnet.");
+      await onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Termin konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!task) {
+    return (
+      <div className="space-y-4">
+        <BackButton onBack={onBack} />
+        <EmptyCard title="Termin nicht gefunden" text="Bitte öffne den Einsatz noch einmal aus dem Einsatzplan." />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <BackButton onBack={onBack} />
+        <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${task.done ? "bg-emerald-500/15 text-emerald-200" : "bg-blue-500/15 text-blue-200"}`}>{task.done ? "Erledigt" : "Offen"}</span>
+      </div>
+
+      <section className="overflow-hidden rounded-3xl border border-blue-500/25 bg-slate-900/80">
+        <div className="p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-blue-200">Termin</p>
+          <h1 className="mt-2 text-2xl font-black text-white">{task.title || "Einsatz"}</h1>
+          <p className="mt-2 text-sm text-slate-300">{task.site || task.customer_name || "Ohne Objekt"}</p>
+          <p className="mt-1 text-xs text-slate-500">{task.customer_name || "Kunde offen"}</p>
+        </div>
+        <div className="grid grid-cols-3 border-t border-slate-800 text-center text-xs">
+          <div className="p-3">
+            <p className="text-slate-500">Datum</p>
+            <p className="mt-1 font-black text-white">{dateLabel(task.task_date)}</p>
+          </div>
+          <div className="border-x border-slate-800 p-3">
+            <p className="text-slate-500">Uhrzeit</p>
+            <p className="mt-1 font-black text-white">{taskTime(task)}</p>
+          </div>
+          <div className="p-3">
+            <p className="text-slate-500">Dauer</p>
+            <p className="mt-1 font-black text-white">{taskDuration(task)}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        <h2 className="font-black">Arbeitsablauf</h2>
+        <div className="mt-3 space-y-2 text-sm">
+          <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-3 py-3">
+            <span>1. Am Objekt einchecken</span>
+            <span className={hasClockIn ? "font-black text-emerald-300" : "font-black text-slate-500"}>{hasClockIn ? "OK" : "offen"}</span>
+          </div>
+          <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-3 py-3">
+            <span>2. Reinigung / Aufgabe erledigen</span>
+            <span className={task.done ? "font-black text-emerald-300" : "font-black text-slate-500"}>{task.done ? "OK" : "offen"}</span>
+          </div>
+          <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-3 py-3">
+            <span>3. Ausstempeln</span>
+            <span className={hasClockOut ? "font-black text-emerald-300" : "font-black text-slate-500"}>{hasClockOut ? "OK" : "offen"}</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        <h2 className="font-black">Aktionen</h2>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <a href={mapSearchUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-center text-sm font-black text-blue-100">Route öffnen</a>
+          <button onClick={() => onOpenClock(task)} className="rounded-2xl bg-blue-600 px-3 py-3 text-sm font-black text-white shadow-glow">Stempeln</button>
+          <button onClick={() => onOpenQuality(task)} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-black text-blue-100">Qualität</button>
+          <button disabled={saving} onClick={() => toggleDone(!task.done)} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-black text-blue-100 disabled:opacity-60">{task.done ? "Wieder öffnen" : "Erledigt"}</button>
+        </div>
+        {message ? <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-xs text-blue-100">{message}</p> : null}
+      </section>
+
+      <section className={`rounded-3xl border p-4 ${siteHasGps ? "border-emerald-500/30 bg-emerald-500/10" : "border-yellow-500/30 bg-yellow-500/10"}`}>
+        <p className={`font-black ${siteHasGps ? "text-emerald-100" : "text-yellow-100"}`}>{siteHasGps ? "GPS-Prüfung bereit" : "GPS am Objekt fehlt"}</p>
+        <p className={`mt-1 text-xs ${siteHasGps ? "text-emerald-100/80" : "text-yellow-100/80"}`}>
+          {siteHasGps ? `Erlaubter Radius: ${getSiteRadius(site)} m.` : "Der Mitarbeiter-Standort wird gespeichert. Für eine harte Radius-Prüfung müssen im Admin-Dashboard die Objekt-Koordinaten gespeichert sein."}
+        </p>
+      </section>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        <h2 className="font-black">Checkliste</h2>
+        <div className="mt-3 space-y-2">
+          {planItems.length ? planItems.slice(0, 8).map((item) => (
+            <div key={item.id} className="rounded-2xl bg-slate-950 px-3 py-3 text-sm">
+              <p className="font-bold text-slate-100">{item.task_title || item.area || "Aufgabe"}</p>
+              {item.task_description ? <p className="mt-1 text-xs text-slate-500">{item.task_description}</p> : null}
+            </div>
+          )) : <p className="text-sm text-slate-500">Für diesen Einsatz ist noch keine Reinigungsplan-Checkliste hinterlegt.</p>}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+        <h2 className="font-black">Zeitbuchungen zu diesem Termin</h2>
+        <div className="mt-3 space-y-2">
+          {entries.length ? entries.map((entry) => (
+            <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || task.site || "Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
+          )) : <p className="text-sm text-slate-500">Noch keine Buchung für diesen Termin.</p>}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -853,11 +1047,17 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
     gpsRequired: selectedSite?.gps_required === true
   } : null;
 
+  const selectedTaskEntries = useMemo(() => taskEntriesForTask(data?.timeEntries || [], selectedTask), [data?.timeEntries, selectedTask]);
+  const statusText = status === "working" ? "In Arbeit" : status === "break" ? "Pause läuft" : "Bereit";
+  const selectedSiteName = selectedClockSite?.siteName || "Kein Termin gewählt";
+  const selectedSiteHasGps = Boolean(selectedClockSite && selectedClockSite.latitude !== null && selectedClockSite.longitude !== null);
+  const latestTwo = selectedTaskEntries.slice(-4).reverse();
+
   useEffect(() => {
-    const latest = latestClock(data?.timeEntries || []);
+    const latest = latestClock(selectedTaskEntries);
     setStatus(latest.status);
     setStartedAt(latest.startedAt);
-  }, [data?.timeEntries]);
+  }, [selectedTaskEntries]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -872,6 +1072,14 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
       setMessage("Bitte zuerst im Einsatzplan einen Termin öffnen. Manuelles Buchen ohne Termin ist gesperrt.");
       return;
     }
+    if (!selectedTask.work_site_id) {
+      setMessage("Dieser Termin hat kein Objekt. Bitte im Admin-Dashboard ein Objekt hinterlegen, erst dann kann gestempelt werden.");
+      return;
+    }
+    if (!selectedSiteHasGps) {
+      setMessage("Für dieses Objekt fehlen GPS-Koordinaten. Bitte im Admin-Dashboard beim Objekt den Standort speichern.");
+      return;
+    }
 
     setSaving(true);
     setLocating(true);
@@ -883,6 +1091,9 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
     } catch (gpsError) {
       setLastGps(null);
       setMessage(gpsError instanceof Error ? gpsError.message : "GPS-Standort konnte nicht gelesen werden.");
+      setSaving(false);
+      setLocating(false);
+      return;
     } finally {
       setLocating(false);
     }
@@ -915,11 +1126,6 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
       setLocating(false);
     }
   }
-
-  const statusText = status === "working" ? "In Arbeit" : status === "break" ? "Pause läuft" : "Bereit";
-  const selectedSiteName = selectedClockSite?.siteName || "Kein Termin gewählt";
-  const selectedSiteHasGps = Boolean(selectedClockSite && selectedClockSite.latitude !== null && selectedClockSite.longitude !== null);
-  const latestTwo = (data?.timeEntries || []).slice(0, 4);
 
   return (
     <div className="space-y-4">
@@ -978,7 +1184,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
               {selectedSiteHasGps
                 ? `Radius-Prüfung: ${selectedClockSite?.allowedRadiusM || 150} m erlaubt.`
                 : selectedTask.work_site_id
-                  ? "Ich speichere den Mitarbeiter-Standort, prüfe aber noch keinen Radius. GPS-Koordinaten im Admin-Objekt eintragen."
+                  ? "Stempeln ist gesperrt, bis im Admin-Dashboard die GPS-Koordinaten am Objekt gespeichert sind."
                   : "Bitte im Admin-Dashboard ein Objekt für diesen Termin auswählen, damit GPS sauber geprüft werden kann."}
             </p>
             {lastGps ? <p className="mt-1 opacity-70">Letzter Standort: Genauigkeit ca. {lastGps.accuracy || "—"} m</p> : null}
@@ -986,15 +1192,15 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-3">
           {status === "idle" ? (
-            <button disabled={saving || locating || !data?.employee || !selectedTask} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
+            <button disabled={saving || locating || !data?.employee || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
           ) : (
             <>
               {status === "break" ? (
-                <button disabled={saving || locating || !selectedTask} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
+                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
               ) : (
-                <button disabled={saving || locating || !selectedTask} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
+                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
               )}
-              <button disabled={saving || locating || !selectedTask} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
+              <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
             </>
           )}
         </div>
@@ -1129,7 +1335,7 @@ function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: st
         <p className="text-xs text-slate-400">tasks-Tabelle live abhaken</p>
       </div>
       <div className="space-y-3">
-        {tasks.length ? tasks.map((task) => (
+        {tasks.filter((task) => !task.task_date || task.task_date >= todayIso()).length ? tasks.filter((task) => !task.task_date || task.task_date >= todayIso()).map((task) => (
           <label key={task.id} className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900 p-4">
             <input type="checkbox" checked={Boolean(task.done)} disabled={savingId === task.id} onChange={(event) => toggleTask(task, event.target.checked)} className="h-5 w-5 accent-blue-600" />
             <div className="min-w-0">
@@ -1181,7 +1387,7 @@ function checklistLabels(data: AppData | null, task: RawTask | null) {
   ];
 }
 
-function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void>; selectedTaskId?: string | null }) {
   const tasks = useMemo(() => {
     const rows = data?.tasks || [];
     return [...rows].sort((a, b) => `${a.done ? 1 : 0}-${a.task_date || ""}-${a.start_time || ""}`.localeCompare(`${b.done ? 1 : 0}-${b.task_date || ""}-${b.start_time || ""}`));
@@ -1195,6 +1401,13 @@ function QualityScreen({ data, authToken, onBack, onReload }: { data: AppData | 
   const [message, setMessage] = useState<string | null>(null);
 
   const selectedTask = tasks[taskIndex] || null;
+
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const index = tasks.findIndex((task) => task.id === selectedTaskId);
+    if (index >= 0) setTaskIndex(index);
+  }, [selectedTaskId, tasks]);
+
   const selectedPlan = planForTask(data, selectedTask);
   const labels = useMemo(() => checklistLabels(data, selectedTask), [data, selectedTask]);
   const checkedLabels = labels.filter((label) => checked[label]);
@@ -1868,9 +2081,19 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
   const timeEntries = useMemo(() => groupTimeEntries(data?.timeEntries || []), [data?.timeEntries]);
 
-  function openClockForAssignment(assignment: Assignment) {
+  function openAssignment(assignment: Assignment) {
     setSelectedTaskId(assignment.id);
+    setActive("taskdetail");
+  }
+
+  function openClockForTask(task: RawTask) {
+    setSelectedTaskId(task.id);
     setActive("clock");
+  }
+
+  function openQualityForTask(task: RawTask) {
+    setSelectedTaskId(task.id);
+    setActive("quality");
   }
 
   if (authLoading) {
@@ -1893,14 +2116,15 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && (
         <>
-          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onStartClock={openClockForAssignment} />}
-          {active === "schedule" && <Schedule assignments={assignments} onStartClock={openClockForAssignment} />}
+          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onOpenAssignment={openAssignment} />}
+          {active === "schedule" && <Schedule assignments={assignments} onOpenAssignment={openAssignment} />}
+          {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => loadData(employeeName)} />}
           {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
           {active === "timesheet" && <Timesheet entries={timeEntries} absences={data?.absences || []} />}
           {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
           {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}
           {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "quality" && <QualityScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "quality" && <QualityScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => selectedTaskId ? setActive("taskdetail") : setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}

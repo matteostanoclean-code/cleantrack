@@ -66,7 +66,7 @@ export async function GET(request: Request) {
         .order("start_time", { ascending: true }),
       supabase
         .from("time_entries")
-        .select("id, employee_name, employee_id, work_site_id, work_site_name, action, latitude, longitude, distance_m, allowed_radius_m, success, error_message, created_at, expected_start_time")
+        .select("id, task_id, employee_name, employee_id, work_site_id, work_site_name, action, latitude, longitude, distance_m, allowed_radius_m, success, error_message, created_at, expected_start_time")
         .eq("employee_name", employeeName)
         .gte("created_at", monthStartIso())
         .order("created_at", { ascending: false })
