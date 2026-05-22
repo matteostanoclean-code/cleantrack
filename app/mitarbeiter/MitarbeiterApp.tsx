@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -319,7 +319,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -598,7 +598,7 @@ function AppShell({ children, active, setActive, unreadCount = 0 }: { children: 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -1953,6 +1953,125 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
   );
 }
 
+
+function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const [note, setNote] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const today = todayIso();
+  const todayTasks = (data?.tasks || [])
+    .filter((task) => task.task_date === today)
+    .sort((a, b) => `${a.start_time || "99:99"}-${a.title || ""}`.localeCompare(`${b.start_time || "99:99"}-${b.title || ""}`));
+  const doneTasks = todayTasks.filter((task) => task.done || String(task.status || "").toLowerCase() === "done");
+  const openTasks = todayTasks.filter((task) => !(task.done || String(task.status || "").toLowerCase() === "done"));
+  const todayEntries = (data?.timeEntries || []).filter((entry) => isSuccessfulTimeEntry(entry) && entry.created_at?.slice(0, 10) === today);
+  const workedMinutes = Math.round(dailyWorkedSeconds(data?.timeEntries || []) / 60);
+  const hasOpenClock = latestClock(todayEntries).status !== "idle";
+  const canSubmit = confirm && !saving;
+
+  async function submit() {
+    if (!canSubmit) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/day-close", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          employeeName: data?.employee?.name || "",
+          date: today,
+          note,
+          workedMinutes,
+          plannedTasks: todayTasks.length,
+          doneTasks: doneTasks.length,
+          openTasks: openTasks.length,
+          openTaskTitles: openTasks.map((task) => `${task.title || "Einsatz"} · ${task.site || task.customer_name || "Objekt"}`)
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Tagesabschluss konnte nicht gesendet werden.");
+      setMessage("Tagesabschluss wurde ans Büro gesendet.");
+      setNote("");
+      setConfirm(false);
+      await onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Tagesabschluss konnte nicht gesendet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Tagesabschluss</h1>
+          <p className="text-xs text-slate-400">Arbeitsende ans Büro melden</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-500">Heute</p>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Zeit</p>
+            <p className="mt-1 text-xl font-black text-blue-100">{workedMinutes ? minutesToHours(workedMinutes) : "0h"}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Erledigt</p>
+            <p className="mt-1 text-xl font-black text-emerald-200">{doneTasks.length}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 p-3">
+            <p className="text-slate-500">Offen</p>
+            <p className={`mt-1 text-xl font-black ${openTasks.length ? "text-red-200" : "text-emerald-200"}`}>{openTasks.length}</p>
+          </div>
+        </div>
+        {hasOpenClock ? (
+          <div className="mt-3 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-3 text-sm text-yellow-100">
+            Achtung: Es läuft noch eine Stempelung oder Pause. Bitte zuerst ausstempeln, damit der Tagesabschluss sauber ist.
+          </div>
+        ) : null}
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-bold">Heutige Einsätze</h2>
+        <div className="space-y-3">
+          {todayTasks.length ? todayTasks.map((task) => {
+            const done = task.done || String(task.status || "").toLowerCase() === "done";
+            return (
+              <article key={task.id} className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-blue-200">{taskTime(task)}</p>
+                    <p className="mt-1 font-black text-white">{task.title || "Einsatz"}</p>
+                    <p className="mt-1 truncate text-xs text-slate-500">{task.site || task.customer_name || "Ohne Objekt"}</p>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-[11px] font-black ${done ? "bg-emerald-500/15 text-emerald-200" : "bg-red-500/15 text-red-200"}`}>{done ? "OK" : "offen"}</span>
+                </div>
+              </article>
+            );
+          }) : <EmptyCard title="Keine Einsätze für heute" text="Der Tagesabschluss kann trotzdem mit Notiz gesendet werden." />}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz ans Büro</span>
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z. B. Objekt fertig, Material fehlt, Kunde war nicht erreichbar…" />
+        </label>
+        <label className="mt-3 flex items-start gap-3 rounded-2xl bg-slate-950 p-3 text-sm text-slate-200">
+          <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} className="mt-1 h-5 w-5 accent-blue-600" />
+          <span>Ich bestätige den Tagesabschluss für heute. Offene Einsätze werden dem Büro mitgemeldet.</span>
+        </label>
+        {message ? <p className="mt-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-blue-100">{message}</p> : null}
+        <button disabled={!canSubmit} onClick={submit} className="mt-3 w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{saving ? "Sende…" : "Tagesabschluss senden"}</button>
+      </section>
+    </div>
+  );
+}
+
 function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBack: () => void; onLogout: () => Promise<void> }) {
   const employee = data?.employee;
   return (
@@ -1986,6 +2105,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} vorhandene Anträge`, icon: "calendar", tab: "absence" },
     { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
     { title: "Meldungen", subtitle: `${unreadCountFromData(data)} ungelesen`, icon: "bell", tab: "notifications" },
+    { title: "Tagesabschluss", subtitle: "Arbeitsende ans Büro melden", icon: "sheet", tab: "dayclose" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
   return (
@@ -2249,6 +2369,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "notifications" && <NotificationsScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "dayclose" && <DayCloseScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
