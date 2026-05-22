@@ -1882,6 +1882,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
           <p className="mt-3 text-xs text-slate-500">Nur Admins dürfen Mitarbeiter wechseln.</p>
           <div className="mt-4 grid grid-cols-1 gap-2">
             <a href="/mitarbeiter/admin/tageszentrale" className="block rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-black text-white shadow-glow">Tageszentrale</a>
+            <a href="/mitarbeiter/admin/auswertung" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Monatsauswertung</a>
             <a href="/mitarbeiter/admin" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Dashboard</a>
             <a href="/mitarbeiter/freigaben" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Freigaben</a>
             <a href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Mitarbeiter aktivieren</a>

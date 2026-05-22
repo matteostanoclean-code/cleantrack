@@ -195,3 +195,24 @@ Funktion:
 - Link ist unter Mehr → Tageszentrale und im Admin-Dashboard ergänzt
 
 Für dieses Update ist kein neues SQL nötig.
+
+## Update: Admin-Monatsauswertung
+
+Neue Seite:
+
+```text
+/mitarbeiter/admin/auswertung
+```
+
+Funktionen:
+
+- Monatsfilter
+- Mitarbeiterfilter
+- Ist-Stunden aus `time_entries`
+- Plan-Stunden aus `tasks`
+- offene Buchungen erkennen
+- GPS-Warnungen anzeigen
+- CSV-Export für Mitarbeiterstunden
+- CSV-Export für Stempelprotokoll
+
+Für dieses Update ist kein neues SQL notwendig.

@@ -339,7 +339,8 @@ export default function TageszentralePage() {
 
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => load()} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-glow">{loading ? "Lade…" : "Neu laden"}</button>
-          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Dashboard</Link>
+          <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Auswertung</Link>
+          <Link href="/mitarbeiter/admin" className="col-span-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Dashboard</Link>
         </div>
 
         {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
