@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -319,7 +319,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -599,7 +599,7 @@ function AppShell({ children, active, setActive, unreadCount = 0 }: { children: 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects", "issue"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -2351,6 +2351,157 @@ function ObjectsScreen({ data, onBack, onOpenAssignment }: { data: AppData | nul
   );
 }
 
+
+function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const sites = useMemo(() => menuSites(data, data?.tasks || []), [data]);
+  const openTasks = useMemo(() => (data?.tasks || []).filter((task) => !task.done && (task.task_date || "") >= todayIso()).sort((a, b) => `${a.task_date || "9999-12-31"}-${a.start_time || "99:99"}`.localeCompare(`${b.task_date || "9999-12-31"}-${b.start_time || "99:99"}`)), [data?.tasks]);
+  const [siteIndex, setSiteIndex] = useState(0);
+  const [taskId, setTaskId] = useState("");
+  const [category, setCategory] = useState("Mangel / Schaden");
+  const [priority, setPriority] = useState("normal");
+  const [description, setDescription] = useState("");
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoInputKey, setPhotoInputKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!taskId && openTasks[0]?.id) setTaskId(openTasks[0].id);
+  }, [taskId, openTasks]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      const selectedSite = sites[siteIndex] || null;
+      const selectedTask = openTasks.find((task) => task.id === taskId) || null;
+      const formData = new FormData();
+      formData.set("taskId", selectedTask?.id || "");
+      formData.set("workSiteId", selectedSite?.workSiteId || selectedTask?.work_site_id || "");
+      formData.set("workSiteName", selectedSite?.siteName || selectedTask?.site || selectedTask?.customer_name || "");
+      formData.set("category", category);
+      formData.set("priority", priority);
+      formData.set("description", description);
+      photos.forEach((photo) => formData.append("photos", photo));
+
+      const response = await fetch("/api/mobile/issues", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Objektmeldung konnte nicht gesendet werden.");
+      setMessage(photos.length ? "Objektmeldung mit Foto wurde an das Büro gesendet." : "Objektmeldung wurde an das Büro gesendet.");
+      setDescription("");
+      setPhotos([]);
+      setPhotoInputKey((key) => key + 1);
+      await onReload();
+    } catch (submitError) {
+      setMessage(submitError instanceof Error ? submitError.message : "Objektmeldung konnte nicht gesendet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const recentIssueNotifications = (data?.notifications || [])
+    .filter((item) => String(item.notification_type || "").toLowerCase().includes("issue") || String(item.title || "").toLowerCase().includes("objektmeldung"))
+    .slice(0, 5);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Objektmeldung</h1>
+          <p className="text-xs text-slate-400">Schäden, Mängel oder Besonderheiten direkt ans Büro melden</p>
+        </div>
+        <BackButton onBack={onBack} />
+      </div>
+
+      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Objekt</span>
+          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Termin optional</span>
+          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            <option value="">Ohne konkreten Termin</option>
+            {openTasks.map((task) => <option key={task.id} value={task.id}>{dateLabel(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>)}
+          </select>
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Art</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+              <option>Mangel / Schaden</option>
+              <option>Kundenhinweis</option>
+              <option>Zugang / Schlüssel</option>
+              <option>Sonderreinigung</option>
+              <option>Sicherheitsproblem</option>
+              <option>Sonstiges</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Dringlichkeit</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+              <option value="normal">Normal</option>
+              <option value="urgent">Dringend</option>
+              <option value="critical">Sofort prüfen</option>
+            </select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Beschreibung</span>
+          <textarea value={description} onChange={(event) => setDescription(event.target.value)} required rows={4} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was ist passiert? Wo genau? Was muss das Büro wissen?" />
+        </label>
+
+        <label className="block rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-4">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Foto optional</span>
+          <input
+            key={photoInputKey}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
+            className="mt-3 block w-full text-xs text-slate-300 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+          />
+          <p className="mt-2 text-xs text-slate-500">Bis zu 6 Fotos, max. 8 MB pro Foto.</p>
+          {photos.length ? (
+            <div className="mt-3 space-y-1">
+              {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-slate-900 px-3 py-2 text-xs text-blue-100">📷 {photo.name}</p>)}
+            </div>
+          ) : null}
+        </label>
+
+        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
+        <button disabled={saving || !description.trim()} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Objektmeldung senden"}</button>
+      </form>
+
+      <section className="space-y-2">
+        <h2 className="font-black">Letzte Objektmeldungen</h2>
+        {recentIssueNotifications.length ? recentIssueNotifications.map((item) => (
+          <article key={item.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-black">{item.title || "Objektmeldung"}</p>
+                <p className="mt-1 line-clamp-3 text-xs text-slate-400">{item.message || "Meldung gespeichert"}</p>
+                <p className="mt-2 text-xs text-slate-500">{item.object_name || item.site || item.work_site_name || "Objekt"} · {item.status || "open"}</p>
+              </div>
+              {item.read === false ? <span className="rounded-full bg-blue-500/15 px-2 py-1 text-[11px] font-black text-blue-200">neu</span> : null}
+            </div>
+          </article>
+        )) : <EmptyCard title="Noch keine Objektmeldung" text="Mängel, Schäden oder Kundenhinweise erscheinen nach dem Senden hier." />}
+      </section>
+    </div>
+  );
+}
+
 function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
   const qualityOpen = (data?.tasks || []).filter((task) => !task.done).length;
   const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
@@ -2361,6 +2512,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Meldungen", subtitle: `${unreadCountFromData(data)} ungelesen`, icon: "bell", tab: "notifications" },
     { title: "Tagesroute", subtitle: "Heute sauber abfahren", icon: "map", tab: "route" },
     { title: "Objektmappe", subtitle: `${(data?.workSites?.length || data?.employeeWorkSites?.length || 0)} Objekte`, icon: "building", tab: "objects" },
+    { title: "Objektmeldung", subtitle: "Schaden, Mangel oder Hinweis", icon: "shield", tab: "issue" },
     { title: "Tagesabschluss", subtitle: "Arbeitsende ans Büro melden", icon: "sheet", tab: "dayclose" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
@@ -2628,6 +2780,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "dayclose" && <DayCloseScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "route" && <RoutePlanScreen assignments={assignments} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "objects" && <ObjectsScreen data={data} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
+          {active === "issue" && <IssueScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}

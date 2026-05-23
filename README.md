@@ -41,3 +41,15 @@ SUPABASE_SERVICE_ROLE_KEY=
 ## Update: Objektmappe
 
 Neu: `/mitarbeiter/objects` und Menüpunkt `Objektmappe`. Mitarbeiter sehen Objektinfos, kommende Einsätze, Reinigungsplan, GPS-Status und Material je Objekt. Außerdem ist die Tagesroute jetzt direkt im Mehr-Menü sichtbar.
+
+## Update: Objektmeldung
+
+Neue Funktion in der Mitarbeiter-App:
+
+- Mehr → Objektmeldung
+- Schäden, Mängel, Kundenhinweise und Sicherheitsprobleme melden
+- optional bis zu 6 Fotos anhängen
+- Meldung wird als `admin_notifications.notification_type = object_issue` gespeichert
+- Fotos werden in Supabase Storage Bucket `issue-photos` gespeichert
+
+Kein SQL nötig. Die Funktion nutzt die vorhandene Tabelle `admin_notifications`.
