@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -335,7 +335,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue" || value === "service") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue" || value === "service" || value === "push") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -615,7 +615,7 @@ function AppShell({ children, active, setActive, unreadCount = 0 }: { children: 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects", "issue", "service"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects", "issue", "service", "push"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -2729,6 +2729,135 @@ function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload
   );
 }
 
+
+function pushSupported() {
+  return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: () => void }) {
+  const [status, setStatus] = useState<string>("Prüfe Benachrichtigungen…");
+  const [saving, setSaving] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [lastTest, setLastTest] = useState<string | null>(null);
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
+
+  useEffect(() => {
+    async function check() {
+      if (!pushSupported()) {
+        setStatus("Dieses Gerät oder dieser Browser unterstützt Push-Benachrichtigungen nicht.");
+        return;
+      }
+      const permission = Notification.permission;
+      if (permission === "denied") {
+        setStatus("Benachrichtigungen sind blockiert. Bitte in den Browser-/Handy-Einstellungen erlauben.");
+        return;
+      }
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      const subscription = await registration?.pushManager.getSubscription();
+      setEnabled(Boolean(subscription));
+      setStatus(subscription ? "Push ist auf diesem Gerät aktiv." : "Push ist noch nicht aktiv.");
+    }
+    check().catch((error) => setStatus(error instanceof Error ? error.message : "Push-Status konnte nicht geprüft werden."));
+  }, []);
+
+  async function enablePush() {
+    setSaving(true);
+    setLastTest(null);
+    try {
+      if (!pushSupported()) throw new Error("Push wird auf diesem Gerät nicht unterstützt.");
+      if (!vapidPublicKey) throw new Error("NEXT_PUBLIC_VAPID_PUBLIC_KEY fehlt in Vercel.");
+
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") throw new Error("Benachrichtigungen wurden nicht erlaubt.");
+
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      });
+
+      const response = await fetch("/api/mobile/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ subscription })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Push konnte nicht gespeichert werden.");
+
+      setEnabled(true);
+      setStatus("Push ist aktiv. Dieses Gerät kann jetzt Meldungen empfangen.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Push konnte nicht aktiviert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sendTest() {
+    setSaving(true);
+    setLastTest(null);
+    try {
+      const response = await fetch("/api/mobile/push/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Testmeldung konnte nicht gesendet werden.");
+      setLastTest(`Test gesendet: ${result.sent || 0} Gerät(e)`);
+    } catch (error) {
+      setLastTest(error instanceof Error ? error.message : "Testmeldung fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">← Zurück</button>
+      <div>
+        <h1 className="text-2xl font-black">Push aktivieren</h1>
+        <p className="text-xs text-slate-400">Damit bekomme ich Einsatz-Erinnerungen, Büro-Meldungen und Freigaben direkt aufs Handy.</p>
+      </div>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-500">Status</p>
+        <p className="mt-2 font-black text-blue-100">{enabled ? "Aktiv" : "Noch nicht aktiv"}</p>
+        <p className="mt-2 text-sm text-slate-400">{status}</p>
+      </section>
+
+      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <p className="font-black">So funktioniert es</p>
+        <div className="mt-3 space-y-2 text-sm text-slate-400">
+          <p>1. Ich tippe auf „Push auf diesem Gerät aktivieren“.</p>
+          <p>2. Ich erlaube die Browser-Benachrichtigung.</p>
+          <p>3. Das Büro kann mir später Meldungen aufs Handy schicken.</p>
+        </div>
+      </section>
+
+      <button disabled={saving} onClick={enablePush} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">
+        {saving ? "Speichere…" : "Push auf diesem Gerät aktivieren"}
+      </button>
+      <button disabled={saving || !enabled} onClick={sendTest} className="w-full rounded-2xl border border-slate-700 bg-slate-950 py-4 font-black text-blue-100 disabled:opacity-40">
+        Testmeldung senden
+      </button>
+      {lastTest ? <p className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100">{lastTest}</p> : null}
+
+      <p className="text-xs text-slate-500">Hinweis: Auf iPhone/iPad müssen Web-Apps oft erst zum Home-Bildschirm hinzugefügt werden, bevor Push zuverlässig funktioniert.</p>
+    </div>
+  );
+}
+
 function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
   const qualityOpen = (data?.tasks || []).filter((task) => !task.done).length;
   const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
@@ -2741,6 +2870,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Objektmappe", subtitle: `${(data?.workSites?.length || data?.employeeWorkSites?.length || 0)} Objekte`, icon: "building", tab: "objects" },
     { title: "Objektmeldung", subtitle: "Schaden, Mangel oder Hinweis", icon: "shield", tab: "issue" },
     { title: "Leistungsnachweis", subtitle: `${data?.serviceReports?.length || 0} Kundenbestätigungen`, icon: "sheet", tab: "service" },
+    { title: "Push aktivieren", subtitle: "Einsatz-Erinnerungen auf dem Handy", icon: "bell", tab: "push" },
     { title: "Tagesabschluss", subtitle: "Arbeitsende ans Büro melden", icon: "sheet", tab: "dayclose" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
@@ -3010,6 +3140,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "objects" && <ObjectsScreen data={data} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "issue" && <IssueScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "service" && <ServiceReportScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "push" && <PushSettingsScreen authToken={authToken} onBack={() => setActive("menu")} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}

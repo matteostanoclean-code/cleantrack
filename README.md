@@ -53,3 +53,26 @@ Neue Funktion in der Mitarbeiter-App:
 - Fotos werden in Supabase Storage Bucket `issue-photos` gespeichert
 
 Kein SQL nötig. Die Funktion nutzt die vorhandene Tabelle `admin_notifications`.
+
+## Update: Push-Benachrichtigungen
+
+Neue Funktionen:
+
+- Mitarbeiter-App: `Mehr → Push aktivieren`
+- API zum Speichern von Push-Subscriptions: `/api/mobile/push/subscribe`
+- API für Testmeldung: `/api/mobile/push/test`
+- Service Worker mit Push- und Notification-Click-Handler
+
+Supabase SQL einmal ausführen:
+
+```text
+supabase/mobile_push_benachrichtigungen.sql
+```
+
+Vercel Environment Variables prüfen:
+
+```env
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:kontakt@matteostano-clean.de
+```
