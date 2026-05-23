@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       : profile;
 
     if (!selectedEmployee) {
-      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [], workSites: [], cleaningPlans: [], cleaningPlanItems: [], qualityReports: [] });
+      return NextResponse.json({ ok: true, isAdmin, employees: isAdmin ? employees : [profile], employee: null, tasks: [], timeEntries: [], absences: [], notifications: [], chatMessages: [], materialProducts: [], materialReports: [], employeeWorkSites: [], workSites: [], cleaningPlans: [], cleaningPlanItems: [], qualityReports: [], serviceReports: [] });
     }
 
     const employeeName = selectedEmployee.name;
@@ -108,6 +108,7 @@ export async function GET(request: Request) {
     let cleaningPlans: any[] = [];
     let cleaningPlanItems: any[] = [];
     let qualityReports: any[] = [];
+    let serviceReports: any[] = [];
     let workSites: any[] = [];
 
     if (workSiteIds.length) {
@@ -145,6 +146,14 @@ export async function GET(request: Request) {
       .limit(30);
     if (!qualityResult.error) qualityReports = qualityResult.data || [];
 
+    const serviceResult = await supabase
+      .from("service_reports")
+      .select("*")
+      .eq("employee_name", employeeName)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (!serviceResult.error) serviceReports = serviceResult.data || [];
+
     let materialProducts: any[] = [];
     let materialReports: any[] = [];
 
@@ -179,7 +188,8 @@ export async function GET(request: Request) {
       workSites,
       cleaningPlans,
       cleaningPlanItems,
-      qualityReports
+      qualityReports,
+      serviceReports
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unbekannter Supabase-Fehler";

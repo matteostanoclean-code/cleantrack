@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     if (!guard.ok) return guard.response;
     const { supabase } = guard.auth;
 
-    const [absenceResult, materialResult, chatResult, notificationResult, qualityResult, employeeResult] = await Promise.all([
+    const [absenceResult, materialResult, chatResult, notificationResult, qualityResult, serviceResult, employeeResult] = await Promise.all([
       supabase
         .from("absence_requests")
         .select("id, employee_name, request_type, absence_type, start_date, end_date, reason, status, created_at, admin_response, decided_at")
@@ -54,12 +54,17 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(80),
       supabase
+        .from("service_reports")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(80),
+      supabase
         .from("employee_profiles")
         .select("id, name, email, role, active")
         .order("name", { ascending: true })
     ]);
 
-    const errors = [absenceResult.error, materialResult.error, chatResult.error, notificationResult.error, qualityResult.error, employeeResult.error].filter(Boolean);
+    const errors = [absenceResult.error, materialResult.error, chatResult.error, notificationResult.error, qualityResult.error, serviceResult.error, employeeResult.error].filter(Boolean);
     if (errors.length) throw new Error(errors[0]?.message || "Daten konnten nicht geladen werden.");
 
     const openAbsences = (absenceResult.data || []).filter(isOpen);
@@ -71,6 +76,7 @@ export async function GET(request: Request) {
     });
     const openNotifications = (notificationResult.data || []).filter(isOpen);
     const openQualityReports = (qualityResult.data || []).filter(isOpen);
+    const openServiceReports = (serviceResult.data || []).filter(isOpen);
 
     return NextResponse.json({
       ok: true,
@@ -79,6 +85,7 @@ export async function GET(request: Request) {
       chatMessages: openChats,
       notifications: openNotifications,
       qualityReports: openQualityReports,
+      serviceReports: openServiceReports,
       employees: employeeResult.data || []
     });
   } catch (error) {
@@ -234,6 +241,42 @@ export async function PATCH(request: Request) {
         todo_status: "open",
         created_at: new Date().toISOString()
       });
+
+      return NextResponse.json({ ok: true, item: data });
+    }
+
+
+    if (type === "service") {
+      const status = action === "reject" || action === "rejected" ? "rejected" : action === "approve" || action === "approved" ? "approved" : "done";
+      const { data, error } = await supabase
+        .from("service_reports")
+        .update({ status })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) return NextResponse.json({ ok: false, error: "Leistungsnachweis wurde nicht gefunden." }, { status: 404 });
+
+      await supabase.from("chat_messages").insert({
+        employee_name: data.employee_name,
+        sender_name: profile.name,
+        sender_role: "admin",
+        message: `Dein Leistungsnachweis wurde ${status === "rejected" ? "abgelehnt" : status === "approved" ? "freigegeben" : "erledigt"}.${adminResponse ? ` ${adminResponse}` : ""}`,
+        body: `Dein Leistungsnachweis wurde ${status === "rejected" ? "abgelehnt" : status === "approved" ? "freigegeben" : "erledigt"}.${adminResponse ? ` ${adminResponse}` : ""}`,
+        text: `Dein Leistungsnachweis wurde ${status === "rejected" ? "abgelehnt" : status === "approved" ? "freigegeben" : "erledigt"}.${adminResponse ? ` ${adminResponse}` : ""}`,
+        read_by_admin: true,
+        read_by_employee: false,
+        status: "open",
+        todo_status: "open",
+        created_at: new Date().toISOString()
+      });
+
+      await supabase
+        .from("admin_notifications")
+        .update({ status: "resolved", read: true, resolved_at: new Date().toISOString(), admin_response: adminResponse || status })
+        .eq("task_id", data.task_id)
+        .eq("notification_type", "service_report");
 
       return NextResponse.json({ ok: true, item: data });
     }

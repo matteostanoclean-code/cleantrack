@@ -49,6 +49,20 @@ type QualityRow = {
   created_at?: string | null;
 };
 
+type ServiceRow = {
+  id: string;
+  task_id?: string | null;
+  employee_name?: string | null;
+  work_site_id?: string | null;
+  work_site_name?: string | null;
+  customer_name?: string | null;
+  signer_name?: string | null;
+  signature_url?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type ChatRow = {
   id: string;
   employee_name?: string | null;
@@ -84,9 +98,10 @@ type AdminData = {
   chatMessages: ChatRow[];
   notifications: NotificationRow[];
   qualityReports: QualityRow[];
+  serviceReports: ServiceRow[];
 };
 
-type Tab = "overview" | "absence" | "material" | "quality" | "chat" | "notifications";
+type Tab = "overview" | "absence" | "material" | "quality" | "service" | "chat" | "notifications";
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -214,10 +229,11 @@ function AdminPage() {
     material: data?.materialReports?.length || 0,
     chat: data?.chatMessages?.length || 0,
     notifications: data?.notifications?.length || 0,
-    quality: data?.qualityReports?.length || 0
+    quality: data?.qualityReports?.length || 0,
+    service: data?.serviceReports?.length || 0
   }), [data]);
 
-  const total = counts.absence + counts.material + counts.quality + counts.chat + counts.notifications;
+  const total = counts.absence + counts.material + counts.quality + counts.service + counts.chat + counts.notifications;
 
   const load = useCallback(async (tokenOverride?: string) => {
     const currentToken = tokenOverride || token;
@@ -266,7 +282,7 @@ function AdminPage() {
     await load(accessToken);
   }
 
-  async function patchItem(type: "absence" | "material" | "quality" | "chat" | "notification", id: string, action: string) {
+  async function patchItem(type: "absence" | "material" | "quality" | "service" | "chat" | "notification", id: string, action: string) {
     setSavingId(id);
     setError(null);
     try {
@@ -327,7 +343,7 @@ function AdminPage() {
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-blue-300">Adminbereich</p>
             <h1 className="text-3xl font-black">Freigaben</h1>
-            <p className="mt-1 text-sm text-slate-400">Urlaub, Material, Chat und Meldungen bearbeiten.</p>
+            <p className="mt-1 text-sm text-slate-400">Urlaub, Material, Qualität, Leistungsnachweise, Chat und Meldungen bearbeiten.</p>
           </div>
           <Link href="/mitarbeiter" className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-black text-blue-100">App</Link>
         </header>
@@ -340,10 +356,11 @@ function AdminPage() {
             </div>
             <button onClick={() => load()} disabled={loading} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">{loading ? "Lade…" : "Aktualisieren"}</button>
           </div>
-          <div className="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.absence}</p><p className="text-slate-500">Urlaub</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.material}</p><p className="text-slate-500">Material</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.quality}</p><p className="text-slate-500">Qualität</p></div>
+            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.service}</p><p className="text-slate-500">Leistung</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.chat}</p><p className="text-slate-500">Chat</p></div>
             <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.notifications}</p><p className="text-slate-500">Meldung</p></div>
           </div>
@@ -356,6 +373,7 @@ function AdminPage() {
           <SectionButton active={tab === "absence"} label="Urlaub" count={counts.absence} onClick={() => setTab("absence")} />
           <SectionButton active={tab === "material"} label="Material" count={counts.material} onClick={() => setTab("material")} />
           <SectionButton active={tab === "quality"} label="Qualität" count={counts.quality} onClick={() => setTab("quality")} />
+          <SectionButton active={tab === "service"} label="Leistung" count={counts.service} onClick={() => setTab("service")} />
           <SectionButton active={tab === "chat"} label="Chat" count={counts.chat} onClick={() => setTab("chat")} />
           <SectionButton active={tab === "notifications"} label="Meldungen" count={counts.notifications} onClick={() => setTab("notifications")} />
         </nav>
@@ -449,6 +467,34 @@ function AdminPage() {
                 </div>
               </article>
             )) : <EmptyCard title="Keine offenen Qualitätsnachweise" text="Wenn Mitarbeiter einen Nachweis senden, erscheint er hier mit Foto und Checkliste." />}
+          </section>
+        )}
+
+        {(tab === "overview" || tab === "service") && (
+          <section className="space-y-3">
+            <h2 className="font-black">Leistungsnachweise</h2>
+            {data?.serviceReports?.length ? data.serviceReports.map((row) => (
+              <article key={row.id} className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-black">{row.work_site_name || "Objekt"}</p>
+                    <p className="mt-1 text-sm text-slate-400">{row.employee_name || "Mitarbeiter"} · {formatDateTime(row.created_at)}</p>
+                    <p className="mt-1 text-xs text-slate-500">Kunde: {row.customer_name || "—"} · Unterschrift: {row.signer_name || "erfasst"}</p>
+                  </div>
+                  <StatusBadge status={row.status} />
+                </div>
+                {row.signature_url ? (
+                  <a href={row.signature_url} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 p-3 text-center text-sm font-black text-blue-100">Unterschrift öffnen</a>
+                ) : null}
+                {row.notes && <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-sm text-slate-300">{row.notes}</p>}
+                <textarea value={noteById[row.id] || ""} onChange={(event) => setNoteById((old) => ({ ...old, [row.id]: event.target.value }))} rows={2} className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500" placeholder="Antwort / Hinweis" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <button disabled={savingId === row.id} onClick={() => patchItem("service", row.id, "approve")} className="rounded-2xl bg-blue-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Freigeben</button>
+                  <button disabled={savingId === row.id} onClick={() => patchItem("service", row.id, "done")} className="rounded-2xl bg-emerald-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Erledigt</button>
+                  <button disabled={savingId === row.id} onClick={() => patchItem("service", row.id, "reject")} className="rounded-2xl bg-red-600 px-2 py-3 text-xs font-black text-white disabled:opacity-50">Ablehnen</button>
+                </div>
+              </article>
+            )) : <EmptyCard title="Keine offenen Leistungsnachweise" text="Wenn ein Kunde auf dem Handy unterschreibt, landet der Nachweis hier." />}
           </section>
         )}
 

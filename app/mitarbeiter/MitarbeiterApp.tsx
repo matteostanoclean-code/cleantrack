@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -232,6 +232,21 @@ type QualityReport = {
   created_at?: string | null;
 };
 
+type ServiceReport = {
+  id: string;
+  task_id?: string | null;
+  employee_profile_id?: string | null;
+  employee_name?: string | null;
+  work_site_id?: string | null;
+  work_site_name?: string | null;
+  customer_name?: string | null;
+  signer_name?: string | null;
+  signature_url?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type AppData = {
   ok: boolean;
   error?: string;
@@ -250,6 +265,7 @@ type AppData = {
   cleaningPlans: CleaningPlan[];
   cleaningPlanItems: CleaningPlanItem[];
   qualityReports: QualityReport[];
+  serviceReports: ServiceReport[];
 };
 
 type TimeEntry = {
@@ -319,7 +335,7 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue") return value;
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue" || value === "service") return value;
   if (value === "search" || value === "admin") return "menu";
   return "home";
 };
@@ -599,7 +615,7 @@ function AppShell({ children, active, setActive, unreadCount = 0 }: { children: 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
           <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
             {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects", "issue"].includes(active));
+              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects", "issue", "service"].includes(active));
               return (
                 <button
                   key={item.key}
@@ -2502,6 +2518,217 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
   );
 }
 
+
+function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload }: { data: AppData | null; authToken: string; selectedTaskId: string | null; onBack: () => void; onReload: () => void }) {
+  const today = todayIso();
+  const taskOptions = useMemo(() => {
+    const rows = [...(data?.tasks || [])]
+      .filter((task) => (task.task_date || "") >= today || task.id === selectedTaskId)
+      .sort((a, b) => `${a.task_date || "9999-12-31"}-${a.start_time || "99:99"}`.localeCompare(`${b.task_date || "9999-12-31"}-${b.start_time || "99:99"}`));
+    return rows.length ? rows : [...(data?.tasks || [])].slice(0, 20);
+  }, [data?.tasks, selectedTaskId, today]);
+  const [taskId, setTaskId] = useState(selectedTaskId || taskOptions[0]?.id || "");
+  const [signerName, setSignerName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+
+  useEffect(() => {
+    if (!taskId && taskOptions[0]?.id) setTaskId(taskOptions[0].id);
+  }, [taskId, taskOptions]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const resize = () => {
+      const parentWidth = canvas.parentElement?.clientWidth || 360;
+      const ratio = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+      canvas.width = Math.max(320, parentWidth) * ratio;
+      canvas.height = 180 * ratio;
+      canvas.style.width = "100%";
+      canvas.style.height = "180px";
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.scale(ratio, ratio);
+      context.lineWidth = 3;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.strokeStyle = "#e2e8f0";
+    };
+    resize();
+    if (typeof window !== "undefined") window.addEventListener("resize", resize);
+    return () => {
+      if (typeof window !== "undefined") window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  const selectedTask = useMemo(() => taskOptions.find((task) => task.id === taskId) || null, [taskOptions, taskId]);
+  const recentReports = data?.serviceReports || [];
+
+  function point(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!context) return;
+    drawingRef.current = true;
+    canvas?.setPointerCapture(event.pointerId);
+    const pos = point(event);
+    context.beginPath();
+    context.moveTo(pos.x, pos.y);
+    setHasSignature(true);
+  }
+
+  function draw(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+    const context = canvasRef.current?.getContext("2d");
+    if (!context) return;
+    const pos = point(event);
+    context.lineTo(pos.x, pos.y);
+    context.stroke();
+  }
+
+  function stopDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    drawingRef.current = false;
+    try { canvasRef.current?.releasePointerCapture(event.pointerId); } catch {}
+  }
+
+  function clearSignature() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    const rect = canvas.getBoundingClientRect();
+    context.clearRect(0, 0, rect.width, rect.height);
+    setHasSignature(false);
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTask) {
+      setMessage("Bitte zuerst einen Einsatz auswählen.");
+      return;
+    }
+    if (!hasSignature) {
+      setMessage("Bitte zuerst unterschreiben lassen.");
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mobile/service-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          taskId: selectedTask.id,
+          workSiteId: selectedTask.work_site_id,
+          workSiteName: selectedTask.site || selectedTask.customer_name,
+          customerName: selectedTask.customer_name,
+          signerName,
+          notes,
+          signatureDataUrl: canvas.toDataURL("image/png")
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Leistungsnachweis konnte nicht gespeichert werden.");
+      setMessage("Leistungsnachweis gespeichert. Der Admin sieht ihn jetzt in den Freigaben.");
+      setSignerName("");
+      setNotes("");
+      clearSignature();
+      onReload();
+    } catch (saveError) {
+      setMessage(saveError instanceof Error ? saveError.message : "Leistungsnachweis konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">Leistungsnachweis</h1>
+          <p className="mt-1 text-xs text-slate-400">Kunde bestätigt den erledigten Einsatz direkt auf dem Handy.</p>
+        </div>
+        <button onClick={onBack} className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-black text-blue-100">Zurück</button>
+      </div>
+
+      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Einsatz</span>
+          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            {taskOptions.map((task) => (
+              <option key={task.id} value={task.id}>{dateLabel(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
+            ))}
+          </select>
+        </label>
+
+        {selectedTask ? (
+          <section className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
+            <p className="font-black text-blue-100">{selectedTask.title || "Einsatz"}</p>
+            <p className="mt-1 text-sm text-slate-300">{selectedTask.site || selectedTask.customer_name || "Objekt ohne Name"}</p>
+            <p className="mt-1 text-xs text-slate-500">{dateLabel(selectedTask.task_date)} · {taskTime(selectedTask)} · {taskDuration(selectedTask)}</p>
+          </section>
+        ) : <EmptyCard title="Kein Einsatz vorhanden" text="Bitte zuerst im Admin einen Termin für den Mitarbeiter anlegen." />}
+
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Name des Kunden / Ansprechpartners</span>
+          <input value={signerName} onChange={(event) => setSignerName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z. B. Herr Müller" />
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz optional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was wurde bestätigt? Besonderheiten?" />
+        </label>
+
+        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Unterschrift Kunde</p>
+            <button type="button" onClick={clearSignature} className="rounded-xl border border-slate-700 px-3 py-1 text-xs font-black text-slate-300">Löschen</button>
+          </div>
+          <canvas
+            ref={canvasRef}
+            onPointerDown={startDrawing}
+            onPointerMove={draw}
+            onPointerUp={stopDrawing}
+            onPointerLeave={stopDrawing}
+            className="touch-none rounded-2xl border border-slate-800 bg-slate-900"
+          />
+          <p className="mt-2 text-xs text-slate-500">Mit Finger oder Stift unterschreiben lassen.</p>
+        </div>
+
+        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
+        <button disabled={saving || !selectedTask || !hasSignature} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Leistungsnachweis senden"}</button>
+      </form>
+
+      <section className="space-y-2">
+        <h2 className="font-black">Letzte Leistungsnachweise</h2>
+        {recentReports.length ? recentReports.slice(0, 5).map((report) => (
+          <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-black">{report.work_site_name || "Objekt"}</p>
+                <p className="mt-1 text-xs text-slate-400">{report.signer_name || "Kunde"} · {report.status || "signed"}</p>
+                <p className="mt-1 text-xs text-slate-500">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
+              </div>
+              {report.signature_url ? <a href={report.signature_url} target="_blank" rel="noreferrer" className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Signatur</a> : null}
+            </div>
+          </article>
+        )) : <EmptyCard title="Noch kein Leistungsnachweis" text="Gespeicherte Kundenbestätigungen erscheinen hier." />}
+      </section>
+    </div>
+  );
+}
+
 function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { data: AppData | null; employeeName: string; onEmployeeChange: (name: string) => void; onLogout: () => Promise<void>; setActive: (tab: Tab) => void }) {
   const qualityOpen = (data?.tasks || []).filter((task) => !task.done).length;
   const items: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
@@ -2513,6 +2740,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Tagesroute", subtitle: "Heute sauber abfahren", icon: "map", tab: "route" },
     { title: "Objektmappe", subtitle: `${(data?.workSites?.length || data?.employeeWorkSites?.length || 0)} Objekte`, icon: "building", tab: "objects" },
     { title: "Objektmeldung", subtitle: "Schaden, Mangel oder Hinweis", icon: "shield", tab: "issue" },
+    { title: "Leistungsnachweis", subtitle: `${data?.serviceReports?.length || 0} Kundenbestätigungen`, icon: "sheet", tab: "service" },
     { title: "Tagesabschluss", subtitle: "Arbeitsende ans Büro melden", icon: "sheet", tab: "dayclose" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
@@ -2781,6 +3009,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "route" && <RoutePlanScreen assignments={assignments} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "objects" && <ObjectsScreen data={data} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "issue" && <IssueScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "service" && <ServiceReportScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
