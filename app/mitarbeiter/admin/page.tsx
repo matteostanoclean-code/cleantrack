@@ -201,7 +201,7 @@ function StatCard({ title, value, caption }: { title: string; value: string | nu
 
 function TabButton({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`w-full rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+    <button onClick={onClick} className={`min-w-[7.5rem] rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
       <span className="block font-black">{label}</span>
       {typeof count === "number" ? <span className="text-[10px] opacity-80">{count} Einträge</span> : null}
     </button>
@@ -427,7 +427,7 @@ export default function AdminDashboardPage() {
           <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Logout</button>
         </header>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
           <TabButton active={tab === "overview"} label="Übersicht" onClick={() => setTab("overview")} />
           <TabButton active={tab === "tasks"} label="Einsätze" count={data?.tasks?.length || 0} onClick={() => setTab("tasks")} />
           <TabButton active={tab === "employees"} label="Mitarbeiter" count={data?.employees?.length || 0} onClick={() => setTab("employees")} />
@@ -456,6 +456,7 @@ export default function AdminDashboardPage() {
               <p className="font-black">Schnellzugriff</p>
               <div className="mt-3 grid gap-2">
                 <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">Tageszentrale öffnen</Link>
+                <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-blue-500/50 bg-blue-500/10 px-4 py-3 font-black text-blue-100">Planungszentrale öffnen</Link>
                 <button onClick={() => setTab("tasks")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Einsatz erstellen</button>
                 <button onClick={() => setTab("customers")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Kunde anlegen</button>
                 <button onClick={() => setTab("sites")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Objekt anlegen</button>

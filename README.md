@@ -166,3 +166,18 @@ git push
 - Serien-Einsätze können später im Tab **Einsätze** auf einen Mitarbeiter übertragen werden.
 
 Vor dem Deploy bitte `supabase/mobile_customer_year_planning.sql` in Supabase ausführen.
+
+## Update: Admin-Planungszentrale
+
+Neu in dieser Version:
+
+- `/mitarbeiter/admin/planung` als Planungszentrale
+- Wochenplan mit direkten Mitarbeiter-Zuweisungen
+- Liste aller offenen Einsätze ohne Mitarbeiter
+- Serienverwaltung für Jahresplanungen und wiederkehrende Einsätze
+- Serie ab heute einem Mitarbeiter zuweisen
+- Serie ab heute bearbeiten: Startzeit, Endzeit, Planminuten
+- Serie ab heute pausieren oder wieder öffnen
+- Admin-Dashboard-Buttonleiste horizontal scrollbar, damit Buttons auf dem Handy nicht abgeschnitten werden
+
+Kein neues Supabase-SQL nötig.
