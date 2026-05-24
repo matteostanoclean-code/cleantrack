@@ -76,3 +76,34 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:kontakt@matteostano-clean.de
 ```
+
+## Update: Automatische Einsatz-Erinnerungen
+
+Neue Funktion:
+
+- Vercel Cron ruft alle 15 Minuten `/api/cron/task-reminders` auf
+- Mitarbeiter bekommen Push-Erinnerungen ca. 60 Minuten und ca. 15 Minuten vor Einsatzbeginn
+- Erinnerung wird nur einmal pro Einsatz und Stufe gesendet
+- Alte/stale Push-Geräte werden automatisch deaktiviert
+
+Supabase SQL einmal ausführen:
+
+```text
+supabase/mobile_einsatz_erinnerungen.sql
+```
+
+Optional in Vercel setzen:
+
+```env
+CRON_SECRET=
+```
+
+Wenn `CRON_SECRET` gesetzt ist, muss der Cron-Aufruf den passenden Bearer-Token senden. Ohne `CRON_SECRET` läuft der Cron direkt über Vercel.
+
+Upload:
+
+```powershell
+git add .
+git commit -m "Add automatic task push reminders"
+git push
+```
