@@ -68,6 +68,12 @@ type RawTimeEntry = {
   error_message?: string | null;
   created_at?: string | null;
   expected_start_time?: string | null;
+  planned_minutes?: number | null;
+  actual_minutes?: number | null;
+  overtime_minutes?: number | null;
+  approved_minutes?: number | null;
+  approval_status?: string | null;
+  admin_response?: string | null;
 };
 
 type Absence = {
@@ -546,7 +552,11 @@ function groupTimeEntries(entries: RawTimeEntry[]): TimeEntry[] {
       const lastClockOut = [...rows].reverse().find((row) => row.action === "clock_out");
       const startTime = firstClockIn?.created_at ? new Date(firstClockIn.created_at).getTime() : 0;
       const endTime = lastClockOut?.created_at ? new Date(lastClockOut.created_at).getTime() : 0;
-      const minutes = startTime && endTime && endTime > startTime ? Math.round((endTime - startTime) / 60000) : 0;
+      const rawMinutes = startTime && endTime && endTime > startTime ? Math.round((endTime - startTime) / 60000) : 0;
+      const approvalStatus = String(lastClockOut?.approval_status || "").toLowerCase();
+      const creditedMinutes = approvalStatus === "pending"
+        ? Math.max(0, Number(lastClockOut?.approved_minutes || lastClockOut?.planned_minutes || rawMinutes))
+        : Math.max(0, Number(lastClockOut?.approved_minutes || rawMinutes));
       const day = key.slice(0, 10);
       return {
         id: key,
@@ -554,9 +564,13 @@ function groupTimeEntries(entries: RawTimeEntry[]): TimeEntry[] {
         start: firstClockIn?.created_at ? formatTime(firstClockIn.created_at) : "—",
         end: lastClockOut?.created_at ? formatTime(lastClockOut.created_at) : "",
         site: rows[0]?.work_site_name || "Ohne Objekt",
-        status: lastClockOut ? "open" : "missing",
-        minutes,
-        note: lastClockOut ? "Gespeichert" : "Noch offen"
+        status: lastClockOut ? approvalStatus === "pending" ? "open" : "approved" : "missing",
+        minutes: creditedMinutes,
+        note: lastClockOut
+          ? approvalStatus === "pending"
+            ? `Überzeit wartet auf Freigabe · gutgeschrieben: ${minutesToHours(creditedMinutes)}`
+            : "Freigegeben / gebucht"
+          : "Noch offen"
       } satisfies TimeEntry;
     })
     .sort((a, b) => b.id.localeCompare(a.id));

@@ -347,7 +347,7 @@ export default function TageszentralePage() {
         {message && <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{message}</p>}
         {loading && <p className="rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">Aktualisiere Live-Status…</p>}
 
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {([
             ["all", "Alle", counts.all],
             ["late", "Überfällig", counts.late],
@@ -357,7 +357,7 @@ export default function TageszentralePage() {
             ["upcoming", "Geplant", counts.upcoming],
             ["done", "Erledigt", counts.done]
           ] as Array<["all" | TaskState, string, number]>).map(([key, label, count]) => (
-            <button key={key} onClick={() => setFilter(key)} className={`min-w-fit rounded-2xl border px-3 py-2 text-left text-xs ${filter === key ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+            <button key={key} onClick={() => setFilter(key)} className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${filter === key ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
               <span className="block font-black">{label}</span>
               <span className="opacity-80">{count}</span>
             </button>

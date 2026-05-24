@@ -67,6 +67,45 @@ function taskExpectedStart(task: Record<string, any>) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+function minutesFromTimeWindow(start?: unknown, end?: unknown) {
+  const [sh, sm] = clean(start).split(":").map(Number);
+  const [eh, em] = clean(end).split(":").map(Number);
+  if (!Number.isFinite(sh) || !Number.isFinite(eh)) return 0;
+  let a = (sh || 0) * 60 + (sm || 0);
+  let b = (eh || 0) * 60 + (em || 0);
+  if (b < a) b += 1440;
+  return Math.max(0, b - a);
+}
+
+function plannedMinutesFromTask(task: Record<string, any>) {
+  const direct = numberOrNull(task.planned_minutes ?? task.max_minutes ?? task.paid_minutes ?? task.wage_minutes);
+  if (direct && direct > 0) return Math.round(direct);
+  return minutesFromTimeWindow(task.start_time, task.end_time);
+}
+
+function workedMinutesFromEntries(entries: Record<string, any>[]) {
+  const rows = [...entries]
+    .filter((entry) => entry.created_at && entry.success !== false)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  let total = 0;
+  let clockStart: number | null = null;
+
+  for (const row of rows) {
+    const timestamp = new Date(row.created_at).getTime();
+    if (!Number.isFinite(timestamp)) continue;
+    if (row.action === "clock_in" || row.action === "break_end") {
+      clockStart = timestamp;
+    }
+    if ((row.action === "break_start" || row.action === "clock_out") && clockStart) {
+      total += Math.max(0, Math.round((timestamp - clockStart) / 60000));
+      clockStart = null;
+    }
+  }
+
+  return total;
+}
+
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
   const earthRadius = 6371000;
   const toRad = (degree: number) => (degree * Math.PI) / 180;
@@ -93,18 +132,33 @@ function validateSequence(currentStatus: "idle" | "working" | "break", action: s
 }
 
 async function insertTimeEntry(auth: any, payload: Record<string, any>) {
-  const { data, error } = await auth.supabase.from("time_entries").insert(payload).select("*").single();
-  if (!error) return data;
+  let attempt: Record<string, any> = { ...payload };
+  let lastError: any = null;
 
-  // Fallback, falls die SQL-Erweiterung für task_id noch nicht ausgeführt wurde.
-  if (String(error.message || "").toLowerCase().includes("task_id")) {
-    const { task_id, ...withoutTaskId } = payload;
-    const fallback = await auth.supabase.from("time_entries").insert(withoutTaskId).select("*").single();
-    if (fallback.error) throw new Error(fallback.error.message);
-    return fallback.data;
+  for (let tries = 0; tries < 8; tries += 1) {
+    const { data, error } = await auth.supabase.from("time_entries").insert(attempt).select("*").single();
+    if (!error) return data;
+    lastError = error;
+
+    const message = String(error.message || "");
+    const match = message.match(/column "([^"]+)"/i);
+    const missingColumn = match?.[1];
+    if (missingColumn && Object.prototype.hasOwnProperty.call(attempt, missingColumn)) {
+      const { [missingColumn]: _removed, ...rest } = attempt;
+      attempt = rest;
+      continue;
+    }
+
+    if (message.toLowerCase().includes("task_id") && Object.prototype.hasOwnProperty.call(attempt, "task_id")) {
+      const { task_id, ...withoutTaskId } = attempt;
+      attempt = withoutTaskId;
+      continue;
+    }
+
+    break;
   }
 
-  throw new Error(error.message);
+  throw new Error(lastError?.message || "Stempelzeit konnte nicht gespeichert werden.");
 }
 
 export async function POST(request: Request) {
@@ -210,6 +264,7 @@ export async function POST(request: Request) {
       }
     }
 
+    const nowIso = new Date().toISOString();
     const basePayload = {
       task_id: task.id,
       employee_name: employeeName,
@@ -221,7 +276,7 @@ export async function POST(request: Request) {
       longitude: employeeLng,
       distance_m: distance,
       allowed_radius_m: hasSiteGps ? allowedRadius : null,
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
       expected_start_time: taskExpectedStart(task) || body.expectedStartTime || null
     };
 
@@ -240,17 +295,73 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: errorMessage, gpsStatus, distanceM: distance, allowedRadiusM: allowedRadius }, { status: 403 });
     }
 
+    let approvalPayload: Record<string, any> = {};
+    let approvalInfo: Record<string, any> | null = null;
+
+    if (action === "clock_out") {
+      const plannedMinutes = plannedMinutesFromTask(task);
+      let previousEntries: Record<string, any>[] = [];
+      const taskEntriesResult = await auth.supabase
+        .from("time_entries")
+        .select("*")
+        .eq("task_id", task.id)
+        .eq("employee_name", employeeName)
+        .neq("success", false)
+        .order("created_at", { ascending: true });
+
+      if (!taskEntriesResult.error && Array.isArray(taskEntriesResult.data)) {
+        previousEntries = taskEntriesResult.data;
+      }
+
+      const actualMinutes = workedMinutesFromEntries([
+        ...previousEntries,
+        { ...basePayload, success: true }
+      ]);
+      const overtimeMinutes = plannedMinutes > 0 ? Math.max(0, actualMinutes - plannedMinutes) : 0;
+      const approvalStatus = overtimeMinutes > 0 ? "pending" : "not_required";
+      const approvedMinutes = overtimeMinutes > 0 ? plannedMinutes : actualMinutes;
+
+      approvalPayload = {
+        planned_minutes: plannedMinutes || null,
+        actual_minutes: actualMinutes || null,
+        overtime_minutes: overtimeMinutes,
+        approved_minutes: approvedMinutes || null,
+        approval_status: approvalStatus,
+        admin_response: null
+      };
+      approvalInfo = { plannedMinutes, actualMinutes, overtimeMinutes, approvedMinutes, approvalStatus };
+    }
+
     const entry = await insertTimeEntry(auth, {
       ...basePayload,
+      ...approvalPayload,
       success: true,
       error_message: `GPS geprüft: ${distance} m von ${allowedRadius} m Radius.`
     });
 
     if (action === "clock_out") {
       await auth.supabase.from("tasks").update({ status: "done", done: true }).eq("id", task.id);
+
+      if (approvalInfo && approvalInfo.overtimeMinutes > 0) {
+        await auth.supabase.from("admin_notifications").insert({
+          title: "Überzeit-Freigabe nötig",
+          message: `${employeeName} hat ${approvalInfo.actualMinutes} Minuten gebucht. Geplant waren ${approvalInfo.plannedMinutes} Minuten. Bitte ${approvalInfo.overtimeMinutes} Minuten Überzeit freigeben oder ablehnen.`,
+          employee_name: employeeName,
+          work_site_name: siteName,
+          object_name: siteName,
+          site: siteName,
+          read: false,
+          status: "open",
+          notification_type: "time_overtime",
+          overtime_minutes: approvalInfo.overtimeMinutes,
+          task_id: task.id,
+          work_site_id: workSiteId,
+          created_at: new Date().toISOString()
+        });
+      }
     }
 
-    return NextResponse.json({ ok: true, entry, gpsStatus, distanceM: distance, allowedRadiusM: hasSiteGps ? allowedRadius : null, hasSiteGps, taskId: task.id });
+    return NextResponse.json({ ok: true, entry, approval: approvalInfo, gpsStatus, distanceM: distance, allowedRadiusM: hasSiteGps ? allowedRadius : null, hasSiteGps, taskId: task.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Stempeln fehlgeschlagen.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

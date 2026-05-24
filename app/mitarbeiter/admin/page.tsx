@@ -201,8 +201,8 @@ function StatCard({ title, value, caption }: { title: string; value: string | nu
 
 function TabButton({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`min-w-[7.5rem] rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
-      <span className="block font-black">{label}</span>
+    <button onClick={onClick} className={`w-full rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+      <span className="block truncate font-black">{label}</span>
       {typeof count === "number" ? <span className="text-[10px] opacity-80">{count} Einträge</span> : null}
     </button>
   );
@@ -348,6 +348,10 @@ export default function AdminDashboardPage() {
     setCustomerForm({ ...customerForm, work_days: next });
   }
 
+  function scrollToTop() {
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+  }
+
   async function useCurrentLocationForSite() {
     setError(null);
     setMessage("Standort wird gelesen…");
@@ -398,6 +402,12 @@ export default function AdminDashboardPage() {
     .sort((a, b) => (a.info?.daysUntil || 0) - (b.info?.daysUntil || 0))
     .slice(0, 6), [data?.employees]);
 
+
+  const upcomingTasks = useMemo(() => (data?.tasks || [])
+    .filter((task) => String(task.task_date || "") >= today)
+    .sort((a, b) => `${a.task_date || "9999-12-31"}-${a.start_time || "99:99"}`.localeCompare(`${b.task_date || "9999-12-31"}-${b.start_time || "99:99"}`))
+    .slice(0, 5), [data?.tasks]);
+
   const selectedCustomer = (data?.customers || []).find((customer) => customer.id === siteForm.customer_id || customer.id === taskForm.customer_id);
   const sitesForTask = (data?.workSites || []).filter((site) => !taskForm.customer_id || site.customer_id === taskForm.customer_id || clean(site.customer_name).toLowerCase() === labelCustomer(selectedCustomer).toLowerCase());
   const selectedTaskSite = (data?.workSites || []).find((site) => site.id === taskForm.work_site_id);
@@ -427,7 +437,7 @@ export default function AdminDashboardPage() {
           <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Logout</button>
         </header>
 
-        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <TabButton active={tab === "overview"} label="Übersicht" onClick={() => setTab("overview")} />
           <TabButton active={tab === "tasks"} label="Einsätze" count={data?.tasks?.length || 0} onClick={() => setTab("tasks")} />
           <TabButton active={tab === "employees"} label="Mitarbeiter" count={data?.employees?.length || 0} onClick={() => setTab("employees")} />
@@ -490,11 +500,11 @@ export default function AdminDashboardPage() {
 
             <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="font-black">Nächste Einsätze</p>
-                <button onClick={() => load()} className="text-xs font-black text-blue-200">Neu laden</button>
+                <p className="font-black">Kommende Einsätze</p>
+                <button onClick={() => load(token)} className="text-xs font-black text-blue-200">Neu laden</button>
               </div>
               <div className="space-y-3">
-                {(data?.tasks || []).slice(0, 5).map((task) => (
+                {upcomingTasks.map((task) => (
                   <div key={task.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -506,7 +516,7 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
                 ))}
-                {!(data?.tasks || []).length && <EmptyCard title="Keine Einsätze" text="Sobald Einsätze angelegt sind, erscheinen sie hier." />}
+                {!upcomingTasks.length && <EmptyCard title="Keine kommenden Einsätze" text="Hier werden nur heutige und zukünftige Termine angezeigt." />}
               </div>
             </section>
           </div>
@@ -657,7 +667,7 @@ export default function AdminDashboardPage() {
                     <StatusPill value={employee.active ? "active" : "inactive"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setEmployeeForm({ ...emptyEmployee, ...employee, active: employee.active !== false, hourly_rate: String(employee.hourly_rate || "0"), monthly_hour_limit: String(employee.monthly_hour_limit || "0"), vacation_days: String(employee.vacation_days || employee.annual_vacation_days || "0"), annual_vacation_days: String(employee.annual_vacation_days || employee.vacation_days || "0"), birthday: clean(employee.birthday) })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => { setEmployeeForm({ ...emptyEmployee, ...employee, active: employee.active !== false, hourly_rate: String(employee.hourly_rate || "0"), monthly_hour_limit: String(employee.monthly_hour_limit || "0"), vacation_days: String(employee.vacation_days || employee.annual_vacation_days || "0"), annual_vacation_days: String(employee.annual_vacation_days || employee.vacation_days || "0"), birthday: clean(employee.birthday) }); scrollToTop(); }} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
                     <button onClick={() => patch({ type: "employee", ...employee, active: employee.active === false }, employee.active === false ? "Mitarbeiter aktiviert." : "Mitarbeiter deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{employee.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
@@ -731,7 +741,7 @@ export default function AdminDashboardPage() {
                     <StatusPill value={customer.active === false ? "inactive" : "active"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setCustomerForm({ ...emptyCustomer, id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: clean(customer.phone || customer.customer_phone), email: clean(customer.email || customer.customer_email), customer_number: clean(customer.customer_number), notes: clean(customer.notes || customer.customer_notes), active: customer.active !== false, work_days: Array.isArray(customer.work_days) ? customer.work_days.map(String) : [], plan_start_time: clean(customer.default_start_time) || "08:00", plan_end_time: clean(customer.default_end_time) || "10:00", planning_limit_hours_per_day: customer.planning_limit_minutes_per_day ? String(Number(customer.planning_limit_minutes_per_day) / 60) : "2", default_task_title: clean(customer.default_task_title) || "Unterhaltsreinigung", work_site_id: clean(customer.default_work_site_id), generate_year_plan: false })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => { setCustomerForm({ ...emptyCustomer, id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: clean(customer.phone || customer.customer_phone), email: clean(customer.email || customer.customer_email), customer_number: clean(customer.customer_number), notes: clean(customer.notes || customer.customer_notes), active: customer.active !== false, work_days: Array.isArray(customer.work_days) ? customer.work_days.map(String) : [], plan_start_time: clean(customer.default_start_time) || "08:00", plan_end_time: clean(customer.default_end_time) || "10:00", planning_limit_hours_per_day: customer.planning_limit_minutes_per_day ? String(Number(customer.planning_limit_minutes_per_day) / 60) : "2", default_task_title: clean(customer.default_task_title) || "Unterhaltsreinigung", work_site_id: clean(customer.default_work_site_id), generate_year_plan: false }); scrollToTop(); }} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
                     <button onClick={() => patch({ type: "customer", id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: customer.phone || customer.customer_phone, email: customer.email || customer.customer_email, notes: customer.notes || customer.customer_notes, active: customer.active === false, work_days: Array.isArray(customer.work_days) ? customer.work_days : null, plan_start_time: customer.default_start_time, plan_end_time: customer.default_end_time, planning_limit_minutes_per_day: customer.planning_limit_minutes_per_day, default_task_title: customer.default_task_title, default_work_site_id: customer.default_work_site_id }, customer.active === false ? "Kunde aktiviert." : "Kunde deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{customer.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
@@ -787,7 +797,7 @@ export default function AdminDashboardPage() {
                     <StatusPill value={site.active === false ? "inactive" : "active"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setSiteForm({ ...emptySite, id: site.id, name: labelSite(site), customer_id: clean(site.customer_id), address: rowAddress(site), latitude: clean(site.latitude), longitude: clean(site.longitude), gps_required: Boolean(site.gps_required), allowed_radius_m: String(site.allowed_radius_m || 150), monthly_hour_quota: String(site.monthly_hour_quota || site.hour_quota || 0), notes: clean(site.notes), active: site.active !== false })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => { setSiteForm({ ...emptySite, id: site.id, name: labelSite(site), customer_id: clean(site.customer_id), address: rowAddress(site), latitude: clean(site.latitude), longitude: clean(site.longitude), gps_required: Boolean(site.gps_required), allowed_radius_m: String(site.allowed_radius_m || 150), monthly_hour_quota: String(site.monthly_hour_quota || site.hour_quota || 0), notes: clean(site.notes), active: site.active !== false }); scrollToTop(); }} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
                     <button onClick={() => patch({ type: "site", id: site.id, name: labelSite(site), customer_id: site.customer_id, address: rowAddress(site), latitude: site.latitude, longitude: site.longitude, gps_required: site.gps_required, allowed_radius_m: site.allowed_radius_m, monthly_hour_quota: site.monthly_hour_quota || site.hour_quota, notes: site.notes, active: site.active === false }, site.active === false ? "Objekt aktiviert." : "Objekt deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{site.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>

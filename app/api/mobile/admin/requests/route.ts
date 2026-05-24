@@ -21,13 +21,22 @@ function isOpen(row: AnyRow) {
   return !["done", "approved", "rejected", "resolved", "closed", "abgelehnt", "genehmigt", "erledigt"].includes(status);
 }
 
+function minutesLabel(minutes: unknown) {
+  const value = Number(minutes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0 Min.";
+  const h = Math.floor(value / 60);
+  const m = Math.round(value % 60);
+  if (!h) return `${m} Min.`;
+  return `${h}:${String(m).padStart(2, "0")} h`;
+}
+
 export async function GET(request: Request) {
   try {
     const guard = await requireAdmin(request);
     if (!guard.ok) return guard.response;
     const { supabase } = guard.auth;
 
-    const [absenceResult, materialResult, chatResult, notificationResult, qualityResult, serviceResult, employeeResult] = await Promise.all([
+    const [absenceResult, materialResult, chatResult, notificationResult, qualityResult, serviceResult, timeApprovalResult, employeeResult] = await Promise.all([
       supabase
         .from("absence_requests")
         .select("id, employee_name, request_type, absence_type, start_date, end_date, reason, status, created_at, admin_response, decided_at")
@@ -59,12 +68,19 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(80),
       supabase
+        .from("time_entries")
+        .select("*")
+        .eq("action", "clock_out")
+        .eq("approval_status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(120),
+      supabase
         .from("employee_profiles")
         .select("id, name, email, role, active")
         .order("name", { ascending: true })
     ]);
 
-    const errors = [absenceResult.error, materialResult.error, chatResult.error, notificationResult.error, qualityResult.error, serviceResult.error, employeeResult.error].filter(Boolean);
+    const errors = [absenceResult.error, materialResult.error, chatResult.error, notificationResult.error, qualityResult.error, serviceResult.error, timeApprovalResult.error, employeeResult.error].filter(Boolean);
     if (errors.length) throw new Error(errors[0]?.message || "Daten konnten nicht geladen werden.");
 
     const openAbsences = (absenceResult.data || []).filter(isOpen);
@@ -77,6 +93,7 @@ export async function GET(request: Request) {
     const openNotifications = (notificationResult.data || []).filter(isOpen);
     const openQualityReports = (qualityResult.data || []).filter(isOpen);
     const openServiceReports = (serviceResult.data || []).filter(isOpen);
+    const openTimeApprovals = timeApprovalResult.data || [];
 
     return NextResponse.json({
       ok: true,
@@ -86,6 +103,7 @@ export async function GET(request: Request) {
       notifications: openNotifications,
       qualityReports: openQualityReports,
       serviceReports: openServiceReports,
+      timeApprovals: openTimeApprovals,
       employees: employeeResult.data || []
     });
   } catch (error) {
@@ -279,6 +297,60 @@ export async function PATCH(request: Request) {
         .eq("notification_type", "service_report");
 
       return NextResponse.json({ ok: true, item: data });
+    }
+
+    if (type === "time") {
+      const status = action === "reject" || action === "rejected" ? "rejected" : "approved";
+      const { data: entry, error } = await supabase
+        .from("time_entries")
+        .update({
+          approval_status: status,
+          approved_at: new Date().toISOString(),
+          approved_by: profile.id,
+          admin_response: adminResponse || (status === "approved" ? "Überzeit freigegeben" : "Überzeit abgelehnt")
+        })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!entry) return NextResponse.json({ ok: false, error: "Zeiteintrag wurde nicht gefunden." }, { status: 404 });
+
+      const planned = Number(entry.planned_minutes || 0);
+      const actual = Number(entry.actual_minutes || 0);
+      const overtime = Number(entry.overtime_minutes || 0);
+      const approvedMinutes = status === "approved" ? actual : Math.max(0, planned);
+
+      await supabase
+        .from("time_entries")
+        .update({ approved_minutes: approvedMinutes })
+        .eq("id", id);
+
+      await supabase
+        .from("admin_notifications")
+        .update({ status: "resolved", read: true, resolved_at: new Date().toISOString(), admin_response: adminResponse || status })
+        .eq("task_id", entry.task_id)
+        .eq("notification_type", "time_overtime");
+
+      const reply = status === "approved"
+        ? `Deine Überzeit wurde freigegeben. Gebucht werden ${minutesLabel(approvedMinutes)}.${adminResponse ? ` ${adminResponse}` : ""}`
+        : `Deine Überzeit wurde abgelehnt. Gebucht bleibt die geplante Zeit ${minutesLabel(approvedMinutes)}.${adminResponse ? ` ${adminResponse}` : ""}`;
+
+      await supabase.from("chat_messages").insert({
+        employee_name: entry.employee_name,
+        sender_name: profile.name,
+        sender_role: "admin",
+        message: reply,
+        body: reply,
+        text: reply,
+        read_by_admin: true,
+        read_by_employee: false,
+        status: "open",
+        todo_status: "open",
+        created_at: new Date().toISOString()
+      });
+
+      return NextResponse.json({ ok: true, item: { ...entry, approval_status: status, approved_minutes: approvedMinutes, overtime_minutes: overtime } });
     }
 
     if (type === "notification") {

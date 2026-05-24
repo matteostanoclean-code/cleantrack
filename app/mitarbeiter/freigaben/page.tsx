@@ -63,6 +63,22 @@ type ServiceRow = {
   created_at?: string | null;
 };
 
+type TimeApprovalRow = {
+  id: string;
+  task_id?: string | null;
+  employee_name?: string | null;
+  work_site_id?: string | null;
+  work_site_name?: string | null;
+  action?: string | null;
+  created_at?: string | null;
+  planned_minutes?: number | null;
+  actual_minutes?: number | null;
+  overtime_minutes?: number | null;
+  approved_minutes?: number | null;
+  approval_status?: string | null;
+  admin_response?: string | null;
+};
+
 type ChatRow = {
   id: string;
   employee_name?: string | null;
@@ -99,9 +115,10 @@ type AdminData = {
   notifications: NotificationRow[];
   qualityReports: QualityRow[];
   serviceReports: ServiceRow[];
+  timeApprovals: TimeApprovalRow[];
 };
 
-type Tab = "overview" | "absence" | "material" | "quality" | "service" | "chat" | "notifications";
+type Tab = "time" | "absence" | "material" | "quality" | "service" | "chat" | "notifications";
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -115,6 +132,14 @@ function formatDateTime(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return formatDate(value);
   return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function hoursLabel(minutes?: number | null) {
+  const value = Math.max(0, Math.round(Number(minutes || 0)));
+  const h = Math.floor(value / 60);
+  const m = value % 60;
+  if (!h) return `${m} Min.`;
+  return `${h}:${String(m).padStart(2, "0")} h`;
 }
 
 function bodyOf(row: ChatRow) {
@@ -206,8 +231,8 @@ function EmptyCard({ title, text }: { title: string; text: string }) {
 
 function SectionButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`min-w-fit rounded-2xl border px-4 py-3 text-left text-sm ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
-      <span className="block font-black">{label}</span>
+    <button onClick={onClick} className={`w-full rounded-2xl border px-3 py-3 text-left text-sm ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+      <span className="block truncate font-black">{label}</span>
       <span className="text-[11px] opacity-80">{count} offen</span>
     </button>
   );
@@ -217,7 +242,7 @@ function AdminPage() {
   const [token, setToken] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [data, setData] = useState<AdminData | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("time");
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -230,10 +255,9 @@ function AdminPage() {
     chat: data?.chatMessages?.length || 0,
     notifications: data?.notifications?.length || 0,
     quality: data?.qualityReports?.length || 0,
-    service: data?.serviceReports?.length || 0
+    service: data?.serviceReports?.length || 0,
+    time: data?.timeApprovals?.length || 0
   }), [data]);
-
-  const total = counts.absence + counts.material + counts.quality + counts.service + counts.chat + counts.notifications;
 
   const load = useCallback(async (tokenOverride?: string) => {
     const currentToken = tokenOverride || token;
@@ -282,7 +306,7 @@ function AdminPage() {
     await load(accessToken);
   }
 
-  async function patchItem(type: "absence" | "material" | "quality" | "service" | "chat" | "notification", id: string, action: string) {
+  async function patchItem(type: "time" | "absence" | "material" | "quality" | "service" | "chat" | "notification", id: string, action: string) {
     setSavingId(id);
     setError(null);
     try {
@@ -339,37 +363,25 @@ function AdminPage() {
   return (
     <Shell>
       <div className="space-y-5 pb-6">
-        <header className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-wide text-blue-300">Adminbereich</p>
-            <h1 className="text-3xl font-black">Freigaben</h1>
-            <p className="mt-1 text-sm text-slate-400">Urlaub, Material, Qualität, Leistungsnachweise, Chat und Meldungen bearbeiten.</p>
-          </div>
-          <Link href="/mitarbeiter" className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-black text-blue-100">App</Link>
-        </header>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
-          <div className="flex items-center justify-between gap-3">
+        <header className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-500">Offene Punkte</p>
-              <p className="mt-1 text-4xl font-black text-white">{total}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Adminbereich</p>
+              <h1 className="text-3xl font-black">Freigaben</h1>
+              <p className="mt-1 text-sm text-slate-400">Überzeit, Urlaub, Material, Qualität, Leistung, Chat und Meldungen bearbeiten.</p>
             </div>
+            <Link href="/mitarbeiter" className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-black text-blue-100">App</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Link href="/mitarbeiter/admin" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">← Zurück</Link>
             <button onClick={() => load()} disabled={loading} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">{loading ? "Lade…" : "Aktualisieren"}</button>
           </div>
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.absence}</p><p className="text-slate-500">Urlaub</p></div>
-            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.material}</p><p className="text-slate-500">Material</p></div>
-            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.quality}</p><p className="text-slate-500">Qualität</p></div>
-            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.service}</p><p className="text-slate-500">Leistung</p></div>
-            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.chat}</p><p className="text-slate-500">Chat</p></div>
-            <div className="rounded-2xl bg-slate-950 p-2"><p className="font-black text-blue-100">{counts.notifications}</p><p className="text-slate-500">Meldung</p></div>
-          </div>
-        </section>
+        </header>
 
         {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</p>}
 
-        <nav className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-          <SectionButton active={tab === "overview"} label="Übersicht" count={total} onClick={() => setTab("overview")} />
+        <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <SectionButton active={tab === "time"} label="Zeiten" count={counts.time} onClick={() => setTab("time")} />
           <SectionButton active={tab === "absence"} label="Urlaub" count={counts.absence} onClick={() => setTab("absence")} />
           <SectionButton active={tab === "material"} label="Material" count={counts.material} onClick={() => setTab("material")} />
           <SectionButton active={tab === "quality"} label="Qualität" count={counts.quality} onClick={() => setTab("quality")} />
@@ -378,7 +390,31 @@ function AdminPage() {
           <SectionButton active={tab === "notifications"} label="Meldungen" count={counts.notifications} onClick={() => setTab("notifications")} />
         </nav>
 
-        {(tab === "overview" || tab === "absence") && (
+        {tab === "time" && (
+          <section className="space-y-3">
+            <h2 className="font-black">Zeit-Freigaben</h2>
+            {data?.timeApprovals?.length ? data.timeApprovals.map((row) => (
+              <article key={row.id} className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-black">{row.employee_name || "Mitarbeiter"}</p>
+                    <p className="mt-1 text-sm text-amber-100/80">{row.work_site_name || "Ohne Objekt"} · {formatDateTime(row.created_at)}</p>
+                    <p className="mt-2 text-xs text-amber-100/80">Geplant: {hoursLabel(row.planned_minutes)} · Gebucht: {hoursLabel(row.actual_minutes)} · Überzeit: {hoursLabel(row.overtime_minutes)}</p>
+                    <p className="mt-1 text-xs text-amber-100/70">Bis zur Freigabe wird nur die geplante Zeit gutgeschrieben.</p>
+                  </div>
+                  <StatusBadge status="pending" />
+                </div>
+                <textarea value={noteById[row.id] || ""} onChange={(event) => setNoteById((old) => ({ ...old, [row.id]: event.target.value }))} rows={2} className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500" placeholder="Antwort / Hinweis an Mitarbeiter" />
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button disabled={savingId === row.id} onClick={() => patchItem("time", row.id, "approve")} className="rounded-2xl bg-emerald-600 px-3 py-3 text-sm font-black text-white disabled:opacity-50">Überzeit freigeben</button>
+                  <button disabled={savingId === row.id} onClick={() => patchItem("time", row.id, "reject")} className="rounded-2xl bg-red-600 px-3 py-3 text-sm font-black text-white disabled:opacity-50">Überzeit ablehnen</button>
+                </div>
+              </article>
+            )) : <EmptyCard title="Keine offenen Zeit-Freigaben" text="Wenn ein Mitarbeiter mehr als die geplante Zeit stempelt, landet die Überzeit hier." />}
+          </section>
+        )}
+
+        {tab === "absence" && (
           <section className="space-y-3">
             <h2 className="font-black">Abwesenheiten</h2>
             {data?.absences?.length ? data.absences.map((row) => (
@@ -401,7 +437,7 @@ function AdminPage() {
           </section>
         )}
 
-        {(tab === "overview" || tab === "material") && (
+        {tab === "material" && (
           <section className="space-y-3">
             <h2 className="font-black">Materialmeldungen</h2>
             {data?.materialReports?.length ? data.materialReports.map((row) => (
@@ -435,7 +471,7 @@ function AdminPage() {
           </section>
         )}
 
-        {(tab === "overview" || tab === "quality") && (
+        {tab === "quality" && (
           <section className="space-y-3">
             <h2 className="font-black">Qualitätsnachweise</h2>
             {data?.qualityReports?.length ? data.qualityReports.map((row) => (
@@ -470,7 +506,7 @@ function AdminPage() {
           </section>
         )}
 
-        {(tab === "overview" || tab === "service") && (
+        {tab === "service" && (
           <section className="space-y-3">
             <h2 className="font-black">Leistungsnachweise</h2>
             {data?.serviceReports?.length ? data.serviceReports.map((row) => (
@@ -498,7 +534,7 @@ function AdminPage() {
           </section>
         )}
 
-        {(tab === "overview" || tab === "chat") && (
+        {tab === "chat" && (
           <section className="space-y-3">
             <h2 className="font-black">Chat vom Team</h2>
             {data?.chatMessages?.length ? data.chatMessages.map((row) => (
@@ -521,7 +557,7 @@ function AdminPage() {
           </section>
         )}
 
-        {(tab === "overview" || tab === "notifications") && (
+        {tab === "notifications" && (
           <section className="space-y-3">
             <h2 className="font-black">Allgemeine Meldungen</h2>
             {data?.notifications?.length ? data.notifications.map((row) => (
