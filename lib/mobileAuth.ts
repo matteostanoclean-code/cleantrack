@@ -11,8 +11,10 @@ export type MobileProfile = {
   avatar_url?: string | null;
   monthly_hour_limit?: number | null;
   monthly_hours?: number | null;
+  hourly_rate?: number | null;
   vacation_days?: number | null;
   annual_vacation_days?: number | null;
+  birthday?: string | null;
 };
 
 function getBearerToken(request: Request) {
@@ -36,7 +38,7 @@ export async function getAuthenticatedMobileProfile(request: Request) {
 
   const { data: profile, error: profileError } = await supabase
     .from("employee_profiles")
-    .select("id, auth_user_id, name, email, role, active, phone, avatar_url, monthly_hour_limit, monthly_hours, vacation_days, annual_vacation_days")
+    .select("*")
     .eq("auth_user_id", userData.user.id)
     .maybeSingle();
 

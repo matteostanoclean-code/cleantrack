@@ -17,8 +17,10 @@ type Employee = {
   avatar_url?: string | null;
   monthly_hour_limit?: number | null;
   monthly_hours?: number | null;
+  hourly_rate?: number | null;
   vacation_days?: number | null;
   annual_vacation_days?: number | null;
+  birthday?: string | null;
 };
 
 type RawTask = {
@@ -369,6 +371,36 @@ function monthLabel() {
   return new Intl.DateTimeFormat("de-DE", { month: "long", year: "numeric" }).format(new Date());
 }
 
+function formatDateOnly(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+}
+
+function birthdayInfo(employee?: Employee | null) {
+  const raw = employee?.birthday;
+  if (!raw) return null;
+  const parts = String(raw).slice(0, 10).split("-").map(Number);
+  if (parts.length < 3 || !parts[1] || !parts[2]) return null;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let next = new Date(today.getFullYear(), parts[1] - 1, parts[2]);
+  if (next < todayStart) next = new Date(today.getFullYear() + 1, parts[1] - 1, parts[2]);
+  const daysUntil = Math.round((next.getTime() - todayStart.getTime()) / 86400000);
+  return {
+    date: formatDateOnly(raw),
+    daysUntil,
+    isToday: daysUntil === 0,
+    nextLabel: daysUntil === 0 ? "Heute" : daysUntil === 1 ? "Morgen" : `in ${daysUntil} Tagen`
+  };
+}
+
+function moneyPerHour(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toFixed(2).replace(".", ",")} €/h`;
+}
+
 function formatTime(value?: string | null) {
   if (!value) return "—";
   if (/^\d{2}:\d{2}/.test(value)) return value.slice(0, 5);
@@ -698,6 +730,7 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
   const futureAssignments = assignments.filter((assignment) => (assignment.date || "") >= todayIso()).sort((a, b) => `${a.date || "9999-12-31"}-${a.raw?.start_time || "99:99"}`.localeCompare(`${b.date || "9999-12-31"}-${b.raw?.start_time || "99:99"}`));
   const nextAssignment = todayTasks.find((assignment) => !assignment.done) || futureAssignments.find((assignment) => !assignment.done) || futureAssignments[0];
   const latestActivity = (data?.timeEntries || []).filter(isSuccessfulTimeEntry).slice(0, 3);
+  const birthday = birthdayInfo(employee);
 
   return (
     <div className="space-y-4">
@@ -708,6 +741,19 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
         </div>
         {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
       </div>
+
+      {birthday?.isToday ? (
+        <section className="rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-pink-200">Geburtstag</p>
+          <h2 className="mt-1 text-xl font-black text-white">Alles Gute zum Geburtstag, {employee?.name?.split(" ")[0] || "Team"}! 🎉</h2>
+          <p className="mt-1 text-sm text-pink-100/80">Ich wünsche dir einen starken Tag, Gesundheit und viele gute Momente.</p>
+        </section>
+      ) : birthday && birthday.daysUntil <= 14 ? (
+        <section className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-blue-200">Geburtstag</p>
+          <p className="mt-1 text-sm text-blue-100">Dein Geburtstag ist {birthday.nextLabel} · {birthday.date}</p>
+        </section>
+      ) : null}
 
       <button onClick={() => setActive("timesheet")} className="block w-full rounded-3xl border border-slate-800 bg-slate-900/70 p-4 text-left transition hover:border-blue-600">
         <div className="flex items-center justify-between gap-3">
@@ -2106,6 +2152,7 @@ function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData |
 
 function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBack: () => void; onLogout: () => Promise<void> }) {
   const employee = data?.employee;
+  const birthday = birthdayInfo(employee);
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -2121,8 +2168,11 @@ function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBac
         <p className="text-sm text-slate-400">{employee?.email || "Keine E-Mail"}</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <MetricCard title="Rolle" value={employee?.role || "—"} caption="Zugriff" accent="text-blue-100" />
-          <MetricCard title="Urlaub" value={`${employee?.vacation_days ?? employee?.annual_vacation_days ?? "—"}`} caption="Tage" accent="text-emerald-200" />
+          <MetricCard title="Urlaub" value={`${employee?.annual_vacation_days ?? employee?.vacation_days ?? "—"}`} caption="Anspruch/Jahr" accent="text-emerald-200" />
+          <MetricCard title="Stundensatz" value={moneyPerHour(employee?.hourly_rate)} caption="Lohnsatz" accent="text-yellow-100" />
+          <MetricCard title="Geburtstag" value={birthday?.date || "—"} caption={birthday?.nextLabel || "nicht gepflegt"} accent={birthday?.isToday ? "text-pink-200" : "text-blue-100"} />
         </div>
+        {birthday?.isToday ? <p className="mt-4 rounded-2xl border border-pink-500/30 bg-pink-500/10 p-3 text-sm font-bold text-pink-100">Alles Gute zum Geburtstag! 🎉</p> : null}
       </section>
       <button onClick={onLogout} className="w-full rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-left font-black text-red-100">Abmelden</button>
     </div>

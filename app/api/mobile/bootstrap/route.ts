@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
     const employeesResult = (await supabase
       .from("employee_profiles")
-      .select("id, auth_user_id, name, email, role, active, phone, avatar_url, monthly_hour_limit, monthly_hours, vacation_days, annual_vacation_days")
+      .select("*")
       .order("name", { ascending: true })) as SupabaseResult<any>;
 
     if (employeesResult.error) throw new Error(employeesResult.error.message);

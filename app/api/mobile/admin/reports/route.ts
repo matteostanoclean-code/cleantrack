@@ -153,7 +153,7 @@ export async function GET(request: Request) {
   }
 
   const [employees, entries, tasks, absences] = await Promise.all([
-    auth.supabase.from("employee_profiles").select("id, name, email, role, active, monthly_hour_limit, vacation_days, annual_vacation_days").order("name", { ascending: true }).limit(250),
+    auth.supabase.from("employee_profiles").select("*").order("name", { ascending: true }).limit(250),
     timeQuery,
     taskQuery,
     auth.supabase.from("absence_requests").select("*").lte("start_date", end).gte("end_date", start).order("start_date", { ascending: true }).limit(1000)

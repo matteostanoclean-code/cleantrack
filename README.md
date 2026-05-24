@@ -127,3 +127,27 @@ git add .
 git commit -m "Add admin manual push center"
 git push
 ```
+
+## Update: Mitarbeiter-Stammdaten + Geburtstage
+
+Neue Funktion:
+
+- Mitarbeiter können im Admin-Dashboard mit Stundensatz, Urlaubsanspruch/Jahr, Monatsstunden und Geburtstag gepflegt werden
+- Mitarbeiter sehen im Profil Stundensatz, Urlaubsanspruch und Geburtstag
+- Am Geburtstag sieht der Mitarbeiter automatisch einen Geburtstagsgruß in der App
+- Admin sieht Geburtstage in der Dashboard-Übersicht
+- Vercel Cron erstellt täglich um 06:00 Uhr Geburtstag-Meldungen in `admin_notifications`
+
+Supabase SQL einmal ausführen:
+
+```text
+supabase/mobile_mitarbeiter_stammdaten_geburtstage.sql
+```
+
+Upload:
+
+```powershell
+git add .
+git commit -m "Add employee master data and birthday reminders"
+git push
+```

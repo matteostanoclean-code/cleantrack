@@ -23,7 +23,7 @@ type AdminData = {
 
 const today = new Date().toISOString().slice(0, 10);
 
-const emptyEmployee = { id: "", name: "", email: "", phone: "", role: "employee", active: false, monthly_hour_limit: "0", vacation_days: "0" };
+const emptyEmployee = { id: "", name: "", email: "", phone: "", role: "employee", active: false, hourly_rate: "0", monthly_hour_limit: "0", vacation_days: "0", annual_vacation_days: "0", birthday: "" };
 const emptyCustomer = { id: "", name: "", address: "", phone: "", email: "", customer_number: "", notes: "", active: true };
 const emptySite = { id: "", name: "", customer_id: "", address: "", latitude: "", longitude: "", gps_required: false, allowed_radius_m: "150", monthly_hour_quota: "0", notes: "", active: true };
 const emptyTask: Row = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", employee_name: "", customer_id: "", work_site_id: "", site: "", priority: "Normal", status: "open", notes: "", notify_employee: true, repeat_mode: "none", recurrence_interval: "1", recurrence_end_date: "", recurrence_days: [] as string[] };
@@ -70,6 +70,37 @@ function dateTimeText(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return dateText(value);
   return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function formatDateOnly(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+}
+
+function birthdayInfo(row?: Row | null) {
+  const raw = row?.birthday;
+  if (!raw) return null;
+  const parts = String(raw).slice(0, 10).split("-").map(Number);
+  if (parts.length < 3 || !parts[1] || !parts[2]) return null;
+  const todayDate = new Date();
+  const todayStart = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+  let next = new Date(todayDate.getFullYear(), parts[1] - 1, parts[2]);
+  if (next < todayStart) next = new Date(todayDate.getFullYear() + 1, parts[1] - 1, parts[2]);
+  const daysUntil = Math.round((next.getTime() - todayStart.getTime()) / 86400000);
+  return {
+    date: formatDateOnly(raw),
+    daysUntil,
+    isToday: daysUntil === 0,
+    label: daysUntil === 0 ? "Heute" : daysUntil === 1 ? "Morgen" : `in ${daysUntil} Tagen`
+  };
+}
+
+function moneyPerHour(value?: unknown) {
+  const number = Number(String(value ?? "").replace(",", "."));
+  if (!Number.isFinite(number)) return "—";
+  return `${number.toFixed(2).replace(".", ",")} €/h`;
 }
 
 function minutesFromTimes(start?: string | null, end?: string | null, fallback?: unknown) {
@@ -354,6 +385,12 @@ export default function AdminDashboardPage() {
     return { todayTasks, openTasks, monthMinutes, openRequests };
   }, [data]);
 
+  const upcomingBirthdays = useMemo(() => (data?.employees || [])
+    .map((employee) => ({ employee, info: birthdayInfo(employee) }))
+    .filter((item) => item.info && item.info.daysUntil <= 30)
+    .sort((a, b) => (a.info?.daysUntil || 0) - (b.info?.daysUntil || 0))
+    .slice(0, 6), [data?.employees]);
+
   const selectedCustomer = (data?.customers || []).find((customer) => customer.id === siteForm.customer_id || customer.id === taskForm.customer_id);
   const sitesForTask = (data?.workSites || []).filter((site) => !taskForm.customer_id || site.customer_id === taskForm.customer_id || clean(site.customer_name).toLowerCase() === labelCustomer(selectedCustomer).toLowerCase());
   const selectedTaskSite = (data?.workSites || []).find((site) => site.id === taskForm.work_site_id);
@@ -418,6 +455,26 @@ export default function AdminDashboardPage() {
                 <Link href="/mitarbeiter" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-slate-200">Zur Mitarbeiter-App</Link>
               </div>
             </section>
+            <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="font-black">Geburtstage</p>
+                <span className="text-xs text-slate-500">nächste 30 Tage</span>
+              </div>
+              <div className="space-y-2">
+                {upcomingBirthdays.length ? upcomingBirthdays.map(({ employee, info }) => (
+                  <div key={employee.id} className={`rounded-2xl border p-3 ${info?.isToday ? "border-pink-500/30 bg-pink-500/10" : "border-slate-800 bg-slate-950"}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-black">{labelEmployee(employee)}</p>
+                        <p className="text-xs text-slate-400">{info?.date || "—"}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-black ${info?.isToday ? "bg-pink-500/20 text-pink-100" : "bg-blue-500/15 text-blue-100"}`}>{info?.label}</span>
+                    </div>
+                  </div>
+                )) : <EmptyCard title="Keine Geburtstage" text="In den nächsten 30 Tagen ist kein Geburtstag gepflegt." />}
+              </div>
+            </section>
+
             <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <p className="font-black">Nächste Einsätze</p>
@@ -547,6 +604,14 @@ export default function AdminDashboardPage() {
               <Field label="E-Mail"><input type="email" value={employeeForm.email} onChange={(event) => setEmployeeForm({ ...employeeForm, email: event.target.value })} className={inputClass} /></Field>
               <Field label="Telefon"><input value={employeeForm.phone} onChange={(event) => setEmployeeForm({ ...employeeForm, phone: event.target.value })} className={inputClass} /></Field>
               <div className="grid grid-cols-2 gap-3">
+                <Field label="Stundensatz €"><input type="number" step="0.01" value={employeeForm.hourly_rate} onChange={(event) => setEmployeeForm({ ...employeeForm, hourly_rate: event.target.value })} className={inputClass} /></Field>
+                <Field label="Urlaub/Jahr"><input type="number" step="0.5" value={employeeForm.annual_vacation_days || employeeForm.vacation_days} onChange={(event) => setEmployeeForm({ ...employeeForm, annual_vacation_days: event.target.value, vacation_days: event.target.value })} className={inputClass} /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Geburtstag"><input type="date" value={employeeForm.birthday || ""} onChange={(event) => setEmployeeForm({ ...employeeForm, birthday: event.target.value })} className={inputClass} /></Field>
+                <Field label="Monatsstunden"><input type="number" step="0.5" value={employeeForm.monthly_hour_limit} onChange={(event) => setEmployeeForm({ ...employeeForm, monthly_hour_limit: event.target.value })} className={inputClass} /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="Rolle"><select value={employeeForm.role} onChange={(event) => setEmployeeForm({ ...employeeForm, role: event.target.value })} className={inputClass}><option value="employee">employee</option><option value="admin">admin</option></select></Field>
                 <Field label="Aktiv"><select value={String(employeeForm.active)} onChange={(event) => setEmployeeForm({ ...employeeForm, active: event.target.value === "true" })} className={inputClass}><option value="false">Nein</option><option value="true">Ja</option></select></Field>
               </div>
@@ -561,11 +626,13 @@ export default function AdminDashboardPage() {
                       <p className="font-black">{labelEmployee(employee)}</p>
                       <p className="text-xs text-slate-400">{employee.email || "Keine E-Mail"}</p>
                       <p className="mt-1 text-xs text-slate-500">{employee.role || "employee"} · {employee.auth_user_id ? "Login verbunden" : "ohne Login"}</p>
+                      <p className="mt-1 text-xs text-slate-500">{moneyPerHour(employee.hourly_rate)} · Urlaub {employee.annual_vacation_days ?? employee.vacation_days ?? "—"} Tage</p>
+                      <p className="mt-1 text-xs text-slate-500">Geburtstag: {birthdayInfo(employee)?.date || "nicht gepflegt"}{birthdayInfo(employee)?.isToday ? " · Heute 🎉" : birthdayInfo(employee)?.daysUntil !== undefined ? ` · ${birthdayInfo(employee)?.label}` : ""}</p>
                     </div>
                     <StatusPill value={employee.active ? "active" : "inactive"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setEmployeeForm({ ...emptyEmployee, ...employee, active: employee.active !== false, monthly_hour_limit: String(employee.monthly_hour_limit || "0"), vacation_days: String(employee.vacation_days || employee.annual_vacation_days || "0") })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => setEmployeeForm({ ...emptyEmployee, ...employee, active: employee.active !== false, hourly_rate: String(employee.hourly_rate || "0"), monthly_hour_limit: String(employee.monthly_hour_limit || "0"), vacation_days: String(employee.vacation_days || employee.annual_vacation_days || "0"), annual_vacation_days: String(employee.annual_vacation_days || employee.vacation_days || "0"), birthday: clean(employee.birthday) })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
                     <button onClick={() => patch({ type: "employee", ...employee, active: employee.active === false }, employee.active === false ? "Mitarbeiter aktiviert." : "Mitarbeiter deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{employee.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>

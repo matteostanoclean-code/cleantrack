@@ -215,8 +215,11 @@ function employeePayload(body: AnyRow) {
     role: clean(body.role) || "employee",
     active: booleanValue(body.active, false),
     employee_number: nullableText(body.employee_number),
+    hourly_rate: nullableNumber(body.hourly_rate),
     monthly_hour_limit: nullableNumber(body.monthly_hour_limit),
-    vacation_days: nullableNumber(body.vacation_days)
+    vacation_days: nullableNumber(body.vacation_days ?? body.annual_vacation_days),
+    annual_vacation_days: nullableNumber(body.annual_vacation_days ?? body.vacation_days),
+    birthday: nullableText(body.birthday)
   };
 }
 
