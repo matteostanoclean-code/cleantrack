@@ -181,3 +181,16 @@ Neu in dieser Version:
 - Admin-Dashboard-Buttonleiste horizontal scrollbar, damit Buttons auf dem Handy nicht abgeschnitten werden
 
 Kein neues Supabase-SQL nötig.
+
+## Update: Admin-Urlaubsplanung
+
+Neu:
+
+- `/mitarbeiter/admin/urlaub`
+- Urlaub, Krankheit und freie Tage als Admin eintragen
+- offene Abwesenheitsanträge genehmigen oder ablehnen
+- Einsatz-Konflikte im Abwesenheitszeitraum erkennen
+- betroffene Einsätze direkt wieder auf „ohne Mitarbeiter“ setzen
+- Urlaubskonto pro Mitarbeiter anzeigen
+
+Für dieses Update ist kein neues SQL nötig. Es nutzt `absence_requests`, `tasks`, `employee_profiles` und `admin_notifications`.
