@@ -107,3 +107,23 @@ git add .
 git commit -m "Add automatic task push reminders"
 git push
 ```
+
+## Update: Admin Push-Zentrale
+
+Neue Funktion:
+
+- Admin-Seite: `/mitarbeiter/admin/push`
+- erreichbar über `Mehr → Push-Zentrale`
+- Admin kann sofort eine Push-Nachricht an einen Mitarbeiter oder alle aktiven Mitarbeiter senden
+- Nachricht wird zusätzlich in `admin_notifications` gespeichert, damit sie in der App unter Meldungen sichtbar bleibt
+- Mitarbeiter ohne aktiviertes Push-Gerät bekommen trotzdem die interne App-Meldung
+
+Kein neues SQL nötig, wenn `mobile_push_benachrichtigungen.sql` bereits ausgeführt wurde.
+
+Upload:
+
+```powershell
+git add .
+git commit -m "Add admin manual push center"
+git push
+```
