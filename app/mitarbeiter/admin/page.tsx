@@ -458,6 +458,7 @@ export default function AdminDashboardPage() {
                 <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">Tageszentrale öffnen</Link>
                 <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-blue-500/50 bg-blue-500/10 px-4 py-3 font-black text-blue-100">Planungszentrale öffnen</Link>
                 <Link href="/mitarbeiter/admin/urlaub" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-blue-100">Urlaubsplanung öffnen</Link>
+                <Link href="/mitarbeiter/admin/kapazitaet" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-blue-100">Kapazitätsplanung öffnen</Link>
                 <button onClick={() => setTab("tasks")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Einsatz erstellen</button>
                 <button onClick={() => setTab("customers")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Kunde anlegen</button>
                 <button onClick={() => setTab("sites")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Objekt anlegen</button>

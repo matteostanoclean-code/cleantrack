@@ -194,3 +194,22 @@ Neu:
 - Urlaubskonto pro Mitarbeiter anzeigen
 
 Für dieses Update ist kein neues SQL nötig. Es nutzt `absence_requests`, `tasks`, `employee_profiles` und `admin_notifications`.
+
+## Update: Admin-Kapazitätsplanung
+
+Neue Admin-Seite:
+
+- `/mitarbeiter/admin/kapazitaet`
+
+Funktionen:
+
+- Monatsweise Planstunden je Mitarbeiter aus `tasks`
+- Iststunden aus `time_entries`
+- Sollstunden aus `employee_profiles.monthly_hour_limit`
+- Stundensatz aus `employee_profiles.hourly_rate`
+- Arbeitgeberfaktor aus `employee_profiles.employer_cost_factor`
+- Urlaubstage aus `absence_requests`
+- Warnung bei Überlastung, offenen Stempeluhren und unbesetzten Einsätzen
+- CSV-Export für die Monatsplanung
+
+Für dieses Update ist kein neues SQL nötig.
