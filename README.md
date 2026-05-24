@@ -151,3 +151,18 @@ git add .
 git commit -m "Add employee master data and birthday reminders"
 git push
 ```
+
+## Update: Kunden-Jahresplanung und Objekte
+
+- Admin-Dashboard Tabs umbrechen jetzt, damit „Objekte“ nicht mehr rechts abgeschnitten ist.
+- Objekte findest du im Admin-Dashboard im Tab **Objekte**.
+- Beim Kunden anlegen/bearbeiten kann jetzt eine Jahresplanung erzeugt werden:
+  - Arbeitstage auswählen
+  - Start-/Endzeit eintragen
+  - Planungslimit pro Tag in Stunden eintragen
+  - optional Objekt auswählen
+  - Termine werden für 1 Jahr in `tasks` erstellt
+  - die Termine bleiben zuerst ohne Mitarbeiter
+- Serien-Einsätze können später im Tab **Einsätze** auf einen Mitarbeiter übertragen werden.
+
+Vor dem Deploy bitte `supabase/mobile_customer_year_planning.sql` in Supabase ausführen.

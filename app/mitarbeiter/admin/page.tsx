@@ -24,7 +24,7 @@ type AdminData = {
 const today = new Date().toISOString().slice(0, 10);
 
 const emptyEmployee = { id: "", name: "", email: "", phone: "", role: "employee", active: false, hourly_rate: "0", monthly_hour_limit: "0", vacation_days: "0", annual_vacation_days: "0", birthday: "" };
-const emptyCustomer = { id: "", name: "", address: "", phone: "", email: "", customer_number: "", notes: "", active: true };
+const emptyCustomer = { id: "", name: "", address: "", phone: "", email: "", customer_number: "", notes: "", active: true, work_days: [] as string[], plan_start_date: today, plan_start_time: "08:00", plan_end_time: "10:00", planning_limit_hours_per_day: "2", default_task_title: "Unterhaltsreinigung", work_site_id: "", generate_year_plan: false };
 const emptySite = { id: "", name: "", customer_id: "", address: "", latitude: "", longitude: "", gps_required: false, allowed_radius_m: "150", monthly_hour_quota: "0", notes: "", active: true };
 const emptyTask: Row = { id: "", title: "Unterhaltsreinigung", task_date: today, start_time: "08:00", end_time: "10:00", planned_minutes: "120", employee_name: "", customer_id: "", work_site_id: "", site: "", priority: "Normal", status: "open", notes: "", notify_employee: true, repeat_mode: "none", recurrence_interval: "1", recurrence_end_date: "", recurrence_days: [] as string[] };
 
@@ -201,9 +201,9 @@ function StatCard({ title, value, caption }: { title: string; value: string | nu
 
 function TabButton({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`min-w-fit rounded-2xl border px-4 py-3 text-left text-sm ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+    <button onClick={onClick} className={`w-full rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
       <span className="block font-black">{label}</span>
-      {typeof count === "number" ? <span className="text-[11px] opacity-80">{count} Einträge</span> : null}
+      {typeof count === "number" ? <span className="text-[10px] opacity-80">{count} Einträge</span> : null}
     </button>
   );
 }
@@ -242,6 +242,7 @@ export default function AdminDashboardPage() {
   const [customerForm, setCustomerForm] = useState({ ...emptyCustomer });
   const [siteForm, setSiteForm] = useState({ ...emptySite });
   const [taskForm, setTaskForm] = useState({ ...emptyTask });
+  const [seriesAssign, setSeriesAssign] = useState<Record<string, string>>({});
 
   const load = useCallback(async (overrideToken?: string) => {
     const currentToken = overrideToken || token;
@@ -341,6 +342,12 @@ export default function AdminDashboardPage() {
     setTaskForm({ ...taskForm, recurrence_days: next });
   }
 
+  function toggleCustomerWeekday(value: string) {
+    const current = Array.isArray(customerForm.work_days) ? customerForm.work_days.map(String) : [];
+    const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+    setCustomerForm({ ...customerForm, work_days: next });
+  }
+
   async function useCurrentLocationForSite() {
     setError(null);
     setMessage("Standort wird gelesen…");
@@ -394,6 +401,7 @@ export default function AdminDashboardPage() {
   const selectedCustomer = (data?.customers || []).find((customer) => customer.id === siteForm.customer_id || customer.id === taskForm.customer_id);
   const sitesForTask = (data?.workSites || []).filter((site) => !taskForm.customer_id || site.customer_id === taskForm.customer_id || clean(site.customer_name).toLowerCase() === labelCustomer(selectedCustomer).toLowerCase());
   const selectedTaskSite = (data?.workSites || []).find((site) => site.id === taskForm.work_site_id);
+  const customerSitesForPlan = (data?.workSites || []).filter((site) => !customerForm.id || site.customer_id === customerForm.id || clean(site.customer_name).toLowerCase() === clean(customerForm.name).toLowerCase());
 
   useEffect(() => {
     if (selectedTaskSite && !taskForm.site) {
@@ -419,7 +427,7 @@ export default function AdminDashboardPage() {
           <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Logout</button>
         </header>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+        <div className="grid grid-cols-3 gap-2">
           <TabButton active={tab === "overview"} label="Übersicht" onClick={() => setTab("overview")} />
           <TabButton active={tab === "tasks"} label="Einsätze" count={data?.tasks?.length || 0} onClick={() => setTab("tasks")} />
           <TabButton active={tab === "employees"} label="Mitarbeiter" count={data?.employees?.length || 0} onClick={() => setTab("employees")} />
@@ -450,6 +458,7 @@ export default function AdminDashboardPage() {
                 <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">Tageszentrale öffnen</Link>
                 <button onClick={() => setTab("tasks")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Einsatz erstellen</button>
                 <button onClick={() => setTab("customers")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Kunde anlegen</button>
+                <button onClick={() => setTab("sites")} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left font-black text-blue-100">Objekt anlegen</button>
                 <Link href="/mitarbeiter/freigaben" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-blue-100">Freigaben bearbeiten</Link>
                 <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-blue-100">Mitarbeiter aktivieren</Link>
                 <Link href="/mitarbeiter" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 font-black text-slate-200">Zur Mitarbeiter-App</Link>
@@ -546,8 +555,8 @@ export default function AdminDashboardPage() {
                 )}
               </div>
               <Field label="Mitarbeiter">
-                <select value={taskForm.employee_name} onChange={(event) => setTaskForm({ ...taskForm, employee_name: event.target.value })} required className={inputClass}>
-                  <option value="">Ohne Mitarbeiter</option>
+                <select value={taskForm.employee_name} onChange={(event) => setTaskForm({ ...taskForm, employee_name: event.target.value })} className={inputClass}>
+                  <option value="">Ohne Mitarbeiter / später zuweisen</option>
                   {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                 </select>
               </Field>
@@ -586,6 +595,18 @@ export default function AdminDashboardPage() {
                     <button onClick={() => setTaskForm({ ...emptyTask, ...task, planned_minutes: String(task.planned_minutes || task.max_minutes || ""), recurrence_interval: String(task.recurrence_interval || "1"), recurrence_end_date: clean(task.recurrence_end_date), recurrence_days: Array.isArray(task.recurrence_days) ? task.recurrence_days.map(String) : [], repeat_mode: clean(task.repeat_mode || "none"), notify_employee: true })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
                     <button onClick={() => patch({ type: "task_status", id: task.id, done: !task.done, status: task.done ? "open" : "done" }, task.done ? "Einsatz wieder geöffnet." : "Einsatz erledigt.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-emerald-100">{task.done ? "Öffnen" : "Erledigt"}</button>
                   </div>
+                  {task.recurrence_group_id && (
+                    <div className="mt-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
+                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-blue-200">Serie übertragen</p>
+                      <div className="grid grid-cols-[1fr_auto] gap-2">
+                        <select value={seriesAssign[task.recurrence_group_id] || task.employee_name || ""} onChange={(event) => setSeriesAssign({ ...seriesAssign, [task.recurrence_group_id]: event.target.value })} className={inputClass}>
+                          <option value="">Ohne Mitarbeiter</option>
+                          {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
+                        </select>
+                        <button type="button" onClick={() => patch({ type: "task_series_assign", id: task.id, recurrence_group_id: task.recurrence_group_id, employee_name: seriesAssign[task.recurrence_group_id] || task.employee_name || "" }, "Serie wurde übertragen.")} className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Übertragen</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {!filtered.tasks.length && <EmptyCard title="Keine Einsätze gefunden" text="Lege oben einen neuen Einsatz an oder ändere die Suche." />}
@@ -655,7 +676,43 @@ export default function AdminDashboardPage() {
                 <Field label="E-Mail"><input type="email" value={customerForm.email} onChange={(event) => setCustomerForm({ ...customerForm, email: event.target.value })} className={inputClass} /></Field>
               </div>
               <Field label="Notizen"><textarea value={customerForm.notes} onChange={(event) => setCustomerForm({ ...customerForm, notes: event.target.value })} rows={3} className={inputClass} /></Field>
-              <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Kunde speichern"}</button>
+              <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-3">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-blue-200">Jahresplanung</p>
+                    <p className="mt-1 text-xs text-blue-100/80">Erstellt für 1 Jahr offene Termine ohne Mitarbeiter. Die Serie kann später übertragen werden.</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs font-black text-blue-100">
+                    <input type="checkbox" checked={Boolean(customerForm.generate_year_plan)} onChange={(event) => setCustomerForm({ ...customerForm, generate_year_plan: event.target.checked })} />
+                    anlegen
+                  </label>
+                </div>
+                <Field label="Objekt für Termine">
+                  <select value={customerForm.work_site_id || ""} onChange={(event) => setCustomerForm({ ...customerForm, work_site_id: event.target.value })} className={inputClass}>
+                    <option value="">Kunde/Adresse verwenden</option>
+                    {customerSitesForPlan.map((site) => <option key={site.id} value={site.id}>{labelSite(site)}</option>)}
+                  </select>
+                </Field>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <Field label="Ab Datum"><input type="date" value={customerForm.plan_start_date || today} onChange={(event) => setCustomerForm({ ...customerForm, plan_start_date: event.target.value })} className={inputClass} /></Field>
+                  <Field label="Titel"><input value={customerForm.default_task_title || "Unterhaltsreinigung"} onChange={(event) => setCustomerForm({ ...customerForm, default_task_title: event.target.value })} className={inputClass} /></Field>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Field label="Von"><input type="time" value={customerForm.plan_start_time || "08:00"} onChange={(event) => setCustomerForm({ ...customerForm, plan_start_time: event.target.value })} className={inputClass} /></Field>
+                  <Field label="Bis"><input type="time" value={customerForm.plan_end_time || "10:00"} onChange={(event) => setCustomerForm({ ...customerForm, plan_end_time: event.target.value })} className={inputClass} /></Field>
+                  <Field label="Limit h"><input type="number" step="0.25" value={customerForm.planning_limit_hours_per_day || "2"} onChange={(event) => setCustomerForm({ ...customerForm, planning_limit_hours_per_day: event.target.value })} className={inputClass} /></Field>
+                </div>
+                <div className="mt-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Arbeitstage</p>
+                  <div className="grid grid-cols-7 gap-1">
+                    {weekdayOptions.map((day) => {
+                      const active = Array.isArray(customerForm.work_days) && customerForm.work_days.map(String).includes(day.value);
+                      return <button key={day.value} type="button" onClick={() => toggleCustomerWeekday(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-black ${active ? "border-blue-500 bg-blue-600 text-white" : "border-slate-700 bg-slate-900 text-slate-300"}`}>{day.label}</button>;
+                    })}
+                  </div>
+                </div>
+              </div>
+              <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : customerForm.generate_year_plan ? "Kunde speichern + Jahresplanung" : "Kunde speichern"}</button>
             </form>
             <div className="space-y-3">
               {filtered.customers.map((customer) => (
@@ -665,12 +722,13 @@ export default function AdminDashboardPage() {
                       <p className="font-black">{labelCustomer(customer)}</p>
                       <p className="text-xs text-slate-400">{rowAddress(customer) || "Keine Adresse"}</p>
                       <p className="mt-1 text-xs text-slate-500">{customer.phone || customer.customer_phone || "—"} · {customer.email || customer.customer_email || "—"}</p>
+                      {(customer.work_days || customer.default_start_time || customer.default_end_time || customer.planning_limit_minutes_per_day) && <p className="mt-1 text-xs text-blue-200">Plan: {Array.isArray(customer.work_days) ? customer.work_days.join(",") : "—"} · {customer.default_start_time || "—"}-{customer.default_end_time || "—"} · Limit {customer.planning_limit_minutes_per_day ? `${Number(customer.planning_limit_minutes_per_day) / 60}h` : "—"}</p>}
                     </div>
                     <StatusPill value={customer.active === false ? "inactive" : "active"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setCustomerForm({ ...emptyCustomer, id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: clean(customer.phone || customer.customer_phone), email: clean(customer.email || customer.customer_email), customer_number: clean(customer.customer_number), notes: clean(customer.notes || customer.customer_notes), active: customer.active !== false })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
-                    <button onClick={() => patch({ type: "customer", id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: customer.phone || customer.customer_phone, email: customer.email || customer.customer_email, notes: customer.notes || customer.customer_notes, active: customer.active === false }, customer.active === false ? "Kunde aktiviert." : "Kunde deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{customer.active === false ? "Aktivieren" : "Deaktivieren"}</button>
+                    <button onClick={() => setCustomerForm({ ...emptyCustomer, id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: clean(customer.phone || customer.customer_phone), email: clean(customer.email || customer.customer_email), customer_number: clean(customer.customer_number), notes: clean(customer.notes || customer.customer_notes), active: customer.active !== false, work_days: Array.isArray(customer.work_days) ? customer.work_days.map(String) : [], plan_start_time: clean(customer.default_start_time) || "08:00", plan_end_time: clean(customer.default_end_time) || "10:00", planning_limit_hours_per_day: customer.planning_limit_minutes_per_day ? String(Number(customer.planning_limit_minutes_per_day) / 60) : "2", default_task_title: clean(customer.default_task_title) || "Unterhaltsreinigung", work_site_id: clean(customer.default_work_site_id), generate_year_plan: false })} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-blue-100">Bearbeiten</button>
+                    <button onClick={() => patch({ type: "customer", id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: customer.phone || customer.customer_phone, email: customer.email || customer.customer_email, notes: customer.notes || customer.customer_notes, active: customer.active === false, work_days: Array.isArray(customer.work_days) ? customer.work_days : null, plan_start_time: customer.default_start_time, plan_end_time: customer.default_end_time, planning_limit_minutes_per_day: customer.planning_limit_minutes_per_day, default_task_title: customer.default_task_title, default_work_site_id: customer.default_work_site_id }, customer.active === false ? "Kunde aktiviert." : "Kunde deaktiviert.")} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-black text-slate-100">{customer.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
               ))}

@@ -121,6 +121,93 @@ function buildTaskRows(basePayload: AnyRow, body: AnyRow) {
   return [basePayload];
 }
 
+
+function minutesFromTimeWindow(start?: unknown, end?: unknown, fallbackLimitHours?: unknown) {
+  const limitHours = nullableNumber(fallbackLimitHours);
+  const [sh, sm] = clean(start).split(":").map(Number);
+  const [eh, em] = clean(end).split(":").map(Number);
+  let minutes = 0;
+  if (Number.isFinite(sh) && Number.isFinite(eh)) {
+    let a = (sh || 0) * 60 + (sm || 0);
+    let b = (eh || 0) * 60 + (em || 0);
+    if (b < a) b += 1440;
+    minutes = Math.max(0, b - a);
+  }
+  const limitMinutes = limitHours && limitHours > 0 ? Math.round(limitHours * 60) : 0;
+  if (limitMinutes && minutes) return Math.min(minutes, limitMinutes);
+  return limitMinutes || minutes || 0;
+}
+
+function addOneYearMinusOneDay(date: Date) {
+  const end = new Date(date);
+  end.setFullYear(end.getFullYear() + 1);
+  end.setDate(end.getDate() - 1);
+  return end;
+}
+
+function buildCustomerYearTasks(customer: AnyRow, body: AnyRow, site?: AnyRow | null) {
+  if (!booleanValue(body.generate_year_plan, false)) return [] as AnyRow[];
+  const start = parseDateOnly(body.plan_start_date) || parseDateOnly(todayIso())!;
+  const end = addOneYearMinusOneDay(start);
+  const selectedDays = normalizeWeekdays(body.work_days);
+  if (!selectedDays.length) throw new Error("Bitte mindestens einen Arbeitstag für die Jahresplanung auswählen.");
+
+  const groupId = crypto.randomUUID();
+  const startTime = clean(body.plan_start_time || body.default_start_time) || "08:00";
+  const endTime = clean(body.plan_end_time || body.default_end_time) || "10:00";
+  const plannedMinutes = minutesFromTimeWindow(startTime, endTime, body.planning_limit_hours_per_day);
+  const customerLabel = customerName(customer);
+  const siteLabel = clean(site?.name || site?.site || body.site) || customerLabel;
+  const workSiteId = nullableUuid(body.work_site_id || body.default_work_site_id);
+  const title = clean(body.default_task_title || body.title) || "Unterhaltsreinigung";
+
+  const rows: AnyRow[] = [];
+  for (let cursor = new Date(start); cursor <= end && rows.length < 370; cursor = addDays(cursor, 1)) {
+    if (!selectedDays.includes(cursor.getDay())) continue;
+    const taskDate = isoDate(cursor);
+    rows.push({
+      title,
+      site: siteLabel || null,
+      employee_name: null,
+      task_date: taskDate,
+      start_time: startTime || null,
+      end_time: endTime || null,
+      max_minutes: plannedMinutes,
+      planned_minutes: plannedMinutes,
+      paid_minutes: plannedMinutes,
+      wage_minutes: plannedMinutes,
+      work_site_id: workSiteId,
+      customer_id: customer.id,
+      customer_name: customerLabel || null,
+      status: "open",
+      priority: "Normal",
+      task_type: "einsatz",
+      item_type: "einsatz",
+      schedule_type: "customer_year_plan",
+      due_date: taskDate,
+      notes: nullableText(body.notes),
+      done: false,
+      repeat_mode: "customer_year_plan",
+      recurrence_group_id: groupId,
+      recurrence_unit: "weekly",
+      recurrence_interval: 1,
+      recurrence_days: selectedDays,
+      recurrence_end_date: isoDate(end),
+      notify_employee: false
+    });
+  }
+  return rows;
+}
+
+async function createCustomerYearTasks(supabase: any, customer: AnyRow, body: AnyRow) {
+  const site = await readSite(supabase, nullableUuid(body.work_site_id || body.default_work_site_id));
+  const rows = buildCustomerYearTasks(customer, body, site);
+  if (!rows.length) return { count: 0 };
+  const { error } = await supabase.from("tasks").insert(rows);
+  if (error) throw new Error(error.message);
+  return { count: rows.length };
+}
+
 async function requireAdmin(request: Request) {
   const auth = await getAuthenticatedMobileProfile(request);
   if (!auth.ok) return { ok: false, response: NextResponse.json({ ok: false, error: auth.error }, { status: auth.status }) };
@@ -229,6 +316,7 @@ function customerPayload(body: AnyRow) {
   const email = clean(body.email || body.customer_email);
   const phone = clean(body.phone || body.customer_phone);
   const notes = clean(body.notes || body.customer_notes);
+  const planLimitMinutes = nullableNumber(body.planning_limit_hours_per_day) ? Math.round((nullableNumber(body.planning_limit_hours_per_day) || 0) * 60) : nullableNumber(body.planning_limit_minutes_per_day);
 
   return {
     name,
@@ -243,7 +331,13 @@ function customerPayload(body: AnyRow) {
     customer_phone: phone || null,
     notes: notes || null,
     customer_notes: notes || null,
-    active: booleanValue(body.active, true)
+    active: booleanValue(body.active, true),
+    work_days: Array.isArray(body.work_days) ? body.work_days.map(String) : null,
+    default_start_time: nullableText(body.plan_start_time || body.default_start_time),
+    default_end_time: nullableText(body.plan_end_time || body.default_end_time),
+    planning_limit_minutes_per_day: planLimitMinutes,
+    default_task_title: nullableText(body.default_task_title),
+    default_work_site_id: nullableUuid(body.work_site_id || body.default_work_site_id)
   };
 }
 
@@ -354,7 +448,8 @@ export async function POST(request: Request) {
       if (!payload.name) return NextResponse.json({ ok: false, error: "Kundenname fehlt." }, { status: 400 });
       const { data, error } = await supabase.from("customers").insert(payload).select("*").single();
       if (error) throw new Error(error.message);
-      return NextResponse.json({ ok: true, item: data });
+      const plan = await createCustomerYearTasks(supabase, data, body);
+      return NextResponse.json({ ok: true, item: data, count: plan.count || 1, createdTasks: plan.count });
     }
 
     if (type === "site") {
@@ -367,7 +462,6 @@ export async function POST(request: Request) {
     }
 
     if (type === "task") {
-      if (!clean(body.employee_name)) return NextResponse.json({ ok: false, error: "Bitte einen Mitarbeiter auswählen. Termine ohne Mitarbeiter werden nicht in der Mitarbeiter-App angezeigt." }, { status: 400 });
       const customer = await readCustomer(supabase, nullableUuid(body.customer_id));
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);
@@ -426,7 +520,8 @@ export async function PATCH(request: Request) {
       const payload = customerPayload(body);
       const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select("*").single();
       if (error) throw new Error(error.message);
-      return NextResponse.json({ ok: true, item: data });
+      const plan = await createCustomerYearTasks(supabase, data, body);
+      return NextResponse.json({ ok: true, item: data, count: plan.count || 1, createdTasks: plan.count });
     }
 
     if (type === "site") {
@@ -438,13 +533,36 @@ export async function PATCH(request: Request) {
     }
 
     if (type === "task") {
-      if (!clean(body.employee_name)) return NextResponse.json({ ok: false, error: "Bitte einen Mitarbeiter auswählen. Termine ohne Mitarbeiter werden nicht in der Mitarbeiter-App angezeigt." }, { status: 400 });
       const customer = await readCustomer(supabase, nullableUuid(body.customer_id));
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);
       const { data, error } = await supabase.from("tasks").update(payload).eq("id", id).select("*").single();
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, item: data });
+    }
+
+    if (type === "task_series_assign") {
+      const groupId = clean(body.recurrence_group_id);
+      const employeeName = nullableText(body.employee_name);
+      if (!groupId) return NextResponse.json({ ok: false, error: "Serien-ID fehlt." }, { status: 400 });
+      const { data, error } = await supabase
+        .from("tasks")
+        .update({ employee_name: employeeName, notify_employee: Boolean(employeeName) })
+        .eq("recurrence_group_id", groupId)
+        .select("id, title, site, employee_name, task_date");
+      if (error) throw new Error(error.message);
+      if (employeeName && Array.isArray(data) && data.length) {
+        await supabase.from("admin_notifications").insert({
+          title: "Einsatz-Serie übertragen",
+          message: `${data.length} Einsätze wurden dir zugewiesen.`,
+          employee_name: employeeName,
+          notification_type: "task_series_assigned",
+          status: "open",
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+      return NextResponse.json({ ok: true, items: data || [], count: Array.isArray(data) ? data.length : 0 });
     }
 
     if (type === "task_status") {
