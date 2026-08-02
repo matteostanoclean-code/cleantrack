@@ -120,11 +120,11 @@ function statusLabel(state: TaskState) {
 }
 
 function statusClass(state: TaskState) {
-  if (state === "done") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
-  if (state === "working") return "border-blue-500/30 bg-blue-500/10 text-blue-100";
-  if (state === "break") return "border-yellow-500/30 bg-yellow-500/10 text-yellow-100";
-  if (state === "late") return "border-red-500/30 bg-red-500/10 text-red-100";
-  return "border-slate-700 bg-slate-950 text-slate-200";
+  if (state === "done") return "border-brand-500/30 bg-brand-50 text-brand-700";
+  if (state === "working") return "border-brand-500/30 bg-brand-50 text-brand-700";
+  if (state === "break") return "border-amber-500/30 bg-amber-100 text-amber-700";
+  if (state === "late") return "border-rose-500/30 bg-rose-100 text-rose-700";
+  return "border-paper-300 bg-paper-100 text-ink-600";
 }
 
 function mapUrl(task: Row) {
@@ -134,9 +134,9 @@ function mapUrl(task: Row) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-4 py-5">
+    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
+      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
+        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-4 py-5">
           {children}
         </div>
       </div>
@@ -172,21 +172,21 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
     <Shell>
       <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-blue-500/40 bg-blue-500/10 text-3xl">📍</div>
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">📍</div>
           <h1 className="text-3xl font-black">Tageszentrale</h1>
-          <p className="mt-2 text-sm text-slate-400">Live-Status für heutige Einsätze.</p>
+          <p className="mt-2 text-sm text-ink-400">Live-Status für heutige Einsätze.</p>
         </div>
-        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">E-Mail</span>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Passwort</span>
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Passwort</span>
+            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
-          {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-          <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+          {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
         </form>
       </div>
     </Shell>
@@ -195,19 +195,19 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{caption}</p>
+    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-ink-400">{title}</p>
+      <p className="mt-2 text-2xl font-black text-ink-900">{value}</p>
+      <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
 }
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-      <p className="font-black text-slate-100">{title}</p>
-      <p className="mt-1 text-sm text-slate-400">{text}</p>
+    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+      <p className="font-black text-ink-800">{title}</p>
+      <p className="mt-1 text-sm text-ink-400">{text}</p>
     </div>
   );
 }
@@ -313,7 +313,7 @@ export default function TageszentralePage() {
   }
 
   if (authLoading) {
-    return <Shell><div className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-slate-400">Lade Anmeldung…</div></Shell>;
+    return <Shell><div className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-ink-400">Lade Anmeldung…</div></Shell>;
   }
 
   if (!token) return <LoginBox onLogin={handleLogin} />;
@@ -323,11 +323,11 @@ export default function TageszentralePage() {
       <div className="space-y-4 pb-24">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-blue-300">CleanTrack Admin</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-brand-600">Schichtklar Admin</p>
             <h1 className="text-3xl font-black">Tageszentrale</h1>
-            <p className="mt-1 text-xs text-slate-400">{dateText(today)} · {data?.profile?.name || "Admin"}</p>
+            <p className="mt-1 text-xs text-ink-400">{dateText(today)} · {data?.profile?.name || "Admin"}</p>
           </div>
-          <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Logout</button>
+          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">Logout</button>
         </header>
 
         <div className="grid grid-cols-2 gap-3">
@@ -338,14 +338,14 @@ export default function TageszentralePage() {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => load()} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-glow">{loading ? "Lade…" : "Neu laden"}</button>
-          <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Auswertung</Link>
-          <Link href="/mitarbeiter/admin" className="col-span-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Dashboard</Link>
+          <button onClick={() => load()} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-glow">{loading ? "Lade…" : "Neu laden"}</button>
+          <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Auswertung</Link>
+          <Link href="/mitarbeiter/admin" className="col-span-2 rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin-Dashboard</Link>
         </div>
 
-        {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-        {message && <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{message}</p>}
-        {loading && <p className="rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">Aktualisiere Live-Status…</p>}
+        {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+        {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
+        {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Live-Status…</p>}
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {([
@@ -357,7 +357,7 @@ export default function TageszentralePage() {
             ["upcoming", "Geplant", counts.upcoming],
             ["done", "Erledigt", counts.done]
           ] as Array<["all" | TaskState, string, number]>).map(([key, label, count]) => (
-            <button key={key} onClick={() => setFilter(key)} className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${filter === key ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
+            <button key={key} onClick={() => setFilter(key)} className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${filter === key ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
               <span className="block font-black">{label}</span>
               <span className="opacity-80">{count}</span>
             </button>
@@ -366,42 +366,42 @@ export default function TageszentralePage() {
 
         <section className="space-y-3">
           {shown.length ? shown.map(({ task, entries, state, last }) => (
-            <article key={task.id} className={`rounded-3xl border p-4 ${state === "late" ? "border-red-500/40 bg-red-500/10" : "border-slate-800 bg-slate-900/80"}`}>
+            <article key={task.id} className={`rounded-3xl border p-4 ${state === "late" ? "border-red-500/40 bg-rose-100" : "border-paper-300 bg-white"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">{taskTime(task)}</p>
-                  <h2 className="mt-1 text-lg font-black text-white">{task.title || "Einsatz"}</h2>
-                  <p className="mt-1 truncate text-sm text-slate-300">{task.site || task.customer_name || "Ohne Objekt"}</p>
-                  <p className="mt-1 text-xs text-slate-500">{task.employee_name || "Ohne Mitarbeiter"}</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-brand-600">{taskTime(task)}</p>
+                  <h2 className="mt-1 text-lg font-black text-ink-900">{task.title || "Einsatz"}</h2>
+                  <p className="mt-1 truncate text-sm text-ink-600">{task.site || task.customer_name || "Ohne Objekt"}</p>
+                  <p className="mt-1 text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"}</p>
                 </div>
                 <span className={`min-w-fit rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-wide ${statusClass(state)}`}>{statusLabel(state)}</span>
               </div>
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                <div className="rounded-2xl bg-slate-950 px-3 py-2">
-                  <p className="text-slate-500">Plan</p>
-                  <p className="font-black text-blue-100">{hoursLabel(minutesFromTimes(task.start_time, task.end_time, task.planned_minutes || task.max_minutes))}</p>
+                <div className="rounded-2xl bg-paper-100 px-3 py-2">
+                  <p className="text-ink-400">Plan</p>
+                  <p className="font-black text-brand-700">{hoursLabel(minutesFromTimes(task.start_time, task.end_time, task.planned_minutes || task.max_minutes))}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-950 px-3 py-2">
-                  <p className="text-slate-500">Buchungen</p>
-                  <p className="font-black text-blue-100">{entries.length}</p>
+                <div className="rounded-2xl bg-paper-100 px-3 py-2">
+                  <p className="text-ink-400">Buchungen</p>
+                  <p className="font-black text-brand-700">{entries.length}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-950 px-3 py-2">
-                  <p className="text-slate-500">Letzte</p>
-                  <p className="font-black text-blue-100">{last ? timeText(last.created_at) : "—"}</p>
+                <div className="rounded-2xl bg-paper-100 px-3 py-2">
+                  <p className="text-ink-400">Letzte</p>
+                  <p className="font-black text-brand-700">{last ? timeText(last.created_at) : "—"}</p>
                 </div>
               </div>
 
               {last ? (
-                <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-xs text-slate-300">
-                  Letzte Aktion: <span className="font-black text-blue-100">{clean(last.action) || "Stempel"}</span>
+                <p className="mt-3 rounded-2xl bg-paper-100 px-3 py-2 text-xs text-ink-600">
+                  Letzte Aktion: <span className="font-black text-brand-700">{clean(last.action) || "Stempel"}</span>
                   {typeof last.distance_m === "number" ? ` · GPS ${last.distance_m} m` : ""}
                 </p>
               ) : null}
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <a href={mapUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-center text-sm font-black text-blue-100">Route</a>
-                <button disabled={savingId === task.id} onClick={() => updateTaskStatus(task, state !== "done")} className="rounded-2xl bg-blue-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60">
+                <a href={mapUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-center text-sm font-black text-brand-700">Route</a>
+                <button disabled={savingId === task.id} onClick={() => updateTaskStatus(task, state !== "done")} className="rounded-2xl bg-brand-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60">
                   {savingId === task.id ? "Speichere…" : state === "done" ? "Wieder öffnen" : "Erledigt"}
                 </button>
               </div>

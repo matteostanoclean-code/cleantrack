@@ -30,10 +30,10 @@ function statusText(employee: Employee) {
 }
 
 function statusClass(employee: Employee) {
-  if (employee.role === "admin") return "border-blue-500/30 bg-blue-500/10 text-blue-100";
-  if (employee.canLogin) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
-  if (employee.auth_user_id && employee.active === false) return "border-red-500/30 bg-red-500/10 text-red-100";
-  return "border-yellow-500/30 bg-yellow-500/10 text-yellow-100";
+  if (employee.role === "admin") return "border-brand-500/30 bg-brand-50 text-brand-700";
+  if (employee.canLogin) return "border-brand-500/30 bg-brand-50 text-brand-700";
+  if (employee.auth_user_id && employee.active === false) return "border-rose-500/30 bg-rose-100 text-rose-700";
+  return "border-amber-500/30 bg-amber-100 text-amber-700";
 }
 
 async function copyToClipboard(text: string) {
@@ -152,77 +152,77 @@ export default function ActivateEmployeesPage() {
 
   if (!token && !loading) {
     return (
-      <main className="min-h-screen bg-slate-950 px-3 py-4 text-white">
-        <section className="mx-auto max-w-[430px] rounded-[2rem] border border-blue-500/30 bg-slate-950 p-5 shadow-2xl shadow-blue-950/40">
+      <main className="min-h-screen bg-paper-100 px-3 py-4 text-ink-900">
+        <section className="mx-auto max-w-[430px] rounded-[2rem] border border-brand-500/30 bg-paper-100 p-5 shadow-2xl shadow-ink-900/10">
           <h1 className="text-2xl font-black">Mitarbeiter aktivieren</h1>
-          <p className="mt-2 text-sm text-slate-400">Bitte erst als Admin in der Mitarbeiter-App anmelden.</p>
-          <Link href="/mitarbeiter" className="mt-5 block rounded-2xl bg-blue-600 px-5 py-4 text-center font-black">Zum Login</Link>
+          <p className="mt-2 text-sm text-ink-400">Bitte erst als Admin in der Mitarbeiter-App anmelden.</p>
+          <Link href="/mitarbeiter" className="mt-5 block rounded-2xl bg-brand-600 px-5 py-4 text-center font-black">Zum Login</Link>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-      <section className="mx-auto max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <header className="sticky top-0 z-10 border-b border-slate-900 bg-slate-950/95 px-5 py-4 backdrop-blur">
+    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
+      <section className="mx-auto max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
+        <header className="sticky top-0 z-10 border-b border-paper-300 bg-white/95 px-5 py-4 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-wide text-blue-200">Admin</p>
+              <p className="text-xs uppercase tracking-wide text-brand-700">Admin</p>
               <h1 className="text-2xl font-black">Mitarbeiter aktivieren</h1>
             </div>
-            <Link href="/mitarbeiter" className="rounded-2xl border border-slate-800 px-4 py-2 text-sm font-bold text-blue-100">App</Link>
+            <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 px-4 py-2 text-sm font-bold text-brand-700">App</Link>
           </div>
         </header>
 
         <div className="space-y-4 px-5 py-5">
           <section className="grid grid-cols-2 gap-3">
-            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-              <p className="text-xs text-slate-500">Aktiv</p>
-              <p className="mt-1 text-3xl font-black text-emerald-200">{activeEmployees.length}</p>
+            <div className="rounded-3xl border border-paper-300 bg-white p-4">
+              <p className="text-xs text-ink-400">Aktiv</p>
+              <p className="mt-1 text-3xl font-black text-brand-700">{activeEmployees.length}</p>
             </div>
-            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-              <p className="text-xs text-slate-500">Offen</p>
+            <div className="rounded-3xl border border-paper-300 bg-white p-4">
+              <p className="text-xs text-ink-400">Offen</p>
               <p className="mt-1 text-3xl font-black text-yellow-200">{inactiveEmployees.length}</p>
             </div>
           </section>
 
           {loading && (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-5 text-center">
-              <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-800 border-t-blue-500" />
+            <div className="rounded-3xl border border-paper-300 bg-white p-5 text-center">
+              <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-paper-300 border-t-blue-500" />
               <p className="font-black">Lade Mitarbeiter…</p>
             </div>
           )}
 
-          {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</p>}
-          {success && <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">{success}</p>}
+          {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-700">{error}</p>}
+          {success && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-4 py-3 text-sm text-brand-700">{success}</p>}
 
           {!loading && (
             <>
-              <section className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4">
-                <p className="font-black text-blue-100">So nutzt du es</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300">Ich aktiviere einen Mitarbeiter, kopiere E-Mail und Startpasswort und gebe es der Person. Danach kann sie sich in der App anmelden.</p>
+              <section className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
+                <p className="font-black text-brand-700">So nutzt du es</p>
+                <p className="mt-2 text-sm leading-6 text-ink-600">Ich aktiviere einen Mitarbeiter, kopiere E-Mail und Startpasswort und gebe es der Person. Danach kann sie sich in der App anmelden.</p>
               </section>
 
               <section className="space-y-3">
                 <h2 className="font-black">Noch ohne Login</h2>
                 {inactiveEmployees.length ? inactiveEmployees.map((employee) => (
-                  <article key={employee.id} className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+                  <article key={employee.id} className="rounded-3xl border border-paper-300 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-black">{employee.name || "Ohne Name"}</p>
-                        <p className="truncate text-xs text-slate-500">{employee.email || "Keine E-Mail"}</p>
+                        <p className="truncate text-xs text-ink-400">{employee.email || "Keine E-Mail"}</p>
                       </div>
                       <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(employee)}`}>{statusText(employee)}</span>
                     </div>
 
                     <label className="mt-4 block">
-                      <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Eigenes Startpasswort optional</span>
+                      <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Eigenes Startpasswort optional</span>
                       <input
                         value={passwords[employee.id] || ""}
                         onChange={(event) => setPasswords((current) => ({ ...current, [employee.id]: event.target.value }))}
                         type="text"
-                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                        className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500"
                         placeholder="Leer lassen = Passwort wird erzeugt"
                       />
                     </label>
@@ -230,48 +230,48 @@ export default function ActivateEmployeesPage() {
                     <button
                       disabled={savingId === employee.id || !employee.email}
                       onClick={() => activateEmployee(employee)}
-                      className="mt-3 w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50"
+                      className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50"
                     >
                       {savingId === employee.id ? "Aktiviere…" : "Login aktivieren"}
                     </button>
 
                     {createdLogins[employee.id] && (
-                      <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+                      <div className="mt-4 rounded-2xl border border-brand-500/30 bg-brand-50 p-3 text-sm text-brand-700">
                         <p className="font-black">Zugangsdaten</p>
                         <p className="mt-2 break-all">E-Mail: {createdLogins[employee.id].email}</p>
                         <p className="break-all">Passwort: {createdLogins[employee.id].password}</p>
                         <button
                           onClick={() => copyToClipboard(`E-Mail: ${createdLogins[employee.id].email}\nPasswort: ${createdLogins[employee.id].password}`)}
-                          className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white"
+                          className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-ink-900"
                         >
                           Kopieren
                         </button>
                       </div>
                     )}
                   </article>
-                )) : <p className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">Alle Mitarbeiter haben bereits einen aktiven Login.</p>}
+                )) : <p className="rounded-3xl border border-paper-300 bg-white p-4 text-sm text-ink-400">Alle Mitarbeiter haben bereits einen aktiven Login.</p>}
               </section>
 
               <section className="space-y-3">
                 <h2 className="font-black">Aktive Logins</h2>
                 {activeEmployees.length ? activeEmployees.map((employee) => (
-                  <article key={employee.id} className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+                  <article key={employee.id} className="rounded-3xl border border-paper-300 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-black">{employee.name || "Ohne Name"}</p>
-                        <p className="truncate text-xs text-slate-500">{employee.email || "Keine E-Mail"}</p>
+                        <p className="truncate text-xs text-ink-400">{employee.email || "Keine E-Mail"}</p>
                       </div>
                       <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(employee)}`}>{statusText(employee)}</span>
                     </div>
                     <button
                       disabled={savingId === employee.id}
                       onClick={() => deactivateEmployee(employee)}
-                      className="mt-4 w-full rounded-2xl border border-red-500/30 bg-red-500/10 py-3 font-black text-red-100 disabled:opacity-50"
+                      className="mt-4 w-full rounded-2xl border border-rose-500/30 bg-rose-100 py-3 font-black text-rose-700 disabled:opacity-50"
                     >
                       Deaktivieren
                     </button>
                   </article>
-                )) : <p className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">Noch keine aktiven Mitarbeiter-Logins.</p>}
+                )) : <p className="rounded-3xl border border-paper-300 bg-white p-4 text-sm text-ink-400">Noch keine aktiven Mitarbeiter-Logins.</p>}
               </section>
             </>
           )}

@@ -92,8 +92,8 @@ function overlap(task: Row, absence: Row) {
 
 function statusTone(value?: unknown) {
   const text = clean(value || "open").toLowerCase();
-  if (["approved", "genehmigt", "done"].includes(text)) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
-  if (["rejected", "abgelehnt", "cancelled"].includes(text)) return "border-red-500/30 bg-red-500/10 text-red-100";
+  if (["approved", "genehmigt", "done"].includes(text)) return "border-brand-500/30 bg-brand-50 text-brand-700";
+  if (["rejected", "abgelehnt", "cancelled"].includes(text)) return "border-rose-500/30 bg-rose-100 text-rose-700";
   return "border-amber-500/30 bg-amber-500/10 text-amber-100";
 }
 
@@ -107,9 +107,9 @@ function typeLabel(value?: unknown) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-4 py-5">
+    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
+      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
+        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-4 py-5">
           {children}
         </div>
       </div>
@@ -145,21 +145,21 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
     <Shell>
       <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-blue-500/40 bg-blue-500/10 text-3xl">🌴</div>
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">🌴</div>
           <h1 className="text-3xl font-black">Urlaubsplanung</h1>
-          <p className="mt-2 text-sm text-slate-400">Abwesenheiten prüfen und Einsätze absichern.</p>
+          <p className="mt-2 text-sm text-ink-400">Abwesenheiten prüfen und Einsätze absichern.</p>
         </div>
-        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">E-Mail</span>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Passwort</span>
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Passwort</span>
+            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
-          {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-          <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+          {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
         </form>
       </div>
     </Shell>
@@ -168,15 +168,15 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{caption}</p>
+    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-ink-400">{title}</p>
+      <p className="mt-2 text-2xl font-black text-ink-900">{value}</p>
+      <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
 }
 
-const inputClass = "w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500";
+const inputClass = "w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500";
 
 export default function AdminVacationPage() {
   const [token, setToken] = useState("");
@@ -322,7 +322,7 @@ export default function AdminVacationPage() {
   const conflictCount = Object.values(conflictMap).reduce((sum, list) => sum + list.length, 0);
   const onVacationToday = approvedThisYear.filter((absence) => clean(absence.start_date) <= today && clean(absence.end_date || absence.start_date) >= today).length;
 
-  if (authLoading) return <Shell><div className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-slate-400">Lade Anmeldung…</div></Shell>;
+  if (authLoading) return <Shell><div className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-ink-400">Lade Anmeldung…</div></Shell>;
   if (!token) return <LoginBox onLogin={handleLogin} />;
 
   return (
@@ -330,21 +330,21 @@ export default function AdminVacationPage() {
       <div className="space-y-4 pb-24">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-blue-300">CleanTrack Admin</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-brand-600">Schichtklar Admin</p>
             <h1 className="text-3xl font-black">Urlaubsplanung</h1>
-            <p className="mt-1 text-xs text-slate-400">Urlaub, Kranktage und Einsatz-Konflikte.</p>
+            <p className="mt-1 text-xs text-ink-400">Urlaub, Kranktage und Einsatz-Konflikte.</p>
           </div>
-          <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Logout</button>
+          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">Logout</button>
         </header>
 
         <div className="grid grid-cols-2 gap-2">
-          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin</Link>
-          <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Planung</Link>
+          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin</Link>
+          <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Planung</Link>
         </div>
 
-        {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-        {message && <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{message}</p>}
-        {loading && <p className="rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">Aktualisiere Daten…</p>}
+        {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+        {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
+        {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Daten…</p>}
 
         <div className="grid grid-cols-2 gap-3">
           <StatCard title="Offen" value={pendingAbsences.length} caption="Anträge" />
@@ -353,13 +353,13 @@ export default function AdminVacationPage() {
           <StatCard title="Mitarbeiter" value={employees.length} caption="Stammdaten" />
         </div>
 
-        <form onSubmit={postAbsence} className="space-y-3 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4">
+        <form onSubmit={postAbsence} className="space-y-3 rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
           <div>
             <p className="font-black">Abwesenheit eintragen</p>
-            <p className="text-xs text-slate-400">Für Urlaub, Krankmeldung oder freie Tage.</p>
+            <p className="text-xs text-ink-400">Für Urlaub, Krankmeldung oder freie Tage.</p>
           </div>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Mitarbeiter</span>
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Mitarbeiter</span>
             <select value={form.employee_name} onChange={(event) => setForm({ ...form, employee_name: event.target.value })} required className={`${inputClass} mt-2`}>
               <option value="">Bitte wählen</option>
               {employees.map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
@@ -367,16 +367,16 @@ export default function AdminVacationPage() {
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Von</span>
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Von</span>
               <input type="date" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value, end_date: form.end_date < event.target.value ? event.target.value : form.end_date })} className={`${inputClass} mt-2`} />
             </label>
             <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Bis</span>
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Bis</span>
               <input type="date" value={form.end_date} min={form.start_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} className={`${inputClass} mt-2`} />
             </label>
           </div>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Art</span>
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Art</span>
             <select value={form.request_type} onChange={(event) => setForm({ ...form, request_type: event.target.value })} className={`${inputClass} mt-2`}>
               <option value="urlaub">Urlaub</option>
               <option value="krank">Krank</option>
@@ -385,34 +385,34 @@ export default function AdminVacationPage() {
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz</span>
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz</span>
             <textarea value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} rows={3} className={`${inputClass} mt-2 resize-none`} placeholder="z. B. Telefonisch gemeldet" />
           </label>
-          <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">Abwesenheit speichern</button>
+          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50">Abwesenheit speichern</button>
         </form>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <p className="font-black">Urlaubskonto {currentYear}</p>
-              <p className="text-xs text-slate-500">Anspruch, genommen, Rest.</p>
+              <p className="text-xs text-ink-400">Anspruch, genommen, Rest.</p>
             </div>
-            <button onClick={() => load()} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-blue-100">Neu laden</button>
+            <button onClick={() => load()} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-brand-700">Neu laden</button>
           </div>
           <div className="space-y-2">
             {employeeStats.map((stat) => (
-              <div key={stat.employee.id || stat.name} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+              <div key={stat.employee.id || stat.name} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-black">{stat.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">Anspruch {stat.quota || 0} Tage · genommen {stat.used} · Rest {stat.remaining}</p>
+                    <p className="mt-1 text-xs text-ink-400">Anspruch {stat.quota || 0} Tage · genommen {stat.used} · Rest {stat.remaining}</p>
                   </div>
                   {stat.open ? <span className="rounded-full bg-amber-500/15 px-3 py-1 text-[11px] font-black text-amber-100">{stat.open} offen</span> : null}
                 </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
-                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, stat.quota ? (stat.used / stat.quota) * 100 : 0)}%` }} />
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper-200">
+                  <div className="h-full rounded-full bg-brand-500" style={{ width: `${Math.min(100, stat.quota ? (stat.used / stat.quota) * 100 : 0)}%` }} />
                 </div>
-                {stat.upcoming ? <p className="mt-2 text-xs text-blue-100">Nächste Abwesenheit: {shortDate(stat.upcoming.start_date)} - {shortDate(stat.upcoming.end_date || stat.upcoming.start_date)}</p> : null}
+                {stat.upcoming ? <p className="mt-2 text-xs text-brand-700">Nächste Abwesenheit: {shortDate(stat.upcoming.start_date)} - {shortDate(stat.upcoming.end_date || stat.upcoming.start_date)}</p> : null}
               </div>
             ))}
           </div>
@@ -420,10 +420,10 @@ export default function AdminVacationPage() {
 
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Mitarbeiter, Status oder Grund suchen…" className={inputClass} />
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
           <div className="mb-3">
             <p className="font-black">Abwesenheiten & Konflikte</p>
-            <p className="text-xs text-slate-500">Beim Genehmigen kann ich betroffene Einsätze direkt wieder freigeben.</p>
+            <p className="text-xs text-ink-400">Beim Genehmigen kann ich betroffene Einsätze direkt wieder freigeben.</p>
           </div>
           <div className="space-y-3">
             {visibleAbsences.map((absence) => {
@@ -431,38 +431,38 @@ export default function AdminVacationPage() {
               const status = clean(absence.status || "open");
               const isClosed = ["approved", "genehmigt", "rejected", "abgelehnt"].includes(status.toLowerCase());
               return (
-                <div key={absence.id} className="rounded-3xl border border-slate-800 bg-slate-950 p-4">
+                <div key={absence.id} className="rounded-3xl border border-paper-300 bg-paper-100 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-black">{absence.employee_name || "Ohne Mitarbeiter"}</p>
-                      <p className="mt-1 text-sm text-slate-300">{shortDate(absence.start_date)} - {shortDate(absence.end_date || absence.start_date)} · {typeLabel(absence.request_type || absence.absence_type)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{countWorkDays(absence.start_date, absence.end_date)} Arbeitstage</p>
+                      <p className="mt-1 text-sm text-ink-600">{shortDate(absence.start_date)} - {shortDate(absence.end_date || absence.start_date)} · {typeLabel(absence.request_type || absence.absence_type)}</p>
+                      <p className="mt-1 text-xs text-ink-400">{countWorkDays(absence.start_date, absence.end_date)} Arbeitstage</p>
                     </div>
                     <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase ${statusTone(status)}`}>{status || "open"}</span>
                   </div>
-                  {absence.reason ? <p className="mt-3 rounded-2xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">{absence.reason}</p> : null}
+                  {absence.reason ? <p className="mt-3 rounded-2xl border border-paper-300 bg-white p-3 text-sm text-ink-600">{absence.reason}</p> : null}
                   {conflicts.length ? (
                     <details className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
                       <summary className="cursor-pointer text-sm font-black text-amber-100">{conflicts.length} Einsatz-Konflikte ansehen</summary>
                       <div className="mt-3 space-y-2">
                         {conflicts.slice(0, 12).map((task) => (
-                          <div key={task.id} className="rounded-2xl bg-slate-950 p-3 text-sm">
+                          <div key={task.id} className="rounded-2xl bg-paper-100 p-3 text-sm">
                             <p className="font-black">{shortDate(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
-                            <p className="text-slate-400">{task.title || "Einsatz"} · {taskPlace(task)}</p>
+                            <p className="text-ink-400">{task.title || "Einsatz"} · {taskPlace(task)}</p>
                           </div>
                         ))}
                       </div>
                     </details>
                   ) : (
-                    <p className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">Keine Einsatz-Konflikte gefunden.</p>
+                    <p className="mt-3 rounded-2xl border border-emerald-500/20 bg-brand-50 p-3 text-sm text-brand-700">Keine Einsatz-Konflikte gefunden.</p>
                   )}
                   <div className="mt-3 grid gap-2">
                     {!isClosed ? (
                       <>
-                        <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve_and_unassign", admin_response: "Genehmigt. Betroffene Einsätze wurden neu zur Planung freigegeben." }, "Urlaub wurde genehmigt.")} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">Genehmigen + Einsätze freigeben</button>
+                        <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve_and_unassign", admin_response: "Genehmigt. Betroffene Einsätze wurden neu zur Planung freigegeben." }, "Urlaub wurde genehmigt.")} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-ink-900 disabled:opacity-50">Genehmigen + Einsätze freigeben</button>
                         <div className="grid grid-cols-2 gap-2">
-                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve", admin_response: "Genehmigt." }, "Urlaub wurde genehmigt.")} className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-xs font-black text-emerald-100 disabled:opacity-50">Nur genehmigen</button>
-                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "reject", admin_response: "Abgelehnt." }, "Urlaub wurde abgelehnt.")} className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-3 text-xs font-black text-red-100 disabled:opacity-50">Ablehnen</button>
+                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve", admin_response: "Genehmigt." }, "Urlaub wurde genehmigt.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-black text-brand-700 disabled:opacity-50">Nur genehmigen</button>
+                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "reject", admin_response: "Abgelehnt." }, "Urlaub wurde abgelehnt.")} className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-3 text-xs font-black text-rose-700 disabled:opacity-50">Ablehnen</button>
                         </div>
                       </>
                     ) : conflicts.length ? (
@@ -472,7 +472,7 @@ export default function AdminVacationPage() {
                 </div>
               );
             })}
-            {!visibleAbsences.length && <p className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-500">Keine Abwesenheiten gefunden.</p>}
+            {!visibleAbsences.length && <p className="rounded-2xl border border-paper-300 bg-paper-100 p-4 text-sm text-ink-400">Keine Abwesenheiten gefunden.</p>}
           </div>
         </section>
       </div>

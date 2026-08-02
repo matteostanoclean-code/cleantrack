@@ -104,9 +104,9 @@ function dayLabelsFromTasks(tasks: Row[]) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-4 py-5">
+    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
+      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
+        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-4 py-5">
           {children}
         </div>
       </div>
@@ -142,21 +142,21 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
     <Shell>
       <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-blue-500/40 bg-blue-500/10 text-3xl">📅</div>
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">📅</div>
           <h1 className="text-3xl font-black">Planungszentrale</h1>
-          <p className="mt-2 text-sm text-slate-400">Serien, offene Termine und Wochenplanung verwalten.</p>
+          <p className="mt-2 text-sm text-ink-400">Serien, offene Termine und Wochenplanung verwalten.</p>
         </div>
-        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">E-Mail</span>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Passwort</span>
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Passwort</span>
+            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
-          {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-          <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+          {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
         </form>
       </div>
     </Shell>
@@ -165,24 +165,24 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{caption}</p>
+    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-ink-400">{title}</p>
+      <p className="mt-2 text-2xl font-black text-ink-900">{value}</p>
+      <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
 }
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-      <p className="font-black text-slate-100">{title}</p>
-      <p className="mt-1 text-sm text-slate-400">{text}</p>
+    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+      <p className="font-black text-ink-800">{title}</p>
+      <p className="mt-1 text-sm text-ink-400">{text}</p>
     </div>
   );
 }
 
-const inputClass = "w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500";
+const inputClass = "w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500";
 
 export default function AdminPlanningPage() {
   const [token, setToken] = useState("");
@@ -302,7 +302,7 @@ export default function AdminPlanningPage() {
   const weekMinutes = weekTasks.reduce((sum, task) => sum + minutesFromTask(task), 0);
   const missingObject = tasks.filter((task) => !clean(task.work_site_id)).length;
 
-  if (authLoading) return <Shell><div className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-slate-400">Lade Anmeldung…</div></Shell>;
+  if (authLoading) return <Shell><div className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-ink-400">Lade Anmeldung…</div></Shell>;
   if (!token) return <LoginBox onLogin={handleLogin} />;
 
   return (
@@ -310,21 +310,21 @@ export default function AdminPlanningPage() {
       <div className="space-y-4 pb-24">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-blue-300">CleanTrack Admin</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-brand-600">Schichtklar Admin</p>
             <h1 className="text-3xl font-black">Planungszentrale</h1>
-            <p className="mt-1 text-xs text-slate-400">Offene Termine, Serien und Wochenplan.</p>
+            <p className="mt-1 text-xs text-ink-400">Offene Termine, Serien und Wochenplan.</p>
           </div>
-          <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Logout</button>
+          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">Logout</button>
         </header>
 
         <div className="grid grid-cols-2 gap-2">
-          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin</Link>
-          <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Tageszentrale</Link>
+          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin</Link>
+          <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Tageszentrale</Link>
         </div>
 
-        {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-        {message && <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{message}</p>}
-        {loading && <p className="rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">Aktualisiere Daten…</p>}
+        {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+        {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
+        {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Daten…</p>}
 
         <div className="grid grid-cols-2 gap-3">
           <StatCard title="Offen" value={unassignedTasks.length} caption="ohne Mitarbeiter" />
@@ -335,49 +335,49 @@ export default function AdminPlanningPage() {
 
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Kunde, Objekt, Mitarbeiter suchen…" className={inputClass} />
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <p className="font-black">Wochenplan</p>
-              <p className="text-xs text-slate-500">{dateText(weekDays[0])} bis {dateText(weekDays[6])}</p>
+              <p className="text-xs text-ink-400">{dateText(weekDays[0])} bis {dateText(weekDays[6])}</p>
             </div>
-            <button onClick={() => load()} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-blue-100">Neu laden</button>
+            <button onClick={() => load()} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-brand-700">Neu laden</button>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <button onClick={() => setWeekStart(iso(addDays(parseIso(weekStart), -7)))} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">← Woche</button>
-            <button onClick={() => setWeekStart(weekStartIso())} className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Heute</button>
-            <button onClick={() => setWeekStart(iso(addDays(parseIso(weekStart), 7)))} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-200">Woche →</button>
+            <button onClick={() => setWeekStart(iso(addDays(parseIso(weekStart), -7)))} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">← Woche</button>
+            <button onClick={() => setWeekStart(weekStartIso())} className="rounded-2xl bg-brand-600 px-3 py-2 text-xs font-black text-white">Heute</button>
+            <button onClick={() => setWeekStart(iso(addDays(parseIso(weekStart), 7)))} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">Woche →</button>
           </div>
           <div className="mt-4 space-y-3">
             {weekDays.map((day) => {
               const dayTasks = weekTasks.filter((task) => task.task_date === day);
               return (
-                <div key={day} className="rounded-3xl border border-slate-800 bg-slate-950/80 p-3">
+                <div key={day} className="rounded-3xl border border-paper-300 bg-paper-100/80 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="font-black">{dateText(day)}</p>
-                    <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">{dayTasks.length} Termine</span>
+                    <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">{dayTasks.length} Termine</span>
                   </div>
                   <div className="space-y-2">
                     {dayTasks.map((task) => (
-                      <div key={task.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+                      <div key={task.id} className="rounded-2xl border border-paper-300 bg-white p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="text-sm font-black">{task.start_time || "—"} · {task.title || "Einsatz"}</p>
-                            <p className="text-xs text-slate-400">{taskPlace(task)}</p>
-                            <p className="mt-1 text-xs text-slate-500">{task.employee_name || "Ohne Mitarbeiter"}</p>
+                            <p className="text-xs text-ink-400">{taskPlace(task)}</p>
+                            <p className="mt-1 text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"}</p>
                           </div>
-                          <span className={`rounded-full px-2 py-1 text-[10px] font-black ${activeStatus(task) ? "bg-blue-500/15 text-blue-100" : "bg-slate-700 text-slate-300"}`}>{task.status || (task.done ? "done" : "open")}</span>
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-black ${activeStatus(task) ? "bg-brand-100 text-brand-700" : "bg-paper-300 text-ink-600"}`}>{task.status || (task.done ? "done" : "open")}</span>
                         </div>
                         <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                           <select value={assignments[task.id] ?? clean(task.employee_name)} onChange={(event) => setAssignments({ ...assignments, [task.id]: event.target.value })} className={inputClass}>
                             <option value="">Ohne Mitarbeiter</option>
                             {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                           </select>
-                          <button disabled={saving} onClick={() => patch({ type: "task_assign", id: task.id, employee_name: assignments[task.id] ?? clean(task.employee_name) }, "Einsatz wurde zugewiesen.")} className="rounded-2xl bg-blue-600 px-3 text-xs font-black text-white disabled:opacity-50">OK</button>
+                          <button disabled={saving} onClick={() => patch({ type: "task_assign", id: task.id, employee_name: assignments[task.id] ?? clean(task.employee_name) }, "Einsatz wurde zugewiesen.")} className="rounded-2xl bg-brand-600 px-3 text-xs font-black text-white disabled:opacity-50">OK</button>
                         </div>
                       </div>
                     ))}
-                    {!dayTasks.length && <p className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sm text-slate-500">Keine Termine an diesem Tag.</p>}
+                    {!dayTasks.length && <p className="rounded-2xl border border-paper-300 bg-white p-3 text-sm text-ink-400">Keine Termine an diesem Tag.</p>}
                   </div>
                 </div>
               );
@@ -385,26 +385,26 @@ export default function AdminPlanningPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <p className="font-black">Nicht zugewiesen</p>
-              <p className="text-xs text-slate-500">Diese Einsätze müssen noch verteilt werden.</p>
+              <p className="text-xs text-ink-400">Diese Einsätze müssen noch verteilt werden.</p>
             </div>
             <span className="rounded-full bg-amber-500/15 px-3 py-1 text-[11px] font-black text-amber-100">{filteredUnassigned.length}</span>
           </div>
           <div className="space-y-3">
             {filteredUnassigned.slice(0, 25).map((task) => (
-              <div key={task.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+              <div key={task.id} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
                 <p className="font-black">{dateText(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
-                <p className="text-sm text-slate-300">{task.title || "Einsatz"}</p>
-                <p className="text-xs text-slate-500">{taskPlace(task)} · {hoursLabel(minutesFromTask(task))}</p>
+                <p className="text-sm text-ink-600">{task.title || "Einsatz"}</p>
+                <p className="text-xs text-ink-400">{taskPlace(task)} · {hoursLabel(minutesFromTask(task))}</p>
                 <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
                   <select value={assignments[task.id] || ""} onChange={(event) => setAssignments({ ...assignments, [task.id]: event.target.value })} className={inputClass}>
                     <option value="">Mitarbeiter wählen</option>
                     {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                   </select>
-                  <button disabled={saving || !assignments[task.id]} onClick={() => patch({ type: "task_assign", id: task.id, employee_name: assignments[task.id] }, "Einsatz wurde zugewiesen.")} className="rounded-2xl bg-blue-600 px-3 text-xs font-black text-white disabled:opacity-50">Zuweisen</button>
+                  <button disabled={saving || !assignments[task.id]} onClick={() => patch({ type: "task_assign", id: task.id, employee_name: assignments[task.id] }, "Einsatz wurde zugewiesen.")} className="rounded-2xl bg-brand-600 px-3 text-xs font-black text-white disabled:opacity-50">Zuweisen</button>
                 </div>
               </div>
             ))}
@@ -412,49 +412,49 @@ export default function AdminPlanningPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
           <div className="mb-3">
             <p className="font-black">Serienverwaltung</p>
-            <p className="text-xs text-slate-500">Hier ändere ich ganze Jahresplanungen oder Serien ab heute.</p>
+            <p className="text-xs text-ink-400">Hier ändere ich ganze Jahresplanungen oder Serien ab heute.</p>
           </div>
           <div className="space-y-3">
             {filteredSeries.map((series) => {
               const edit = edits[series.id] || {};
               const assigned = assignments[series.id] ?? (series.employees.length === 1 ? series.employees[0] : "");
               return (
-                <div key={series.id} className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4">
+                <div key={series.id} className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-black">{series.first.title || "Einsatz-Serie"}</p>
-                      <p className="mt-1 text-xs text-blue-100/80">{taskPlace(series.first)}</p>
-                      <p className="mt-1 text-xs text-slate-400">{series.days || "Tage offen"} · {series.first.start_time || "—"} - {series.first.end_time || "—"}</p>
+                      <p className="mt-1 text-xs text-brand-700/80">{taskPlace(series.first)}</p>
+                      <p className="mt-1 text-xs text-ink-400">{series.days || "Tage offen"} · {series.first.start_time || "—"} - {series.first.end_time || "—"}</p>
                     </div>
-                    <span className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-black text-blue-100">{series.count} Termine</span>
+                    <span className="rounded-full bg-paper-100 px-3 py-1 text-[11px] font-black text-brand-700">{series.count} Termine</span>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-2xl bg-slate-950 p-2"><p className="text-slate-500">Von</p><p className="font-black">{dateText(series.from)}</p></div>
-                    <div className="rounded-2xl bg-slate-950 p-2"><p className="text-slate-500">Bis</p><p className="font-black">{dateText(series.to)}</p></div>
-                    <div className="rounded-2xl bg-slate-950 p-2"><p className="text-slate-500">Offen</p><p className="font-black">{series.open}</p></div>
+                    <div className="rounded-2xl bg-paper-100 p-2"><p className="text-ink-400">Von</p><p className="font-black">{dateText(series.from)}</p></div>
+                    <div className="rounded-2xl bg-paper-100 p-2"><p className="text-ink-400">Bis</p><p className="font-black">{dateText(series.to)}</p></div>
+                    <div className="rounded-2xl bg-paper-100 p-2"><p className="text-ink-400">Offen</p><p className="font-black">{series.open}</p></div>
                   </div>
                   <div className="mt-3 space-y-2">
                     <select value={assigned} onChange={(event) => setAssignments({ ...assignments, [series.id]: event.target.value })} className={inputClass}>
                       <option value="">Ohne Mitarbeiter</option>
                       {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                     </select>
-                    <button disabled={saving} onClick={() => patch({ type: "series_assign", recurrence_group_id: series.id, employee_name: assigned, scope: "future", from_date: today }, "Serie wurde ab heute zugewiesen.")} className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-black text-white disabled:opacity-50">Serie ab heute zuweisen</button>
+                    <button disabled={saving} onClick={() => patch({ type: "series_assign", recurrence_group_id: series.id, employee_name: assigned, scope: "future", from_date: today }, "Serie wurde ab heute zugewiesen.")} className="w-full rounded-2xl bg-brand-600 py-3 text-sm font-black text-white disabled:opacity-50">Serie ab heute zuweisen</button>
                   </div>
-                  <details className="mt-3 rounded-2xl border border-slate-700 bg-slate-950 p-3">
-                    <summary className="cursor-pointer text-sm font-black text-blue-100">Serie bearbeiten</summary>
+                  <details className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 p-3">
+                    <summary className="cursor-pointer text-sm font-black text-brand-700">Serie bearbeiten</summary>
                     <div className="mt-3 space-y-3">
                       <div className="grid grid-cols-2 gap-2">
-                        <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-slate-500">Start</span><input type="time" value={edit.start_time ?? clean(series.first.start_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></label>
-                        <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-slate-500">Ende</span><input type="time" value={edit.end_time ?? clean(series.first.end_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></label>
+                        <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-ink-400">Start</span><input type="time" value={edit.start_time ?? clean(series.first.start_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></label>
+                        <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-ink-400">Ende</span><input type="time" value={edit.end_time ?? clean(series.first.end_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></label>
                       </div>
-                      <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-slate-500">Planminuten</span><input type="number" value={edit.planned_minutes ?? String(series.minutes || "")} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, planned_minutes: event.target.value } })} className={inputClass} /></label>
-                      <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-black text-white disabled:opacity-50">Änderungen ab heute speichern</button>
+                      <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-ink-400">Planminuten</span><input type="number" value={edit.planned_minutes ?? String(series.minutes || "")} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, planned_minutes: event.target.value } })} className={inputClass} /></label>
+                      <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-black text-ink-900 disabled:opacity-50">Änderungen ab heute speichern</button>
                       <div className="grid grid-cols-2 gap-2">
                         <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "paused", done: true }, "Serie wurde ab heute pausiert.")} className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-xs font-black text-amber-100 disabled:opacity-50">Pausieren</button>
-                        <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "open", done: false }, "Serie wurde ab heute geöffnet.")} className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-xs font-black text-emerald-100 disabled:opacity-50">Öffnen</button>
+                        <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "open", done: false }, "Serie wurde ab heute geöffnet.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-black text-brand-700 disabled:opacity-50">Öffnen</button>
                       </div>
                     </div>
                   </details>

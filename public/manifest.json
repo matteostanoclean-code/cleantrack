@@ -1,11 +1,11 @@
 {
-  "name": "CleanTrack Pro",
-  "short_name": "CleanTrack",
+  "name": "Schichtklar",
+  "short_name": "Schichtklar",
   "description": "Mobile App für Reinigungsteams",
   "start_url": "/mitarbeiter",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#F2F5F1",
+  "theme_color": "#F2F5F1",
   "orientation": "portrait",
   "icons": [
     {

@@ -482,9 +482,9 @@ function unreadCountFromData(data: AppData | null) {
 
 function notificationTone(item: Notification) {
   const text = `${item.notification_type || ""} ${item.status || ""} ${item.title || ""}`.toLowerCase();
-  if (text.includes("reject") || text.includes("abgelehnt") || text.includes("gps") || text.includes("warning")) return "border-red-500/30 bg-red-500/10 text-red-100";
-  if (text.includes("approved") || text.includes("genehmigt") || text.includes("done") || text.includes("erledigt")) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
-  return "border-blue-500/25 bg-blue-500/10 text-blue-100";
+  if (text.includes("reject") || text.includes("abgelehnt") || text.includes("gps") || text.includes("warning")) return "border-rose-500/30 bg-rose-100 text-rose-700";
+  if (text.includes("approved") || text.includes("genehmigt") || text.includes("done") || text.includes("erledigt")) return "border-brand-500/30 bg-brand-50 text-brand-700";
+  return "border-brand-500/25 bg-brand-50 text-brand-700";
 }
 
 function normalizePriority(task: RawTask): Assignment["priority"] {
@@ -612,6 +612,41 @@ function dailyWorkedSeconds(entries: RawTimeEntry[]) {
   return seconds;
 }
 
+function monthlyWorkedSeconds(entries: RawTimeEntry[]) {
+  const rows = entries
+    .filter((entry) => isSuccessfulTimeEntry(entry))
+    .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+  let seconds = 0;
+  let clockIn: number | null = null;
+
+  for (const row of rows) {
+    const timestamp = row.created_at ? new Date(row.created_at).getTime() : 0;
+    if (!timestamp) continue;
+    if (row.action === "clock_in" || row.action === "break_end") {
+      clockIn = timestamp;
+    }
+    if (row.action === "break_start" && clockIn) {
+      seconds += Math.max(0, Math.round((timestamp - clockIn) / 1000));
+      clockIn = null;
+    }
+    if (row.action === "clock_out" && clockIn) {
+      seconds += Math.max(0, Math.round((timestamp - clockIn) / 1000));
+      clockIn = null;
+    }
+  }
+
+  if (clockIn) seconds += Math.max(0, Math.round((Date.now() - clockIn) / 1000));
+  return seconds;
+}
+
+function formatHM(seconds: number) {
+  const totalMinutes = Math.max(0, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
 function latestClock(entries: RawTimeEntry[]) {
   const latest = [...entries].filter((entry) => entry.action && isSuccessfulTimeEntry(entry)).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
   if (!latest) return { status: "idle" as ClockStatus, startedAt: null as number | null };
@@ -635,7 +670,12 @@ function Icon({ name }: { name: string }) {
     box: "M4 7l8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10",
     chat: "M21 12a8 8 0 0 1-8 8H6l-3 3v-6.5A8 8 0 1 1 21 12Z",
     user: "M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z",
-    building: "M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M3 21h18M8 7h2M8 11h2M8 15h2M14 9h3M14 13h3M14 17h3"
+    building: "M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M3 21h18M8 7h2M8 11h2M8 15h2M14 9h3M14 13h3M14 17h3",
+    inbox: "M4 12h4l2 3h4l2-3h4M4 12l1.5-6.5A2 2 0 0 1 7.44 4h9.12a2 2 0 0 1 1.94 1.5L20 12M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6",
+    settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V19.5a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.04H4.5a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.04 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10a1.7 1.7 0 0 0 1.04-1.56V4.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V10a1.7 1.7 0 0 0 1.56 1.04h.09a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.04Z",
+    search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35",
+    edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z",
+    star: "m12 3 2.6 5.9 6.4.6-4.9 4.3 1.5 6.3L12 16.9 6.4 20.1l1.5-6.3-4.9-4.3 6.4-.6L12 3Z"
   };
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -644,57 +684,69 @@ function Icon({ name }: { name: string }) {
   );
 }
 
-function AppShell({ children, active, setActive, unreadCount = 0 }: { children: React.ReactNode; active: Tab; setActive: (tab: Tab) => void; unreadCount?: number }) {
+function AppShell({ children, active, setActive, unreadCount = 0, employee, onOpenMenu }: { children: React.ReactNode; active: Tab; setActive: (tab: Tab) => void; unreadCount?: number; employee?: Employee | null; onOpenMenu: () => void }) {
   const nav: Array<{ key: Tab; label: string; icon: string }> = [
     { key: "home", label: "Home", icon: "home" },
-    { key: "timesheet", label: "Zeiten", icon: "sheet" },
-    { key: "schedule", label: "Plan", icon: "calendar" },
-    { key: "clock", label: "Stempel", icon: "clock" },
-    { key: "menu", label: "Mehr", icon: "menu" }
+    { key: "notifications", label: "Inbox", icon: "inbox" },
+    { key: "schedule", label: "Kalender", icon: "calendar" },
+    { key: "timesheet", label: "Zeiten", icon: "clock" },
+    { key: "chat", label: "Chat", icon: "chat" }
   ];
 
   return (
-    <main className="phone-bg h-[100dvh] overflow-hidden bg-slate-950 px-3 py-3 text-slate-50 sm:px-5">
-      <div className="mx-auto h-full max-h-[calc(100dvh-1.5rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="relative flex h-full min-h-0 flex-col bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
-          <Header unreadCount={unreadCount} onOpenNotifications={() => setActive("notifications")} />
-          <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">{children}</section>
-          <nav className="absolute bottom-3 left-1/2 z-40 grid w-[calc(100%-1.5rem)] max-w-[430px] -translate-x-1/2 grid-cols-5 rounded-3xl border border-slate-800 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
-            {nav.map((item) => {
-              const selected = active === item.key || (item.key === "schedule" && active === "taskdetail") || (item.key === "menu" && ["material", "absence", "chat", "profile", "quality", "notifications", "dayclose", "route", "objects", "issue", "service", "push"].includes(active));
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => setActive(item.key)}
-                  className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] transition ${selected ? "bg-blue-600 text-white shadow-glow" : "text-slate-400 hover:bg-slate-900 hover:text-slate-100"}`}
-                >
-                  <Icon name={item.icon} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+    <main className="min-h-[100dvh] bg-white text-ink-900 md:flex md:items-center md:justify-center md:bg-paper-100 md:p-6">
+      <div className="relative flex h-[100dvh] min-h-0 w-full flex-col bg-white md:h-[860px] md:max-w-[430px] md:overflow-hidden md:rounded-[2rem] md:border md:border-paper-300 md:shadow-card">
+        <Header unreadCount={unreadCount} employee={employee} onOpenNotifications={() => setActive("notifications")} onOpenMenu={onOpenMenu} />
+        <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4">{children}</section>
+        <nav
+          className="grid grid-cols-5 gap-1 border-t border-paper-300 bg-white px-2 pt-2"
+          style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
+        >
+          {nav.map((item) => {
+            const selected = active === item.key || (item.key === "schedule" && active === "taskdetail");
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActive(item.key)}
+                className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium transition ${selected ? "text-brand-600" : "text-ink-400 hover:text-ink-800"}`}
+              >
+                <Icon name={item.icon} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
       </div>
     </main>
   );
 }
 
-function Header({ unreadCount = 0, onOpenNotifications }: { unreadCount?: number; onOpenNotifications: () => void }) {
+function Header({ unreadCount = 0, employee, onOpenNotifications, onOpenMenu }: { unreadCount?: number; employee?: Employee | null; onOpenNotifications: () => void; onOpenMenu: () => void }) {
+  const firstName = (employee?.name || "").split(" ")[0] || "Team";
+  const initials = (employee?.name || "?").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 px-4 py-3 backdrop-blur">
+    <header
+      className="sticky top-0 z-30 bg-white px-4 pb-3"
+      style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+    >
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-2xl border border-blue-500/40 bg-blue-500/10 text-lg">🧼</div>
-          <div>
-            <p className="text-sm font-bold tracking-wide text-slate-100">CleanTrack Pro</p>
-            <p className="text-[11px] text-slate-500">Mobile Team-App</p>
-          </div>
-        </div>
-        <button onClick={onOpenNotifications} className="relative rounded-2xl border border-slate-800 bg-slate-900 p-2 text-blue-200" aria-label="Benachrichtigungen öffnen">
-          <Icon name="bell" />
-          {unreadCount > 0 ? <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
+        <button onClick={onOpenMenu} className="flex items-center gap-3 text-left">
+          {employee?.avatar_url ? (
+            <img src={employee.avatar_url} alt="" className="h-11 w-11 rounded-full object-cover" />
+          ) : (
+            <div className="grid h-11 w-11 place-items-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">{initials}</div>
+          )}
+          <p className="text-xl font-black tracking-tight text-ink-900">Hallo, {firstName} 👋</p>
         </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onOpenNotifications} className="relative rounded-full p-2 text-ink-600" aria-label="Benachrichtigungen öffnen">
+            <Icon name="inbox" />
+            {unreadCount > 0 ? <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
+          </button>
+          <button onClick={onOpenMenu} className="rounded-full p-2 text-ink-600" aria-label="Menü öffnen">
+            <Icon name="settings" />
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -702,10 +754,10 @@ function Header({ unreadCount = 0, onOpenNotifications }: { unreadCount?: number
 
 function MetricCard({ title, value, caption, accent }: { title: string; value: string; caption: string; accent?: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">{title}</p>
-      <p className={`mt-2 text-2xl font-black ${accent || "text-slate-50"}`}>{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{caption}</p>
+    <div className="rounded-2xl border border-paper-300 bg-white p-4">
+      <p className="text-[11px] uppercase tracking-wide text-ink-400">{title}</p>
+      <p className={`mt-2 text-2xl font-black ${accent || "text-ink-900"}`}>{value}</p>
+      <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
 }
@@ -713,8 +765,8 @@ function MetricCard({ title, value, caption, accent }: { title: string; value: s
 function ProgressRing({ percent }: { percent: number }) {
   const angle = Math.round((percent / 100) * 360);
   return (
-    <div className="relative grid h-16 w-16 place-items-center rounded-full" style={{ background: `conic-gradient(#2563eb ${angle}deg, #1e293b 0deg)` }}>
-      <div className="grid h-12 w-12 place-items-center rounded-full bg-slate-950 text-xs font-bold text-blue-100">{percent}%</div>
+    <div className="relative grid h-16 w-16 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#1D5FE0 ${angle}deg, #FFFFFF 0deg)` }}>
+      <div className="grid h-[3.4rem] w-[3.4rem] place-items-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">{percent}%</div>
     </div>
   );
 }
@@ -725,7 +777,7 @@ function EmployeeSelect({ employees, employeeName, onChange }: { employees: Empl
     <select
       value={employeeName}
       onChange={(event) => onChange(event.target.value)}
-      className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3 text-sm font-bold text-blue-100 outline-none"
+      className="w-full rounded-2xl border border-paper-300 bg-white px-3 py-3 text-sm font-bold text-brand-700 outline-none"
     >
       {employees.map((employee) => (
         <option key={employee.id} value={employee.name}>{employee.name}</option>
@@ -738,99 +790,88 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
   const employee = data?.employee;
   const todayTasks = assignments.filter((assignment) => assignment.date === todayIso());
   const doneToday = todayTasks.filter((assignment) => assignment.done).length;
+  const openToday = todayTasks.length - doneToday;
   const progress = todayTasks.length ? Math.round((doneToday / todayTasks.length) * 100) : 0;
-  const todaySeconds = dailyWorkedSeconds(data?.timeEntries || []);
-  const todayHours = todaySeconds / 3600;
-  const futureAssignments = assignments.filter((assignment) => (assignment.date || "") >= todayIso()).sort((a, b) => `${a.date || "9999-12-31"}-${a.raw?.start_time || "99:99"}`.localeCompare(`${b.date || "9999-12-31"}-${b.raw?.start_time || "99:99"}`));
-  const nextAssignment = todayTasks.find((assignment) => !assignment.done) || futureAssignments.find((assignment) => !assignment.done) || futureAssignments[0];
-  const latestActivity = (data?.timeEntries || []).filter(isSuccessfulTimeEntry).slice(0, 3);
+  const monthlySeconds = monthlyWorkedSeconds(data?.timeEntries || []);
+  const monthlyLimitHours = employee?.monthly_hour_limit || 0;
+  const monthlyPercent = monthlyLimitHours ? Math.min(100, Math.round((monthlySeconds / 3600 / monthlyLimitHours) * 100)) : 0;
   const birthday = birthdayInfo(employee);
 
+  const quickAccess: Array<{ title: string; subtitle: string; emoji: string; tile: string; tab: Tab }> = [
+    { title: "Stempeluhr", subtitle: "Ein- und ausstempeln", emoji: "⏱️", tile: "bg-brand-50", tab: "clock" },
+    { title: "Aufgaben", subtitle: `${openToday} offen heute`, emoji: "📋", tile: "bg-violet-50", tab: "tasks" },
+    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} Anträge`, emoji: "🌴", tile: "bg-emerald-50", tab: "absence" },
+    { title: "Materialbestellung", subtitle: `${data?.materialReports?.length || 0} Bestellungen`, emoji: "📦", tile: "bg-amber-50", tab: "material" },
+    { title: "Qualitätskontrolle", subtitle: "Einsehen und erledigen", emoji: "📘", tile: "bg-blue-50", tab: "quality" },
+    { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, emoji: "💬", tile: "bg-rose-50", tab: "chat" },
+    { title: "Mehr", subtitle: "Objekte, Route, Profil, Dokumente", emoji: "⚙️", tile: "bg-paper-200", tab: "menu" }
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-3">
-        <div>
-          <p className="text-2xl font-black tracking-tight">Hallo, {employee?.name || "Team"}</p>
-          <p className="text-xs text-slate-400">Heute: {todayTasks.length} Einsätze · {doneToday} erledigt.</p>
-        </div>
-        {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
-      </div>
+    <div className="space-y-5">
+      {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
 
       {birthday?.isToday ? (
-        <section className="rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-pink-200">Geburtstag</p>
-          <h2 className="mt-1 text-xl font-black text-white">Alles Gute zum Geburtstag, {employee?.name?.split(" ")[0] || "Team"}! 🎉</h2>
-          <p className="mt-1 text-sm text-pink-100/80">Ich wünsche dir einen starken Tag, Gesundheit und viele gute Momente.</p>
+        <section className="rounded-3xl border border-rose-500/30 bg-rose-100 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-rose-700">Geburtstag</p>
+          <h2 className="mt-1 text-xl font-black text-ink-900">Alles Gute zum Geburtstag, {employee?.name?.split(" ")[0] || "Team"}! 🎉</h2>
+          <p className="mt-1 text-sm text-rose-700/80">Ich wünsche dir einen starken Tag, Gesundheit und viele gute Momente.</p>
         </section>
       ) : birthday && birthday.daysUntil <= 14 ? (
-        <section className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-blue-200">Geburtstag</p>
-          <p className="mt-1 text-sm text-blue-100">Dein Geburtstag ist {birthday.nextLabel} · {birthday.date}</p>
+        <section className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-brand-700">Geburtstag</p>
+          <p className="mt-1 text-sm text-brand-700">Dein Geburtstag ist {birthday.nextLabel} · {birthday.date}</p>
         </section>
       ) : null}
 
-      <button onClick={() => setActive("timesheet")} className="block w-full rounded-3xl border border-slate-800 bg-slate-900/70 p-4 text-left transition hover:border-blue-600">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-wide text-slate-500">Tagesfortschritt</p>
-            <p className="mt-1 text-3xl font-black text-white">{todayHours.toFixed(1)}h</p>
-            <p className="text-xs text-slate-400">gearbeitet · {doneToday}/{todayTasks.length || 0} Einsätze erledigt</p>
-          </div>
-          <ProgressRing percent={progress} />
+      {/* Stundenzettel-Karte, wie im Referenzdesign: helles Blau, Fortschrittsring, große Stundenanzeige, Pfeil führt zur Detailansicht. */}
+      <button onClick={() => setActive("timesheet")} className="flex w-full items-center gap-4 rounded-3xl bg-brand-50 p-5 text-left">
+        <ProgressRing percent={monthlyPercent} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink-600">Dein Stundenzettel</p>
+          <p className="mt-1 text-3xl font-black tracking-tight text-ink-900">{formatHM(monthlySeconds)}<span className="text-base font-bold text-ink-400"> h</span></p>
+          {monthlyLimitHours ? <p className="text-sm text-ink-400">/ {monthlyLimitHours}:00 h</p> : <p className="text-sm text-ink-400">diesen Monat</p>}
         </div>
-        <div className="mt-4 h-2 rounded-full bg-slate-800">
-          <div className="h-2 rounded-full bg-blue-600" style={{ width: `${progress}%` }} />
-        </div>
-        <p className="mt-3 text-[11px] text-slate-400">Antippen öffnet die Tageszeiten · {monthLabel()}</p>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-brand-600">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+        </span>
       </button>
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-bold">Nächster Einsatz</h2>
-          <button onClick={() => setActive("schedule")} className="text-xs font-semibold text-blue-300">Plan ansehen</button>
+          <h2 className="font-bold text-ink-900">Heutige Einsätze</h2>
+          <span className="text-sm text-ink-400">{doneToday}/{todayTasks.length || 0}</span>
         </div>
-        {nextAssignment ? (
-          <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-800/80">
-            <div className="flex gap-3 p-4">
-              <div className="min-w-0 flex-1">
-                <span className="rounded-md bg-blue-500/20 px-2 py-1 text-[11px] font-semibold text-blue-200">{dateLabel(nextAssignment.date)} · {nextAssignment.time}</span>
-                <h3 className="mt-3 font-black">{nextAssignment.title}</h3>
-                <p className="mt-1 text-xs text-slate-400">{nextAssignment.address}</p>
-              </div>
-              <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-blue-300 via-slate-700 to-slate-950 shadow-inner" />
-            </div>
-            <div className="grid grid-cols-2 border-t border-slate-700 text-sm">
-              <a href={mapSearchUrl(nextAssignment.raw || null)} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="map" />Route</a>
-              <button onClick={() => onOpenAssignment(nextAssignment)} className="flex items-center justify-center gap-2 py-3 text-blue-100"><Icon name="calendar" />Termin</button>
-            </div>
+        <div className="h-1.5 rounded-full bg-paper-200">
+          <div className="h-1.5 rounded-full bg-brand-600" style={{ width: `${progress}%` }} />
+        </div>
+
+        {todayTasks.length === 0 ? (
+          <div className="py-10 text-center">
+            <p className="text-4xl">🎉</p>
+            <p className="mt-3 font-black text-ink-900">Nichts zu tun!</p>
+            <p className="mt-1 text-sm text-ink-400">Für heute sind keine Einsätze geplant.</p>
           </div>
         ) : (
-          <EmptyCard title="Kein Einsatz gefunden" text="Für diesen Mitarbeiter gibt es aktuell keinen Einsatz im abgefragten Zeitraum." />
+          <div className="mt-3 space-y-3">
+            {todayTasks.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
+          </div>
         )}
       </section>
 
       <section>
-        <h2 className="mb-2 font-bold">Schnellaktionen</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => setActive("tasks")} className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
-            <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-blue-500/15 text-blue-200"><Icon name="tasks" /></div>
-            <p className="font-bold">Aufgaben</p>
-            <p className="text-xs text-slate-400">Heute abhaken</p>
-          </button>
-          <button onClick={() => setActive("clock")} className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
-            <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-blue-500/15 text-blue-200"><Icon name="clock" /></div>
-            <p className="font-bold">Stempeln</p>
-            <p className="text-xs text-slate-400">Zeit erfassen</p>
-          </button>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 font-bold">Heutige Aktivität</h2>
-        <div className="space-y-3 text-sm">
-          {latestActivity.length ? latestActivity.map((entry) => (
-            <Activity key={entry.id} label={`${actionLabel(entry.action)} · ${entry.work_site_name || "Ohne Objekt"}`} time={entry.created_at ? new Date(entry.created_at).toLocaleString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "—"} />
-          )) : <p className="text-sm text-slate-500">Heute noch keine Aktivität.</p>}
+        <h2 className="mb-2 font-bold text-ink-900">Schnellzugriffe</h2>
+        <div className="space-y-2">
+          {quickAccess.map((item) => (
+            <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-4 rounded-2xl p-3 text-left transition hover:bg-paper-100">
+              <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-xl ${item.tile}`}>{item.emoji}</div>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-ink-900">{item.title}</p>
+                <p className="truncate text-xs text-ink-400">{item.subtitle}</p>
+              </div>
+              <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-ink-200" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+            </button>
+          ))}
         </div>
       </section>
     </div>
@@ -839,9 +880,9 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-      <p className="font-black text-slate-100">{title}</p>
-      <p className="mt-1 text-sm text-slate-400">{text}</p>
+    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+      <p className="font-black text-ink-800">{title}</p>
+      <p className="mt-1 text-sm text-ink-400">{text}</p>
     </div>
   );
 }
@@ -849,10 +890,10 @@ function EmptyCard({ title, text }: { title: string; text: string }) {
 function Activity({ label, time }: { label: string; time: string }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+      <span className="mt-1 h-2 w-2 rounded-full bg-brand-500" />
       <div>
-        <p className="font-semibold text-slate-100">{label}</p>
-        <p className="text-xs text-slate-500">{time}</p>
+        <p className="font-semibold text-ink-800">{label}</p>
+        <p className="text-xs text-ink-400">{time}</p>
       </div>
     </div>
   );
@@ -880,42 +921,42 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Einsatzplan</h1>
-        <p className="text-xs text-slate-400">Nur heute und kommende Einsätze.</p>
+        <p className="text-xs text-ink-400">Nur heute und kommende Einsätze.</p>
       </div>
       <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
         {days.map((day) => {
           const selected = day === selectedDay;
           const count = futureAssignments.filter((assignment) => assignment.date === day).length;
           return (
-            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
-              <span className="block text-[10px] uppercase text-slate-400">{dateLabel(day).split(" ")[0]}</span>
+            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
+              <span className="block text-[10px] uppercase text-ink-400">{dateLabel(day).split(" ")[0]}</span>
               <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
-              <span className="mt-1 block text-[10px] text-slate-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
+              <span className="mt-1 block text-[10px] text-ink-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
             </button>
           );
         })}
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="font-black">Tagesübersicht</h2>
-            <p className="text-xs text-slate-500">{dateLabel(selectedDay)}</p>
+            <p className="text-xs text-ink-400">{dateLabel(selectedDay)}</p>
           </div>
-          <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">{openSelected} offen</span>
+          <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">{openSelected} offen</span>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Einsätze</p>
-            <p className="mt-1 text-xl font-black text-white">{selectedAssignments.length}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Einsätze</p>
+            <p className="mt-1 text-xl font-black text-ink-900">{selectedAssignments.length}</p>
           </div>
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Erledigt</p>
-            <p className="mt-1 text-xl font-black text-emerald-200">{doneSelected}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Erledigt</p>
+            <p className="mt-1 text-xl font-black text-brand-700">{doneSelected}</p>
           </div>
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Geplant</p>
-            <p className="mt-1 text-xl font-black text-blue-100">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Geplant</p>
+            <p className="mt-1 text-xl font-black text-brand-700">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
           </div>
         </div>
       </section>
@@ -923,7 +964,7 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-bold">Einsätze an diesem Tag</h2>
-          <span className="text-xs text-slate-500">{selectedAssignments.length} gefunden</span>
+          <span className="text-xs text-ink-400">{selectedAssignments.length} gefunden</span>
         </div>
         <div className="space-y-3">
           {selectedAssignments.length ? selectedAssignments.map((assignment, index) => <AssignmentCard key={assignment.id} assignment={assignment} featured={index === 0} onOpenAssignment={onOpenAssignment} />) : <EmptyCard title="Keine Einsätze an diesem Tag" text="Wähle oben einen anderen Tag oder lege im Admin-Dashboard einen neuen Termin an." />}
@@ -933,7 +974,7 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
       <section>
         <h2 className="mb-2 font-bold">Kommende Einsätze</h2>
         <div className="space-y-3">
-          {upcomingAssignments.length ? upcomingAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />) : <p className="text-sm text-slate-500">Keine weiteren kommenden Einsätze.</p>}
+          {upcomingAssignments.length ? upcomingAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />) : <p className="text-sm text-ink-400">Keine weiteren kommenden Einsätze.</p>}
         </div>
       </section>
     </div>
@@ -941,26 +982,26 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
 }
 
 function AssignmentCard({ assignment, featured, onOpenAssignment }: { assignment: Assignment; featured?: boolean; onOpenAssignment?: (assignment: Assignment) => void }) {
-  const priorityColor = assignment.priority === "urgent" ? "bg-orange-400" : assignment.priority === "overdue" ? "bg-red-400" : "bg-blue-400";
+  const priorityColor = assignment.priority === "urgent" ? "bg-amber-500" : assignment.priority === "overdue" ? "bg-rose-500" : "bg-brand-500";
   return (
-    <article className={`rounded-3xl border border-slate-800 ${featured ? "bg-slate-800" : "bg-slate-900/70"} p-4`}>
+    <article className={`rounded-3xl border border-paper-300 ${featured ? "bg-paper-200" : "bg-white"} p-4`}>
       <button onClick={() => onOpenAssignment?.(assignment)} className="flex w-full items-start justify-between gap-3 text-left">
         <div className="min-w-0">
-          <p className="text-xs font-bold text-blue-200">{dateLabel(assignment.date)} · {assignment.time}</p>
-          <h3 className="mt-2 font-black text-white">{assignment.title}</h3>
-          <p className="mt-1 text-xs text-slate-400">{assignment.address}</p>
+          <p className="text-xs font-bold text-brand-700">{dateLabel(assignment.date)} · {assignment.time}</p>
+          <h3 className="mt-2 font-black text-ink-900">{assignment.title}</h3>
+          <p className="mt-1 text-xs text-ink-400">{assignment.address}</p>
         </div>
-        <span className="rounded-full bg-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200">{assignment.duration}</span>
+        <span className="rounded-full bg-paper-300 px-3 py-1 text-[11px] font-semibold text-ink-600">{assignment.duration}</span>
       </button>
       <div className="mt-4 flex flex-wrap gap-2">
-        <span className="rounded-lg bg-blue-500/15 px-2 py-1 text-[11px] font-semibold text-blue-200">{assignment.tag}</span>
-        <span className="rounded-lg bg-slate-700/70 px-2 py-1 text-[11px] text-slate-300">{assignment.customer}</span>
+        <span className="rounded-lg bg-brand-100 px-2 py-1 text-[11px] font-semibold text-brand-700">{assignment.tag}</span>
+        <span className="rounded-lg bg-paper-200 px-2 py-1 text-[11px] text-ink-600">{assignment.customer}</span>
       </div>
       <div className="mt-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs text-slate-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.done ? "Erledigt" : assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
+        <div className="flex items-center gap-2 text-xs text-ink-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.done ? "Erledigt" : assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
         <div className="flex gap-2">
-          <a href={mapSearchUrl(assignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold text-blue-100">Route</a>
-          <button onClick={() => onOpenAssignment?.(assignment)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Termin</button>
+          <a href={mapSearchUrl(assignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-xl border border-paper-300 px-3 py-2 text-sm font-bold text-brand-700">Route</a>
+          <button onClick={() => onOpenAssignment?.(assignment)} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white">Termin</button>
         </div>
       </div>
     </article>
@@ -1040,86 +1081,86 @@ function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQualit
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <BackButton onBack={onBack} />
-        <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${task.done ? "bg-emerald-500/15 text-emerald-200" : "bg-blue-500/15 text-blue-200"}`}>{task.done ? "Erledigt" : "Offen"}</span>
+        <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${task.done ? "bg-brand-100 text-brand-700" : "bg-brand-100 text-brand-700"}`}>{task.done ? "Erledigt" : "Offen"}</span>
       </div>
 
-      <section className="overflow-hidden rounded-3xl border border-blue-500/25 bg-slate-900/80">
+      <section className="overflow-hidden rounded-3xl border border-brand-500/25 bg-white">
         <div className="p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-blue-200">Termin</p>
-          <h1 className="mt-2 text-2xl font-black text-white">{task.title || "Einsatz"}</h1>
-          <p className="mt-2 text-sm text-slate-300">{task.site || task.customer_name || "Ohne Objekt"}</p>
-          <p className="mt-1 text-xs text-slate-500">{task.customer_name || "Kunde offen"}</p>
+          <p className="text-xs font-black uppercase tracking-wide text-brand-700">Termin</p>
+          <h1 className="mt-2 text-2xl font-black text-ink-900">{task.title || "Einsatz"}</h1>
+          <p className="mt-2 text-sm text-ink-600">{task.site || task.customer_name || "Ohne Objekt"}</p>
+          <p className="mt-1 text-xs text-ink-400">{task.customer_name || "Kunde offen"}</p>
         </div>
-        <div className="grid grid-cols-3 border-t border-slate-800 text-center text-xs">
+        <div className="grid grid-cols-3 border-t border-paper-300 text-center text-xs">
           <div className="p-3">
-            <p className="text-slate-500">Datum</p>
-            <p className="mt-1 font-black text-white">{dateLabel(task.task_date)}</p>
+            <p className="text-ink-400">Datum</p>
+            <p className="mt-1 font-black text-ink-900">{dateLabel(task.task_date)}</p>
           </div>
-          <div className="border-x border-slate-800 p-3">
-            <p className="text-slate-500">Uhrzeit</p>
-            <p className="mt-1 font-black text-white">{taskTime(task)}</p>
+          <div className="border-x border-paper-300 p-3">
+            <p className="text-ink-400">Uhrzeit</p>
+            <p className="mt-1 font-black text-ink-900">{taskTime(task)}</p>
           </div>
           <div className="p-3">
-            <p className="text-slate-500">Dauer</p>
-            <p className="mt-1 font-black text-white">{taskDuration(task)}</p>
+            <p className="text-ink-400">Dauer</p>
+            <p className="mt-1 font-black text-ink-900">{taskDuration(task)}</p>
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <h2 className="font-black">Arbeitsablauf</h2>
         <div className="mt-3 space-y-2 text-sm">
-          <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-3 py-3">
+          <div className="flex items-center justify-between rounded-2xl bg-paper-100 px-3 py-3">
             <span>1. Am Objekt einchecken</span>
-            <span className={hasClockIn ? "font-black text-emerald-300" : "font-black text-slate-500"}>{hasClockIn ? "OK" : "offen"}</span>
+            <span className={hasClockIn ? "font-black text-brand-600" : "font-black text-ink-400"}>{hasClockIn ? "OK" : "offen"}</span>
           </div>
-          <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-3 py-3">
+          <div className="flex items-center justify-between rounded-2xl bg-paper-100 px-3 py-3">
             <span>2. Reinigung / Aufgabe erledigen</span>
-            <span className={task.done ? "font-black text-emerald-300" : "font-black text-slate-500"}>{task.done ? "OK" : "offen"}</span>
+            <span className={task.done ? "font-black text-brand-600" : "font-black text-ink-400"}>{task.done ? "OK" : "offen"}</span>
           </div>
-          <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-3 py-3">
+          <div className="flex items-center justify-between rounded-2xl bg-paper-100 px-3 py-3">
             <span>3. Ausstempeln</span>
-            <span className={hasClockOut ? "font-black text-emerald-300" : "font-black text-slate-500"}>{hasClockOut ? "OK" : "offen"}</span>
+            <span className={hasClockOut ? "font-black text-brand-600" : "font-black text-ink-400"}>{hasClockOut ? "OK" : "offen"}</span>
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <h2 className="font-black">Aktionen</h2>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <a href={mapSearchUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-center text-sm font-black text-blue-100">Route öffnen</a>
-          <button onClick={() => onOpenClock(task)} className="rounded-2xl bg-blue-600 px-3 py-3 text-sm font-black text-white shadow-glow">Stempeln</button>
-          <button onClick={() => onOpenQuality(task)} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-black text-blue-100">Qualität</button>
-          <button disabled={saving} onClick={() => toggleDone(!task.done)} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-black text-blue-100 disabled:opacity-60">{task.done ? "Wieder öffnen" : "Erledigt"}</button>
+          <a href={mapSearchUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-center text-sm font-black text-brand-700">Route öffnen</a>
+          <button onClick={() => onOpenClock(task)} className="rounded-2xl bg-brand-600 px-3 py-3 text-sm font-black text-white shadow-glow">Stempeln</button>
+          <button onClick={() => onOpenQuality(task)} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-black text-brand-700">Qualität</button>
+          <button disabled={saving} onClick={() => toggleDone(!task.done)} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-black text-brand-700 disabled:opacity-60">{task.done ? "Wieder öffnen" : "Erledigt"}</button>
         </div>
-        {message ? <p className="mt-3 rounded-2xl bg-slate-950 px-3 py-2 text-xs text-blue-100">{message}</p> : null}
+        {message ? <p className="mt-3 rounded-2xl bg-paper-100 px-3 py-2 text-xs text-brand-700">{message}</p> : null}
       </section>
 
-      <section className={`rounded-3xl border p-4 ${siteHasGps ? "border-emerald-500/30 bg-emerald-500/10" : "border-yellow-500/30 bg-yellow-500/10"}`}>
-        <p className={`font-black ${siteHasGps ? "text-emerald-100" : "text-yellow-100"}`}>{siteHasGps ? "GPS-Prüfung bereit" : "GPS am Objekt fehlt"}</p>
-        <p className={`mt-1 text-xs ${siteHasGps ? "text-emerald-100/80" : "text-yellow-100/80"}`}>
+      <section className={`rounded-3xl border p-4 ${siteHasGps ? "border-brand-500/30 bg-brand-50" : "border-amber-500/30 bg-amber-100"}`}>
+        <p className={`font-black ${siteHasGps ? "text-brand-700" : "text-amber-700"}`}>{siteHasGps ? "GPS-Prüfung bereit" : "GPS am Objekt fehlt"}</p>
+        <p className={`mt-1 text-xs ${siteHasGps ? "text-brand-700/80" : "text-amber-700/80"}`}>
           {siteHasGps ? `Erlaubter Radius: ${getSiteRadius(site)} m.` : "Der Mitarbeiter-Standort wird gespeichert. Für eine harte Radius-Prüfung müssen im Admin-Dashboard die Objekt-Koordinaten gespeichert sein."}
         </p>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <h2 className="font-black">Checkliste</h2>
         <div className="mt-3 space-y-2">
           {planItems.length ? planItems.slice(0, 8).map((item) => (
-            <div key={item.id} className="rounded-2xl bg-slate-950 px-3 py-3 text-sm">
-              <p className="font-bold text-slate-100">{item.task_title || item.area || "Aufgabe"}</p>
-              {item.task_description ? <p className="mt-1 text-xs text-slate-500">{item.task_description}</p> : null}
+            <div key={item.id} className="rounded-2xl bg-paper-100 px-3 py-3 text-sm">
+              <p className="font-bold text-ink-800">{item.task_title || item.area || "Aufgabe"}</p>
+              {item.task_description ? <p className="mt-1 text-xs text-ink-400">{item.task_description}</p> : null}
             </div>
-          )) : <p className="text-sm text-slate-500">Für diesen Einsatz ist noch keine Reinigungsplan-Checkliste hinterlegt.</p>}
+          )) : <p className="text-sm text-ink-400">Für diesen Einsatz ist noch keine Reinigungsplan-Checkliste hinterlegt.</p>}
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <h2 className="font-black">Zeitbuchungen zu diesem Termin</h2>
         <div className="mt-3 space-y-2">
           {entries.length ? entries.map((entry) => (
             <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || task.site || "Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
-          )) : <p className="text-sm text-slate-500">Noch keine Buchung für diesen Termin.</p>}
+          )) : <p className="text-sm text-ink-400">Noch keine Buchung für diesen Termin.</p>}
         </div>
       </section>
     </div>
@@ -1239,54 +1280,54 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Stempeluhr</h1>
-        <p className="text-xs text-slate-400">Stempeln ist nur aus einem Termin heraus möglich.</p>
+        <p className="text-xs text-ink-400">Stempeln ist nur aus einem Termin heraus möglich.</p>
       </div>
 
       {!selectedTask ? (
-        <section className="rounded-3xl border border-yellow-500/30 bg-yellow-500/10 p-4">
-          <p className="font-black text-yellow-100">Kein Termin ausgewählt</p>
-          <p className="mt-2 text-sm text-yellow-100/80">Ich habe manuelle Buchungen gesperrt. Bitte öffne im Einsatzplan einen Termin und tippe dort auf „Stempeln“.</p>
-          <button onClick={onOpenSchedule} className="mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Zum Einsatzplan</button>
+        <section className="rounded-3xl border border-amber-500/30 bg-amber-100 p-4">
+          <p className="font-black text-amber-700">Kein Termin ausgewählt</p>
+          <p className="mt-2 text-sm text-amber-700/80">Ich habe manuelle Buchungen gesperrt. Bitte öffne im Einsatzplan einen Termin und tippe dort auf „Stempeln“.</p>
+          <button onClick={onOpenSchedule} className="mt-4 w-full rounded-2xl bg-brand-600 py-3 font-black text-white">Zum Einsatzplan</button>
         </section>
       ) : null}
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 text-center">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4 text-center">
         <div className="flex items-center justify-between text-xs">
           <div className="text-left">
-            <p className="uppercase tracking-wide text-slate-500">Status</p>
-            <p className="font-bold text-blue-200">• {statusText}</p>
+            <p className="uppercase tracking-wide text-ink-400">Status</p>
+            <p className="font-bold text-brand-700">• {statusText}</p>
           </div>
           <div className="text-right">
-            <p className="uppercase tracking-wide text-slate-500">Heute</p>
-            <p className="font-bold text-blue-100">{minutesToHours(Math.round(seconds / 60))}</p>
+            <p className="uppercase tracking-wide text-ink-400">Heute</p>
+            <p className="font-bold text-brand-700">{minutesToHours(Math.round(seconds / 60))}</p>
           </div>
         </div>
-        <p className="mt-8 text-5xl font-black tracking-[0.15em] text-blue-100">{formatDuration(seconds)}</p>
-        <p className="mt-2 text-sm italic text-slate-400">{selectedSiteName}</p>
+        <p className="mt-8 text-5xl font-black tracking-[0.15em] text-brand-700">{formatDuration(seconds)}</p>
+        <p className="mt-2 text-sm italic text-ink-400">{selectedSiteName}</p>
         {selectedAssignment ? (
-          <div className="mt-6 rounded-2xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-left text-xs text-blue-100">
+          <div className="mt-6 rounded-2xl border border-brand-500/25 bg-brand-50 px-4 py-3 text-left text-xs text-brand-700">
             <p className="font-black">Aktiver Termin</p>
             <p className="mt-1">{dateLabel(selectedAssignment.date)} · {selectedAssignment.time} · {selectedAssignment.title}</p>
             <p className="mt-1 opacity-80">{selectedAssignment.customer}</p>
           </div>
         ) : (
-          <div className="mt-6 flex items-center justify-between rounded-2xl bg-slate-950 px-4 py-3 text-left text-xs">
+          <div className="mt-6 flex items-center justify-between rounded-2xl bg-paper-100 px-4 py-3 text-left text-xs">
             <div>
-              <p className="font-bold text-slate-100">Manuelle Buchung gesperrt</p>
-              <p className="text-slate-500">Kein Start ohne Termin.</p>
+              <p className="font-bold text-ink-800">Manuelle Buchung gesperrt</p>
+              <p className="text-ink-400">Kein Start ohne Termin.</p>
             </div>
-            <span className="grid h-7 w-7 place-items-center rounded-full border border-yellow-500 text-yellow-300">!</span>
+            <span className="grid h-7 w-7 place-items-center rounded-full border border-amber-500 text-amber-700">!</span>
           </div>
         )}
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">Termin-Standort</p>
-        <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3 text-sm font-semibold text-white">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
+        <p className="text-xs uppercase tracking-wide text-ink-400">Termin-Standort</p>
+        <div className="mt-2 rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900">
           {selectedTask ? selectedSiteName : "Bitte Termin im Einsatzplan auswählen"}
         </div>
         {selectedTask ? (
-          <div className={`mt-3 rounded-2xl border px-3 py-3 text-xs ${selectedSiteHasGps ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-100"}`}>
+          <div className={`mt-3 rounded-2xl border px-3 py-3 text-xs ${selectedSiteHasGps ? "border-brand-500/30 bg-brand-50 text-brand-700" : "border-amber-500/30 bg-amber-100 text-amber-700"}`}>
             <p className="font-black">{selectedSiteHasGps ? "Objekt-GPS aktiv" : selectedTask.work_site_id ? "Objekt-GPS fehlt noch" : "Termin hat kein Objekt"}</p>
             <p className="mt-1 opacity-80">
               {selectedSiteHasGps
@@ -1300,30 +1341,30 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-3">
           {status === "idle" ? (
-            <button disabled={saving || locating || !data?.employee || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
+            <button disabled={saving || locating || !data?.employee || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
           ) : (
             <>
               {status === "break" ? (
-                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_end")} className="rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
+                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_end")} className="rounded-2xl bg-brand-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
               ) : (
-                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_start")} className="rounded-2xl bg-slate-800 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
+                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_start")} className="rounded-2xl bg-paper-200 py-4 font-black text-ink-900 disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
               )}
-              <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_out")} className="rounded-2xl bg-red-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
+              <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_out")} className="rounded-2xl bg-rose-500 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
             </>
           )}
         </div>
-        {message && <p className="mt-3 rounded-xl bg-slate-950 px-3 py-2 text-xs text-blue-100">{message}</p>}
+        {message && <p className="mt-3 rounded-xl bg-paper-100 px-3 py-2 text-xs text-brand-700">{message}</p>}
       </section>
 
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-bold">Timeline</h2>
-          {!selectedTask && assignments.length ? <button onClick={onOpenSchedule} className="text-xs font-black text-blue-200">Termin wählen</button> : null}
+          {!selectedTask && assignments.length ? <button onClick={onOpenSchedule} className="text-xs font-black text-brand-700">Termin wählen</button> : null}
         </div>
         <div className="space-y-2">
           {latestTwo.length ? latestTwo.map((entry) => (
             <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
-          )) : <p className="text-sm text-slate-500">Noch keine Stempelzeit vorhanden.</p>}
+          )) : <p className="text-sm text-ink-400">Noch keine Stempelzeit vorhanden.</p>}
         </div>
       </section>
     </div>
@@ -1332,15 +1373,15 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
 
 function Timeline({ label, details, time }: { label: string; details: string; time: string }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900 p-3">
+    <div className="flex items-center justify-between rounded-2xl border border-paper-300 bg-white p-3">
       <div className="flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-500/15 text-blue-200"><Icon name="clock" /></div>
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-100 text-brand-700"><Icon name="clock" /></div>
         <div>
           <p className="font-bold">{label}</p>
-          <p className="text-xs text-slate-500">{details}</p>
+          <p className="text-xs text-ink-400">{details}</p>
         </div>
       </div>
-      <p className="font-black text-blue-100">{time}</p>
+      <p className="font-black text-brand-700">{time}</p>
     </div>
   );
 }
@@ -1354,36 +1395,36 @@ function Timesheet({ entries, absences }: { entries: TimeEntry[]; absences: Abse
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black">Stundenzettel</h1>
-          <p className="text-xs text-slate-400">{monthLabel()}</p>
+          <p className="text-xs text-ink-400">{monthLabel()}</p>
         </div>
         <div className="flex gap-2">
-          <button className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-900 text-blue-200">‹</button>
-          <button className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-900 text-blue-200">›</button>
+          <button className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-brand-700">‹</button>
+          <button className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-brand-700">›</button>
         </div>
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
-        <p className="text-[11px] uppercase tracking-wide text-slate-500">Arbeitsstunden</p>
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
+        <p className="text-[11px] uppercase tracking-wide text-ink-400">Arbeitsstunden</p>
         <div className="mt-2 flex items-end justify-between gap-4">
           <div>
-            <p className="text-3xl font-black text-white">{minutesToHours(total)}</p>
-            <p className="text-xs text-slate-400">aus time_entries berechnet</p>
+            <p className="text-3xl font-black text-ink-900">{minutesToHours(total)}</p>
+            <p className="text-xs text-ink-400">aus time_entries berechnet</p>
           </div>
-          <div className="h-16 flex-1 rounded-2xl bg-slate-950 p-3">
-            <div className="mt-8 h-2 rounded-full bg-blue-600" style={{ width: `${Math.min(100, Math.round((total / (168 * 60)) * 100))}%` }} />
+          <div className="h-16 flex-1 rounded-2xl bg-paper-100 p-3">
+            <div className="mt-8 h-2 rounded-full bg-brand-600" style={{ width: `${Math.min(100, Math.round((total / (168 * 60)) * 100))}%` }} />
           </div>
         </div>
       </section>
 
       <div className="grid grid-cols-2 gap-3">
-        <MetricCard title="Urlaub" value={`${vacationCount}`} caption="Anträge" accent="text-blue-100" />
-        <MetricCard title="Krank" value={`${sickCount}`} caption="Meldungen" accent="text-red-200" />
+        <MetricCard title="Urlaub" value={`${vacationCount}`} caption="Anträge" accent="text-brand-700" />
+        <MetricCard title="Krank" value={`${sickCount}`} caption="Meldungen" accent="text-rose-700" />
       </div>
 
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-bold">Tageseinträge</h2>
-          <button className="text-xs font-semibold text-blue-300">Filter</button>
+          <button className="text-xs font-semibold text-brand-600">Filter</button>
         </div>
         <div className="space-y-2">
           {entries.length ? entries.map((entry) => <TimeRow key={entry.id} entry={entry} />) : <EmptyCard title="Noch keine Zeiten" text="Sobald gestempelt wird, erscheinen die Einträge hier." />}
@@ -1400,19 +1441,19 @@ function TimeRow({ entry }: { entry: TimeEntry }) {
     sick: "Krank",
     missing: "Fehlt"
   }[entry.status];
-  const badgeClass = entry.status === "approved" ? "bg-emerald-400/15 text-emerald-300" : entry.status === "open" ? "bg-yellow-400/15 text-yellow-300" : entry.status === "sick" ? "bg-red-400/15 text-red-300" : "bg-slate-700 text-slate-300";
+  const badgeClass = entry.status === "approved" ? "bg-brand-100 text-brand-600" : entry.status === "open" ? "bg-amber-100 text-amber-700" : entry.status === "sick" ? "bg-rose-100 text-rose-600" : "bg-paper-300 text-ink-600";
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3">
+    <article className="rounded-2xl border border-paper-300 bg-white p-3">
       <div className="grid grid-cols-[44px_1fr_auto] items-center gap-3">
-        <div className="text-center text-xs text-slate-500">{entry.day}</div>
+        <div className="text-center text-xs text-ink-400">{entry.day}</div>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-black text-blue-100">{entry.start}{entry.end ? ` - ${entry.end}` : ""}</p>
+            <p className="font-black text-brand-700">{entry.start}{entry.end ? ` - ${entry.end}` : ""}</p>
             <span className={`rounded px-2 py-0.5 text-[10px] font-black uppercase ${badgeClass}`}>{status}</span>
           </div>
-          <p className="truncate text-xs text-slate-500">{entry.site}</p>
+          <p className="truncate text-xs text-ink-400">{entry.site}</p>
         </div>
-        <p className="text-lg font-black text-blue-100">{entry.minutes ? minutesToHours(entry.minutes) : "—"}</p>
+        <p className="text-lg font-black text-brand-700">{entry.minutes ? minutesToHours(entry.minutes) : "—"}</p>
       </div>
     </article>
   );
@@ -1451,21 +1492,21 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Meldungen</h1>
-          <p className="text-xs text-slate-400">Freigaben, Chat-Antworten und Systemhinweise</p>
+          <p className="text-xs text-ink-400">Freigaben, Chat-Antworten und Systemhinweise</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">Ungelesen</p>
-            <p className="mt-1 text-3xl font-black text-white">{unread}</p>
-            <p className="text-xs text-slate-400">für {data?.employee?.name || "Mitarbeiter"}</p>
+            <p className="text-xs uppercase tracking-wide text-ink-400">Ungelesen</p>
+            <p className="mt-1 text-3xl font-black text-ink-900">{unread}</p>
+            <p className="text-xs text-ink-400">für {data?.employee?.name || "Mitarbeiter"}</p>
           </div>
-          <button disabled={saving || unread === 0} onClick={markAllRead} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">Gelesen</button>
+          <button disabled={saving || unread === 0} onClick={markAllRead} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">Gelesen</button>
         </div>
-        {message ? <p className="mt-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-blue-100">{message}</p> : null}
+        {message ? <p className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm text-brand-700">{message}</p> : null}
       </section>
 
       <section>
@@ -1479,7 +1520,7 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
                   <p className="mt-1 text-sm opacity-90">{item.message || item.work_site_name || item.object_name || "Neue Meldung"}</p>
                   <p className="mt-2 text-xs opacity-70">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
                 </div>
-                {item.read === false ? <span className="rounded-full bg-red-500 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
+                {item.read === false ? <span className="rounded-full bg-rose-500 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
               </div>
             </article>
           )) : <EmptyCard title="Keine Systemmeldungen" text="Neue Admin-Hinweise und Freigaben erscheinen hier." />}
@@ -1490,14 +1531,14 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
         <h2 className="mb-2 font-bold">Chat-Antworten vom Büro</h2>
         <div className="space-y-3">
           {chatReplies.length ? chatReplies.slice(0, 8).map((item) => (
-            <article key={item.id} className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <article key={item.id} className="rounded-3xl border border-paper-300 bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-black text-blue-100">{item.sender_name || "Büro"}</p>
-                  <p className="mt-1 text-sm text-slate-200">{item.message || item.body || item.text || "Neue Antwort"}</p>
-                  <p className="mt-2 text-xs text-slate-500">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
+                  <p className="font-black text-brand-700">{item.sender_name || "Büro"}</p>
+                  <p className="mt-1 text-sm text-ink-600">{item.message || item.body || item.text || "Neue Antwort"}</p>
+                  <p className="mt-2 text-xs text-ink-400">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
                 </div>
-                {item.read_by_employee === false ? <span className="rounded-full bg-blue-600 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
+                {item.read_by_employee === false ? <span className="rounded-full bg-brand-600 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
               </div>
             </article>
           )) : <EmptyCard title="Keine Chat-Antworten" text="Antworten vom Admin/Büro landen zusätzlich hier." />}
@@ -1508,7 +1549,7 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
         <h2 className="mb-2 font-bold">Abwesenheiten</h2>
         <div className="space-y-3">
           {absenceUpdates.length ? absenceUpdates.slice(0, 6).map((item) => (
-            <article key={item.id} className={`rounded-3xl border p-4 ${String(item.status).toLowerCase() === "approved" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-red-500/30 bg-red-500/10 text-red-100"}`}>
+            <article key={item.id} className={`rounded-3xl border p-4 ${String(item.status).toLowerCase() === "approved" ? "border-brand-500/30 bg-brand-50 text-brand-700" : "border-rose-500/30 bg-rose-100 text-rose-700"}`}>
               <p className="font-black">{String(item.status).toLowerCase() === "approved" ? "Genehmigt" : "Abgelehnt"}</p>
               <p className="mt-1 text-sm opacity-90">{item.start_date} bis {item.end_date} · {item.absence_type || item.request_type || "Abwesenheit"}</p>
               {item.admin_response ? <p className="mt-2 text-sm opacity-80">{item.admin_response}</p> : null}
@@ -1542,15 +1583,15 @@ function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: st
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Aufgaben</h1>
-        <p className="text-xs text-slate-400">tasks-Tabelle live abhaken</p>
+        <p className="text-xs text-ink-400">tasks-Tabelle live abhaken</p>
       </div>
       <div className="space-y-3">
         {tasks.filter((task) => !task.task_date || task.task_date >= todayIso()).length ? tasks.filter((task) => !task.task_date || task.task_date >= todayIso()).map((task) => (
-          <label key={task.id} className="flex items-center gap-3 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+          <label key={task.id} className="flex items-center gap-3 rounded-3xl border border-paper-300 bg-white p-4">
             <input type="checkbox" checked={Boolean(task.done)} disabled={savingId === task.id} onChange={(event) => toggleTask(task, event.target.checked)} className="h-5 w-5 accent-blue-600" />
             <div className="min-w-0">
               <p className="font-black">{task.title || "Aufgabe"}</p>
-              <p className="truncate text-xs text-slate-500">{dateLabel(task.task_date)} · {task.site || task.customer_name || "Ohne Objekt"}</p>
+              <p className="truncate text-xs text-ink-400">{dateLabel(task.task_date)} · {task.site || task.customer_name || "Ohne Objekt"}</p>
             </div>
           </label>
         )) : <EmptyCard title="Keine Aufgaben gefunden" text="Für diesen Mitarbeiter gibt es aktuell keine Aufgaben im Zeitraum." />}
@@ -1560,7 +1601,61 @@ function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: st
 }
 
 function BackButton({ onBack }: { onBack: () => void }) {
-  return <button onClick={onBack} className="rounded-2xl border border-slate-800 px-4 py-2 text-sm font-bold text-blue-100">Zurück</button>;
+  return <button onClick={onBack} className="rounded-2xl border border-paper-300 px-4 py-2 text-sm font-bold text-brand-700">Zurück</button>;
+}
+
+/** Bottom sheet matching the reference forms: rounded top, chevron-down close, centered title, sticky footer button. */
+function BottomSheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
+  return (
+    <div className="absolute inset-0 z-50 flex items-end justify-center bg-ink-900/40" onClick={onClose}>
+      <div className="flex max-h-[92%] w-full flex-col overflow-hidden rounded-t-3xl bg-white" onClick={(event) => event.stopPropagation()}>
+        <div className="relative flex items-center justify-center px-4 py-4">
+          <button onClick={onClose} className="absolute left-4 text-ink-600" aria-label="Schließen">
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+          <h2 className="text-lg font-black text-ink-900">{title}</h2>
+        </div>
+        <div className="border-t border-paper-200" />
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="space-y-3">{children}</div>
+        </div>
+        {footer && <div className="border-t border-paper-200 p-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Icon-led input row, matching the reference: rounded pill, muted icon, borderless field, optional chevron for pickers. */
+function SheetRow({ icon, children, showChevron }: { icon: string; children: React.ReactNode; showChevron?: boolean }) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-paper-300 px-4 py-3">
+      <span className="shrink-0 text-ink-400"><Icon name={icon} /></span>
+      <div className="min-w-0 flex-1">{children}</div>
+      {showChevron ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-ink-400" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+      ) : null}
+    </div>
+  );
+}
+
+function Stepper({ value, onChange }: { value: number; onChange: (next: number) => void }) {
+  return (
+    <div className="flex items-center gap-3 rounded-full border border-paper-300 px-1.5 py-1">
+      <button type="button" onClick={() => onChange(Math.max(0, value - 1))} className="grid h-7 w-7 place-items-center rounded-full text-lg font-bold text-brand-600">−</button>
+      <span className="w-5 text-center text-sm font-bold text-ink-900">{value}</span>
+      <button type="button" onClick={() => onChange(value + 1)} className="grid h-7 w-7 place-items-center rounded-full text-lg font-bold text-brand-600">+</button>
+    </div>
+  );
+}
+
+function ListEmptyState({ emoji, title, text }: { emoji: string; title: string; text: string }) {
+  return (
+    <div className="py-16 text-center">
+      <p className="text-4xl">{emoji}</p>
+      <p className="mt-3 font-black text-ink-900">{title}</p>
+      <p className="mt-1 text-sm text-ink-400">{text}</p>
+    </div>
+  );
 }
 
 function menuSites(data: AppData | null, tasks: RawTask[] = []) {
@@ -1664,55 +1759,55 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Qualitätsnachweis</h1>
-          <p className="text-xs text-slate-400">Reinigungsplan prüfen und Einsatz abschließen</p>
+          <p className="text-xs text-ink-400">Reinigungsplan prüfen und Einsatz abschließen</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
 
       {tasks.length ? (
         <form onSubmit={submit} className="space-y-4">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Einsatz</span>
-              <select value={taskIndex} onChange={(event) => setTaskIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Einsatz</span>
+              <select value={taskIndex} onChange={(event) => setTaskIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
                 {tasks.map((task, index) => (
                   <option key={task.id} value={index}>{dateLabel(task.task_date)} · {formatTime(task.start_time)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
                 ))}
               </select>
             </label>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <MetricCard title="Objekt" value={selectedTask?.site || "—"} caption={selectedTask?.customer_name || "Kunde offen"} accent="text-blue-100" />
-              <MetricCard title="Plan" value={selectedPlan ? "aktiv" : "Standard"} caption={selectedPlan?.name || "Fallback-Checkliste"} accent="text-emerald-200" />
+              <MetricCard title="Objekt" value={selectedTask?.site || "—"} caption={selectedTask?.customer_name || "Kunde offen"} accent="text-brand-700" />
+              <MetricCard title="Plan" value={selectedPlan ? "aktiv" : "Standard"} caption={selectedPlan?.name || "Fallback-Checkliste"} accent="text-brand-700" />
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-black">Checkliste</h2>
-                <p className="text-xs text-slate-500">{checkedLabels.length}/{labels.length} Punkte abgehakt</p>
+                <p className="text-xs text-ink-400">{checkedLabels.length}/{labels.length} Punkte abgehakt</p>
               </div>
-              <button type="button" onClick={() => setChecked(Object.fromEntries(labels.map((label) => [label, true])))} className="rounded-2xl border border-slate-700 px-3 py-2 text-xs font-black text-blue-100">Alle</button>
+              <button type="button" onClick={() => setChecked(Object.fromEntries(labels.map((label) => [label, true])))} className="rounded-2xl border border-paper-300 px-3 py-2 text-xs font-black text-brand-700">Alle</button>
             </div>
             <div className="space-y-2">
               {labels.map((label) => (
-                <label key={label} className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                <label key={label} className="flex items-start gap-3 rounded-2xl border border-paper-300 bg-paper-100 p-3">
                   <input type="checkbox" checked={Boolean(checked[label])} onChange={(event) => setChecked((current) => ({ ...current, [label]: event.target.checked }))} className="mt-1 h-5 w-5 accent-blue-600" />
-                  <span className="text-sm font-semibold text-slate-100">{label}</span>
+                  <span className="text-sm font-semibold text-ink-800">{label}</span>
                 </label>
               ))}
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz / Besonderheit</span>
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z.B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt" />
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz / Besonderheit</span>
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="z.B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt" />
             </label>
-            <div className="mt-4 space-y-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
+            <div className="mt-4 space-y-3 rounded-2xl border border-brand-500/20 bg-brand-50 p-4">
               <div>
-                <p className="text-sm font-black text-blue-100">Fotos hinzufügen</p>
-                <p className="mt-1 text-xs text-slate-400">Bis zu 6 Bilder, z. B. Vorher/Nachher, Schaden oder fertiger Bereich.</p>
+                <p className="text-sm font-black text-brand-700">Fotos hinzufügen</p>
+                <p className="mt-1 text-xs text-ink-400">Bis zu 6 Bilder, z. B. Vorher/Nachher, Schaden oder fertiger Bereich.</p>
               </div>
               <input
                 type="file"
@@ -1723,12 +1818,12 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
                   const selected = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/")).slice(0, 6);
                   setPhotos(selected);
                 }}
-                className="block w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-xs text-slate-200 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+                className="block w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-xs text-ink-600 file:mr-3 file:rounded-xl file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
               />
               {photos.length ? (
                 <div className="grid grid-cols-3 gap-2">
                   {photos.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="rounded-2xl border border-slate-700 bg-slate-950 p-2 text-center text-[11px] text-slate-300">
+                    <div key={`${file.name}-${index}`} className="rounded-2xl border border-paper-300 bg-paper-100 p-2 text-center text-[11px] text-ink-600">
                       <div className="mb-1 text-lg">📷</div>
                       <p className="truncate">{file.name}</p>
                     </div>
@@ -1738,20 +1833,20 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
             </div>
           </section>
 
-          {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
-          <button disabled={saving || !selectedTask} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Nachweis senden & Einsatz abschließen"}</button>
+          {message && <p className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-brand-700">{message}</p>}
+          <button disabled={saving || !selectedTask} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Nachweis senden & Einsatz abschließen"}</button>
         </form>
       ) : <EmptyCard title="Kein Einsatz für Nachweis" text="Sobald ein Einsatz in tasks vorhanden ist, kann hier ein Qualitätsnachweis erstellt werden." />}
 
       <section className="space-y-2">
         <h2 className="font-black">Letzte Nachweise</h2>
         {(data?.qualityReports || []).length ? (data?.qualityReports || []).slice(0, 5).map((report) => (
-          <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+          <article key={report.id} className="rounded-2xl border border-paper-300 bg-white p-3">
             <div className="flex items-center justify-between gap-3">
               <p className="font-black">{report.work_site_name || "Objekt"}</p>
-              <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] font-black text-emerald-300">{report.status || "submitted"}</span>
+              <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-600">{report.status || "submitted"}</span>
             </div>
-            <p className="mt-1 text-xs text-slate-500">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · {report.photo_count || report.photo_urls?.length || 0} Foto(s)</p>
+            <p className="mt-1 text-xs text-ink-400">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · {report.photo_count || report.photo_urls?.length || 0} Foto(s)</p>
             {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Qualitätsfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
           </article>
         )) : <EmptyCard title="Noch keine Nachweise" text="Gesendete Qualitätsnachweise erscheinen nach dem Speichern hier." />}
@@ -1763,10 +1858,12 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
 function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
   const sites = useMemo(() => menuSites(data, data?.tasks || []), [data]);
   const products = data?.materialProducts || [];
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [siteIndex, setSiteIndex] = useState(0);
   const [productId, setProductId] = useState(products[0]?.id || "");
   const [customMaterial, setCustomMaterial] = useState("");
-  const [quantity, setQuantity] = useState("1");
+  const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoInputKey, setPhotoInputKey] = useState(0);
@@ -1776,6 +1873,11 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
   useEffect(() => {
     if (!productId && products[0]?.id) setProductId(products[0].id);
   }, [productId, products]);
+
+  const reports = data?.materialReports || [];
+  const filteredReports = search.trim()
+    ? reports.filter((report) => `${report.material_name || report.product_name || ""} ${report.object_name || report.site || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
+    : reports;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1788,7 +1890,7 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
       formData.set("workSiteName", site?.siteName || "");
       formData.set("materialProductId", productId || "");
       formData.set("materialName", customMaterial || "");
-      formData.set("quantity", quantity);
+      formData.set("quantity", String(quantity));
       formData.set("notes", notes);
       photos.forEach((photo) => formData.append("photos", photo));
       const response = await fetch("/api/mobile/material/report", {
@@ -1798,11 +1900,12 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Materialmeldung konnte nicht gesendet werden.");
-      setMessage(photos.length ? "Materialmeldung mit Foto wurde an den Admin gesendet." : "Materialmeldung wurde an den Admin gesendet.");
       setNotes("");
       setCustomMaterial("");
+      setQuantity(1);
       setPhotos([]);
       setPhotoInputKey((key) => key + 1);
+      setSheetOpen(false);
       await onReload();
     } catch (submitError) {
       setMessage(submitError instanceof Error ? submitError.message : "Materialmeldung konnte nicht gesendet werden.");
@@ -1813,103 +1916,114 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Material melden</h1>
-          <p className="text-xs text-slate-400">Fehlendes Material direkt als Meldung speichern</p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-black text-ink-900">Materialbestellung</h1>
         <BackButton onBack={onBack} />
       </div>
 
-      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Objekt</span>
-          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
-            {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
-          </select>
-        </label>
+      <SheetRow icon="search">
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Suchen…" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+      </SheetRow>
 
-        {products.length ? (
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Material</span>
-            <select value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
-              {products.map((product) => <option key={product.id} value={product.id}>{product.name || "Material"}{product.unit ? ` · ${product.unit}` : ""}</option>)}
-            </select>
-          </label>
-        ) : (
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Material</span>
-            <input value={customMaterial} onChange={(event) => setCustomMaterial(event.target.value)} required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z.B. Müllbeutel, Reiniger, Papier" />
-          </label>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Menge</span>
-            <input value={quantity} onChange={(event) => setQuantity(event.target.value)} inputMode="decimal" className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
-          </label>
-          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-xs text-blue-100">
-            <p className="font-black">Status</p>
-            <p className="mt-1 text-blue-100/80">wird als offen gespeichert</p>
-          </div>
-        </div>
-
-        <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz</span>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was fehlt? Wo genau?" />
-        </label>
-
-        <label className="block rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-4">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Foto optional</span>
-          <input
-            key={photoInputKey}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
-            className="mt-3 block w-full text-xs text-slate-300 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
-          />
-          <p className="mt-2 text-xs text-slate-500">Bis zu 6 Fotos, max. 8 MB pro Foto.</p>
-          {photos.length ? (
-            <div className="mt-3 space-y-1">
-              {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-slate-900 px-3 py-2 text-xs text-blue-100">📷 {photo.name}</p>)}
-            </div>
-          ) : null}
-        </label>
-
-        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
-        <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Materialmeldung senden"}</button>
-      </form>
-
-      <section className="space-y-2">
-        <h2 className="font-black">Letzte Materialmeldungen</h2>
-        {(data?.materialReports || []).length ? (data?.materialReports || []).slice(0, 5).map((report) => (
-          <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-black">{report.material_name || report.product_name || "Material"}</p>
-                <p className="text-xs text-slate-500">{report.object_name || report.site || "Objekt"} · {report.status || "open"}</p>
+      {filteredReports.length ? (
+        <div className="space-y-2">
+          {filteredReports.map((report) => (
+            <article key={report.id} className="rounded-2xl border border-paper-300 bg-white p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-black text-ink-900">{report.material_name || report.product_name || "Material"}</p>
+                  <p className="text-xs text-ink-400">{report.object_name || report.site || "Objekt"} · {report.status || "angefragt"}</p>
+                </div>
+                {(report.photo_count || report.photo_urls?.length) ? <span className="rounded-full bg-brand-100 px-2 py-1 text-[11px] font-black text-brand-700">📷 {report.photo_count || report.photo_urls?.length}</span> : null}
               </div>
-              {(report.photo_count || report.photo_urls?.length) ? <span className="rounded-full bg-blue-500/15 px-2 py-1 text-[11px] font-black text-blue-200">📷 {report.photo_count || report.photo_urls?.length}</span> : null}
-            </div>
-            {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Materialfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
-          </article>
-        )) : <EmptyCard title="Noch keine Materialmeldung" text="Sobald etwas gemeldet wird, erscheint es hier." />}
-      </section>
+              {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Materialfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <ListEmptyState emoji="📦" title="Keine Materialbestellungen" text="Sobald du etwas bestellst, erscheint es hier." />
+      )}
+
+      <button onClick={() => { setMessage(null); setSheetOpen(true); }} className="fixed inset-x-4 bottom-24 z-20 rounded-2xl bg-brand-600 py-4 text-center font-black text-white shadow-glow md:absolute">Material bestellen</button>
+
+      {sheetOpen && (
+        <BottomSheet
+          title="Material bestellen"
+          onClose={() => setSheetOpen(false)}
+          footer={<button form="material-order-form" disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white disabled:opacity-60">{saving ? "Sende…" : "Material bestellen"}</button>}
+        >
+          <form id="material-order-form" onSubmit={submit} className="space-y-3">
+            <SheetRow icon="building" showChevron>
+              <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="w-full appearance-none border-0 bg-transparent p-0 text-sm font-semibold text-ink-900 outline-none">
+                {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
+              </select>
+            </SheetRow>
+
+            <SheetRow icon="edit">
+              <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Bemerkung" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+            </SheetRow>
+
+            <p className="pt-1 text-sm font-bold text-ink-900">Artikel</p>
+
+            {products.length ? (
+              <div className="space-y-2">
+                {products.map((product) => (
+                  <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-paper-300 p-3">
+                    <div className="h-11 w-11 shrink-0 rounded-xl bg-paper-100" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-ink-900">{product.name || "Material"}</p>
+                      <p className="text-xs text-ink-400">{product.unit ? `Einheit: ${product.unit}` : "Stück"}</p>
+                    </div>
+                    <Stepper value={productId === product.id ? quantity : 0} onChange={(next) => { setProductId(product.id); setQuantity(next); }} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <SheetRow icon="box">
+                <input value={customMaterial} onChange={(event) => setCustomMaterial(event.target.value)} required placeholder="z.B. Müllbeutel, Reiniger, Papier" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+              </SheetRow>
+            )}
+
+            <label className="block rounded-2xl border border-dashed border-paper-300 p-4">
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Foto optional</span>
+              <input
+                key={photoInputKey}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
+                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-xl file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+              />
+              {photos.length ? (
+                <div className="mt-3 space-y-1">
+                  {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-paper-100 px-3 py-2 text-xs text-brand-700">📷 {photo.name}</p>)}
+                </div>
+              ) : null}
+            </label>
+
+            {message && <p className="rounded-2xl bg-rose-100 px-4 py-3 text-sm text-rose-700">{message}</p>}
+          </form>
+        </BottomSheet>
+      )}
     </div>
   );
 }
 
 function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [absenceType, setAbsenceType] = useState("Urlaub");
-  const [startDate, setStartDate] = useState(todayIso());
-  const [endDate, setEndDate] = useState(todayIso());
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!startDate || !endDate) {
+      setMessage("Bitte Start- und Enddatum auswählen.");
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
@@ -1920,8 +2034,10 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Antrag konnte nicht gesendet werden.");
-      setMessage("Antrag wurde gespeichert und an den Admin gesendet.");
       setReason("");
+      setStartDate("");
+      setEndDate("");
+      setSheetOpen(false);
       await onReload();
     } catch (submitError) {
       setMessage(submitError instanceof Error ? submitError.message : "Antrag konnte nicht gesendet werden.");
@@ -1930,57 +2046,66 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
     }
   }
 
+  const absences = data?.absences || [];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Abwesenheit</h1>
-          <p className="text-xs text-slate-400">Urlaub oder Krankheit anfragen</p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-black text-ink-900">Deine Abwesenheiten</h1>
         <BackButton onBack={onBack} />
       </div>
 
-      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Art</span>
-          <select value={absenceType} onChange={(event) => setAbsenceType(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
-            <option>Urlaub</option>
-            <option>Krank</option>
-            <option>Frei</option>
-            <option>Sonstiges</option>
-          </select>
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Von</span>
-            <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none" />
-          </label>
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Bis</span>
-            <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none" />
-          </label>
+      {absences.length ? (
+        <div className="space-y-2">
+          {absences.map((absence) => (
+            <article key={absence.id} className="rounded-2xl border border-paper-300 bg-white p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-black text-ink-900">{absence.absence_type || absence.request_type || "Abwesenheit"}</p>
+                <span className="rounded-full bg-paper-100 px-3 py-1 text-[11px] font-black text-brand-700">{absence.status || "angefragt"}</span>
+              </div>
+              <p className="mt-1 text-xs text-ink-400">{absence.start_date} bis {absence.end_date}</p>
+              {absence.admin_response && <p className="mt-2 rounded-xl bg-paper-100 px-3 py-2 text-xs text-ink-600">{absence.admin_response}</p>}
+            </article>
+          ))}
         </div>
-        <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Grund / Notiz</span>
-          <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Kurze Info für den Admin" />
-        </label>
-        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
-        <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Antrag senden"}</button>
-      </form>
+      ) : (
+        <ListEmptyState emoji="🌴" title="Keine Abwesenheiten" text="Hier erscheinen Urlaub, Krankheit und Freitage." />
+      )}
 
-      <section className="space-y-2">
-        <h2 className="font-black">Meine Anträge</h2>
-        {(data?.absences || []).length ? (data?.absences || []).map((absence) => (
-          <article key={absence.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-black">{absence.absence_type || absence.request_type || "Abwesenheit"}</p>
-              <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-black text-blue-100">{absence.status || "open"}</span>
-            </div>
-            <p className="mt-1 text-xs text-slate-500">{absence.start_date} bis {absence.end_date}</p>
-            {absence.admin_response && <p className="mt-2 rounded-xl bg-slate-950 px-3 py-2 text-xs text-slate-300">{absence.admin_response}</p>}
-          </article>
-        )) : <EmptyCard title="Keine Anträge" text="Hier erscheinen Urlaub, Krankheit und Freitage." />}
-      </section>
+      <button onClick={() => { setMessage(null); setSheetOpen(true); }} className="fixed inset-x-4 bottom-24 z-20 rounded-2xl bg-brand-600 py-4 text-center font-black text-white shadow-glow md:absolute">Neue Abwesenheit einreichen</button>
+
+      {sheetOpen && (
+        <BottomSheet
+          title="Neue Abwesenheit einreichen"
+          onClose={() => setSheetOpen(false)}
+          footer={<button form="absence-form" disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white disabled:opacity-60">{saving ? "Sende…" : "Neue Abwesenheit einreichen"}</button>}
+        >
+          <form id="absence-form" onSubmit={submit} className="space-y-3">
+            <SheetRow icon="tasks" showChevron>
+              <select value={absenceType} onChange={(event) => setAbsenceType(event.target.value)} className="w-full appearance-none border-0 bg-transparent p-0 text-sm font-semibold text-ink-900 outline-none">
+                <option>Urlaub</option>
+                <option>Krank</option>
+                <option>Frei</option>
+                <option>Sonstiges</option>
+              </select>
+            </SheetRow>
+
+            <SheetRow icon="calendar">
+              <div className="flex items-center gap-2 text-sm text-ink-900">
+                <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" required className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none" />
+                <span className="text-ink-400">–</span>
+                <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" required className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none" />
+              </div>
+            </SheetRow>
+
+            <SheetRow icon="edit">
+              <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Bemerkung" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+            </SheetRow>
+
+            {message && <p className="rounded-2xl bg-rose-100 px-4 py-3 text-sm text-rose-700">{message}</p>}
+          </form>
+        </BottomSheet>
+      )}
     </div>
   );
 }
@@ -2018,28 +2143,28 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Chat</h1>
-          <p className="text-xs text-slate-400">Nachricht an Admin / Büro</p>
+          <p className="text-xs text-ink-400">Nachricht an Admin / Büro</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
 
-      <section className="max-h-[52vh] space-y-3 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="max-h-[52vh] space-y-3 overflow-y-auto rounded-3xl border border-paper-300 bg-white p-4">
         {messages.length ? messages.map((item) => {
           const own = `${item.sender_role || ""}`.toLowerCase() === "employee";
           const body = item.message || item.body || item.text || "Nachricht";
           return (
-            <article key={item.id} className={`rounded-2xl px-4 py-3 ${own ? "ml-8 bg-blue-600 text-white" : "mr-8 bg-slate-800 text-slate-100"}`}>
+            <article key={item.id} className={`rounded-2xl px-4 py-3 ${own ? "ml-8 bg-brand-600 text-white" : "mr-8 bg-paper-200 text-ink-800"}`}>
               <p className="text-sm font-semibold">{body}</p>
-              <p className={`mt-1 text-[10px] ${own ? "text-blue-100" : "text-slate-500"}`}>{item.sender_name || (own ? data?.employee?.name : "Admin")} · {item.created_at ? formatTime(item.created_at) : "—"}</p>
+              <p className={`mt-1 text-[10px] ${own ? "text-brand-700" : "text-ink-400"}`}>{item.sender_name || (own ? data?.employee?.name : "Admin")} · {item.created_at ? formatTime(item.created_at) : "—"}</p>
             </article>
           );
         }) : <EmptyCard title="Noch keine Nachrichten" text="Schreibe dem Büro direkt aus der App." />}
       </section>
 
-      {message && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{message}</p>}
-      <form onSubmit={sendMessage} className="rounded-3xl border border-slate-800 bg-slate-900 p-3">
-        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Nachricht schreiben…" />
-        <button disabled={saving || !text.trim()} className="mt-3 w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Nachricht senden"}</button>
+      {message && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-700">{message}</p>}
+      <form onSubmit={sendMessage} className="rounded-3xl border border-paper-300 bg-white p-3">
+        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} className="w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Nachricht schreiben…" />
+        <button disabled={saving || !text.trim()} className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Nachricht senden"}</button>
       </form>
     </div>
   );
@@ -2099,29 +2224,29 @@ function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData |
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Tagesabschluss</h1>
-          <p className="text-xs text-slate-400">Arbeitsende ans Büro melden</p>
+          <p className="text-xs text-ink-400">Arbeitsende ans Büro melden</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">Heute</p>
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
+        <p className="text-xs uppercase tracking-wide text-ink-400">Heute</p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Zeit</p>
-            <p className="mt-1 text-xl font-black text-blue-100">{workedMinutes ? minutesToHours(workedMinutes) : "0h"}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Zeit</p>
+            <p className="mt-1 text-xl font-black text-brand-700">{workedMinutes ? minutesToHours(workedMinutes) : "0h"}</p>
           </div>
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Erledigt</p>
-            <p className="mt-1 text-xl font-black text-emerald-200">{doneTasks.length}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Erledigt</p>
+            <p className="mt-1 text-xl font-black text-brand-700">{doneTasks.length}</p>
           </div>
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Offen</p>
-            <p className={`mt-1 text-xl font-black ${openTasks.length ? "text-red-200" : "text-emerald-200"}`}>{openTasks.length}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Offen</p>
+            <p className={`mt-1 text-xl font-black ${openTasks.length ? "text-rose-700" : "text-brand-700"}`}>{openTasks.length}</p>
           </div>
         </div>
         {hasOpenClock ? (
-          <div className="mt-3 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-3 text-sm text-yellow-100">
+          <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-100 px-3 py-3 text-sm text-amber-700">
             Achtung: Es läuft noch eine Stempelung oder Pause. Bitte zuerst ausstempeln, damit der Tagesabschluss sauber ist.
           </div>
         ) : null}
@@ -2133,14 +2258,14 @@ function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData |
           {todayTasks.length ? todayTasks.map((task) => {
             const done = task.done || String(task.status || "").toLowerCase() === "done";
             return (
-              <article key={task.id} className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+              <article key={task.id} className="rounded-3xl border border-paper-300 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-blue-200">{taskTime(task)}</p>
-                    <p className="mt-1 font-black text-white">{task.title || "Einsatz"}</p>
-                    <p className="mt-1 truncate text-xs text-slate-500">{task.site || task.customer_name || "Ohne Objekt"}</p>
+                    <p className="text-xs font-bold text-brand-700">{taskTime(task)}</p>
+                    <p className="mt-1 font-black text-ink-900">{task.title || "Einsatz"}</p>
+                    <p className="mt-1 truncate text-xs text-ink-400">{task.site || task.customer_name || "Ohne Objekt"}</p>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-[11px] font-black ${done ? "bg-emerald-500/15 text-emerald-200" : "bg-red-500/15 text-red-200"}`}>{done ? "OK" : "offen"}</span>
+                  <span className={`rounded-full px-3 py-1 text-[11px] font-black ${done ? "bg-brand-100 text-brand-700" : "bg-rose-100 text-rose-700"}`}>{done ? "OK" : "offen"}</span>
                 </div>
               </article>
             );
@@ -2148,17 +2273,17 @@ function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData |
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz ans Büro</span>
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z. B. Objekt fertig, Material fehlt, Kunde war nicht erreichbar…" />
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz ans Büro</span>
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="z. B. Objekt fertig, Material fehlt, Kunde war nicht erreichbar…" />
         </label>
-        <label className="mt-3 flex items-start gap-3 rounded-2xl bg-slate-950 p-3 text-sm text-slate-200">
+        <label className="mt-3 flex items-start gap-3 rounded-2xl bg-paper-100 p-3 text-sm text-ink-600">
           <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} className="mt-1 h-5 w-5 accent-blue-600" />
           <span>Ich bestätige den Tagesabschluss für heute. Offene Einsätze werden dem Büro mitgemeldet.</span>
         </label>
-        {message ? <p className="mt-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-blue-100">{message}</p> : null}
-        <button disabled={!canSubmit} onClick={submit} className="mt-3 w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{saving ? "Sende…" : "Tagesabschluss senden"}</button>
+        {message ? <p className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm text-brand-700">{message}</p> : null}
+        <button disabled={!canSubmit} onClick={submit} className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{saving ? "Sende…" : "Tagesabschluss senden"}</button>
       </section>
     </div>
   );
@@ -2172,23 +2297,23 @@ function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBac
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Profil</h1>
-          <p className="text-xs text-slate-400">Meine Mitarbeiterdaten</p>
+          <p className="text-xs text-ink-400">Meine Mitarbeiterdaten</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <div className="mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-blue-500/15 text-2xl font-black text-blue-100">{(employee?.name || "?").slice(0, 1)}</div>
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
+        <div className="mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-brand-100 text-2xl font-black text-brand-700">{(employee?.name || "?").slice(0, 1)}</div>
         <p className="text-xl font-black">{employee?.name || "Mitarbeiter"}</p>
-        <p className="text-sm text-slate-400">{employee?.email || "Keine E-Mail"}</p>
+        <p className="text-sm text-ink-400">{employee?.email || "Keine E-Mail"}</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <MetricCard title="Rolle" value={employee?.role || "—"} caption="Zugriff" accent="text-blue-100" />
-          <MetricCard title="Urlaub" value={`${employee?.annual_vacation_days ?? employee?.vacation_days ?? "—"}`} caption="Anspruch/Jahr" accent="text-emerald-200" />
-          <MetricCard title="Stundensatz" value={moneyPerHour(employee?.hourly_rate)} caption="Lohnsatz" accent="text-yellow-100" />
-          <MetricCard title="Geburtstag" value={birthday?.date || "—"} caption={birthday?.nextLabel || "nicht gepflegt"} accent={birthday?.isToday ? "text-pink-200" : "text-blue-100"} />
+          <MetricCard title="Rolle" value={employee?.role || "—"} caption="Zugriff" accent="text-brand-700" />
+          <MetricCard title="Urlaub" value={`${employee?.annual_vacation_days ?? employee?.vacation_days ?? "—"}`} caption="Anspruch/Jahr" accent="text-brand-700" />
+          <MetricCard title="Stundensatz" value={moneyPerHour(employee?.hourly_rate)} caption="Lohnsatz" accent="text-amber-700" />
+          <MetricCard title="Geburtstag" value={birthday?.date || "—"} caption={birthday?.nextLabel || "nicht gepflegt"} accent={birthday?.isToday ? "text-rose-700" : "text-brand-700"} />
         </div>
-        {birthday?.isToday ? <p className="mt-4 rounded-2xl border border-pink-500/30 bg-pink-500/10 p-3 text-sm font-bold text-pink-100">Alles Gute zum Geburtstag! 🎉</p> : null}
+        {birthday?.isToday ? <p className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-100 p-3 text-sm font-bold text-rose-600">Alles Gute zum Geburtstag! 🎉</p> : null}
       </section>
-      <button onClick={onLogout} className="w-full rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-left font-black text-red-100">Abmelden</button>
+      <button onClick={onLogout} className="w-full rounded-3xl border border-rose-500/30 bg-rose-100 p-4 text-left font-black text-rose-700">Abmelden</button>
     </div>
   );
 }
@@ -2213,25 +2338,25 @@ function RoutePlanScreen({ assignments, onBack, onOpenAssignment }: { assignment
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <BackButton onBack={onBack} />
-        <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">Tagesroute</span>
+        <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">Tagesroute</span>
       </div>
 
-      <section className="rounded-3xl border border-blue-500/25 bg-slate-900/80 p-4">
-        <p className="text-xs font-black uppercase tracking-wide text-blue-200">Route planen</p>
-        <h1 className="mt-2 text-2xl font-black text-white">Tagesroute</h1>
-        <p className="mt-1 text-sm text-slate-400">Nur Einsätze vom gewählten Tag. Alte Aufträge werden hier nicht angezeigt.</p>
+      <section className="rounded-3xl border border-brand-500/25 bg-white p-4">
+        <p className="text-xs font-black uppercase tracking-wide text-brand-700">Route planen</p>
+        <h1 className="mt-2 text-2xl font-black text-ink-900">Tagesroute</h1>
+        <p className="mt-1 text-sm text-ink-400">Nur Einsätze vom gewählten Tag. Alte Aufträge werden hier nicht angezeigt.</p>
         <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Einsätze</p>
-            <p className="mt-1 text-xl font-black text-white">{dayAssignments.length}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Einsätze</p>
+            <p className="mt-1 text-xl font-black text-ink-900">{dayAssignments.length}</p>
           </div>
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Offen</p>
-            <p className="mt-1 text-xl font-black text-yellow-100">{openAssignments.length}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Offen</p>
+            <p className="mt-1 text-xl font-black text-amber-700">{openAssignments.length}</p>
           </div>
-          <div className="rounded-2xl bg-slate-950 p-3">
-            <p className="text-slate-500">Geplant</p>
-            <p className="mt-1 text-xl font-black text-blue-100">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
+          <div className="rounded-2xl bg-paper-100 p-3">
+            <p className="text-ink-400">Geplant</p>
+            <p className="mt-1 text-xl font-black text-brand-700">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
           </div>
         </div>
       </section>
@@ -2241,43 +2366,43 @@ function RoutePlanScreen({ assignments, onBack, onOpenAssignment }: { assignment
           const selected = day === selectedDay;
           const count = assignments.filter((assignment) => assignment.date === day).length;
           return (
-            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-slate-800 bg-slate-900 text-slate-300"}`}>
-              <span className="block text-[10px] uppercase text-slate-400">{dateLabel(day).split(" ")[0]}</span>
+            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
+              <span className="block text-[10px] uppercase text-ink-400">{dateLabel(day).split(" ")[0]}</span>
               <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
-              <span className="mt-1 block text-[10px] text-slate-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
+              <span className="mt-1 block text-[10px] text-ink-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
             </button>
           );
         })}
       </div>
 
       {nextAssignment ? (
-        <section className="rounded-3xl border border-emerald-500/25 bg-emerald-500/10 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-emerald-200">Nächster Einsatz</p>
-          <p className="mt-2 text-lg font-black text-white">{nextAssignment.title}</p>
-          <p className="mt-1 text-sm text-emerald-100/80">{nextAssignment.time} · {nextAssignment.address}</p>
+        <section className="rounded-3xl border border-brand-500/25 bg-brand-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-brand-700">Nächster Einsatz</p>
+          <p className="mt-2 text-lg font-black text-ink-900">{nextAssignment.title}</p>
+          <p className="mt-1 text-sm text-brand-700/80">{nextAssignment.time} · {nextAssignment.address}</p>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <a href={mapSearchUrl(nextAssignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-2xl border border-emerald-500/30 bg-slate-950 px-3 py-3 text-center text-sm font-black text-emerald-100">Route</a>
-            <button onClick={() => onOpenAssignment(nextAssignment)} className="rounded-2xl bg-blue-600 px-3 py-3 text-sm font-black text-white shadow-glow">Termin öffnen</button>
+            <a href={mapSearchUrl(nextAssignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-2xl border border-brand-500/30 bg-paper-100 px-3 py-3 text-center text-sm font-black text-brand-700">Route</a>
+            <button onClick={() => onOpenAssignment(nextAssignment)} className="rounded-2xl bg-brand-600 px-3 py-3 text-sm font-black text-white shadow-glow">Termin öffnen</button>
           </div>
         </section>
       ) : null}
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="font-black">Route für den Tag</h2>
-            <p className="text-xs text-slate-500">Google Maps öffnet die offenen Einsätze in Reihenfolge.</p>
+            <p className="text-xs text-ink-400">Google Maps öffnet die offenen Einsätze in Reihenfolge.</p>
           </div>
-          <a href={routeUrl} target="_blank" rel="noreferrer" className={`rounded-2xl px-4 py-3 text-sm font-black ${routeTasks.length ? "bg-blue-600 text-white shadow-glow" : "bg-slate-800 text-slate-500"}`}>Route öffnen</a>
+          <a href={routeUrl} target="_blank" rel="noreferrer" className={`rounded-2xl px-4 py-3 text-sm font-black ${routeTasks.length ? "bg-brand-600 text-white shadow-glow" : "bg-paper-200 text-ink-400"}`}>Route öffnen</a>
         </div>
         <div className="mt-4 space-y-3">
           {dayAssignments.length ? dayAssignments.map((assignment, index) => (
-            <button key={assignment.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start gap-3 rounded-2xl bg-slate-950 p-3 text-left">
-              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl text-sm font-black ${assignment.done ? "bg-emerald-500/15 text-emerald-200" : "bg-blue-500/15 text-blue-200"}`}>{index + 1}</span>
+            <button key={assignment.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start gap-3 rounded-2xl bg-paper-100 p-3 text-left">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl text-sm font-black ${assignment.done ? "bg-brand-100 text-brand-700" : "bg-brand-100 text-brand-700"}`}>{index + 1}</span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-black text-white">{assignment.time} · {assignment.title}</span>
-                <span className="mt-1 block truncate text-xs text-slate-500">{assignment.address}</span>
-                <span className="mt-1 block text-[11px] text-slate-600">{assignment.done ? "Erledigt" : "Offen"} · {assignment.customer}</span>
+                <span className="block text-sm font-black text-ink-900">{assignment.time} · {assignment.title}</span>
+                <span className="mt-1 block truncate text-xs text-ink-400">{assignment.address}</span>
+                <span className="mt-1 block text-[11px] text-ink-600">{assignment.done ? "Erledigt" : "Offen"} · {assignment.customer}</span>
               </span>
             </button>
           )) : <EmptyCard title="Keine Einsätze an diesem Tag" text="Lege im Admin-Dashboard einen Termin an oder wähle einen anderen Tag." />}
@@ -2347,82 +2472,82 @@ function ObjectsScreen({ data, onBack, onOpenAssignment }: { data: AppData | nul
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <BackButton onBack={onBack} />
-        <span className="rounded-full bg-blue-500/15 px-3 py-1 text-[11px] font-black text-blue-200">Objektmappe</span>
+        <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">Objektmappe</span>
       </div>
 
-      <section className="rounded-3xl border border-blue-500/25 bg-slate-900/80 p-4">
-        <p className="text-xs font-black uppercase tracking-wide text-blue-200">Objektmappe</p>
-        <h1 className="mt-2 text-2xl font-black text-white">Objekte & Reinigungspläne</h1>
-        <p className="mt-1 text-sm text-slate-400">Alle Objektinfos, Tages-Termine, Checklisten und Material auf einen Blick.</p>
+      <section className="rounded-3xl border border-brand-500/25 bg-white p-4">
+        <p className="text-xs font-black uppercase tracking-wide text-brand-700">Objektmappe</p>
+        <h1 className="mt-2 text-2xl font-black text-ink-900">Objekte & Reinigungspläne</h1>
+        <p className="mt-1 text-sm text-ink-400">Alle Objektinfos, Tages-Termine, Checklisten und Material auf einen Blick.</p>
       </section>
 
-      <label className="block rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Objekt auswählen</span>
-        <select value={selectedSite?.id || ""} onChange={(event) => setSelectedSiteId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500">
+      <label className="block rounded-3xl border border-paper-300 bg-white p-4">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Objekt auswählen</span>
+        <select value={selectedSite?.id || ""} onChange={(event) => setSelectedSiteId(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500">
           {sites.map((site) => <option key={site.id} value={site.id}>{workSiteName(site)}</option>)}
         </select>
       </label>
 
       {!selectedSite ? <EmptyCard title="Keine Objekte gefunden" text="Ordne dem Mitarbeiter ein Objekt zu oder lege einen Einsatz mit Objekt an." /> : (
         <>
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-xl font-black text-white">{workSiteName(selectedSite)}</h2>
-                <p className="mt-1 text-sm text-slate-400">{selectedSite.customer_name || plan?.customer_name || "Kein Kunde hinterlegt"}</p>
-                <p className="mt-1 text-xs text-slate-500">{workSiteAddress(selectedSite)}</p>
+                <h2 className="text-xl font-black text-ink-900">{workSiteName(selectedSite)}</h2>
+                <p className="mt-1 text-sm text-ink-400">{selectedSite.customer_name || plan?.customer_name || "Kein Kunde hinterlegt"}</p>
+                <p className="mt-1 text-xs text-ink-400">{workSiteAddress(selectedSite)}</p>
               </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-black ${gpsReady ? "bg-emerald-500/15 text-emerald-200" : "bg-yellow-500/15 text-yellow-100"}`}>{gpsReady ? "GPS aktiv" : "GPS fehlt"}</span>
+              <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-black ${gpsReady ? "bg-brand-100 text-brand-700" : "bg-amber-100 text-amber-700"}`}>{gpsReady ? "GPS aktiv" : "GPS fehlt"}</span>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-2xl bg-slate-950 p-3"><p className="text-slate-500">Einsätze</p><p className="mt-1 text-xl font-black text-white">{siteTasks.length}</p></div>
-              <div className="rounded-2xl bg-slate-950 p-3"><p className="text-slate-500">Planpunkte</p><p className="mt-1 text-xl font-black text-blue-100">{planItems.length}</p></div>
-              <div className="rounded-2xl bg-slate-950 p-3"><p className="text-slate-500">Radius</p><p className="mt-1 text-xl font-black text-emerald-100">{radius ? `${radius}m` : "—"}</p></div>
+              <div className="rounded-2xl bg-paper-100 p-3"><p className="text-ink-400">Einsätze</p><p className="mt-1 text-xl font-black text-ink-900">{siteTasks.length}</p></div>
+              <div className="rounded-2xl bg-paper-100 p-3"><p className="text-ink-400">Planpunkte</p><p className="mt-1 text-xl font-black text-brand-700">{planItems.length}</p></div>
+              <div className="rounded-2xl bg-paper-100 p-3"><p className="text-ink-400">Radius</p><p className="mt-1 text-xl font-black text-brand-700">{radius ? `${radius}m` : "—"}</p></div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <a href={mapSearchUrl(siteTasks[0] || { site: workSiteName(selectedSite), customer_name: selectedSite.customer_name || null })} target="_blank" rel="noreferrer" className="rounded-2xl bg-blue-600 px-3 py-3 text-center text-sm font-black text-white shadow-glow">Route öffnen</a>
-              <button onClick={() => futureTasks[0] && onOpenAssignment(assignmentsFromTasks([futureTasks[0]])[0])} disabled={!futureTasks.length} className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-black text-blue-100 disabled:text-slate-600">Nächsten Termin</button>
+              <a href={mapSearchUrl(siteTasks[0] || { site: workSiteName(selectedSite), customer_name: selectedSite.customer_name || null })} target="_blank" rel="noreferrer" className="rounded-2xl bg-brand-600 px-3 py-3 text-center text-sm font-black text-white shadow-glow">Route öffnen</a>
+              <button onClick={() => futureTasks[0] && onOpenAssignment(assignmentsFromTasks([futureTasks[0]])[0])} disabled={!futureTasks.length} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-black text-brand-700 disabled:text-ink-600">Nächsten Termin</button>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <h2 className="font-black">Nächste Einsätze</h2>
             <div className="mt-3 space-y-3">
               {futureTasks.length ? futureTasks.map((task) => {
                 const assignment = siteAssignments.find((item) => item.id === task.id) || assignmentFromTask(task);
-                return <button key={task.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start justify-between gap-3 rounded-2xl bg-slate-950 p-3 text-left"><span><span className="block text-sm font-black text-white">{dateLabel(task.task_date)} · {taskTime(task)}</span><span className="mt-1 block text-xs text-slate-500">{task.title || "Einsatz"}</span></span><span className="rounded-xl bg-blue-500/15 px-2 py-1 text-[11px] font-bold text-blue-100">Öffnen</span></button>;
-              }) : <p className="text-sm text-slate-500">Keine kommenden Einsätze für dieses Objekt.</p>}
+                return <button key={task.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start justify-between gap-3 rounded-2xl bg-paper-100 p-3 text-left"><span><span className="block text-sm font-black text-ink-900">{dateLabel(task.task_date)} · {taskTime(task)}</span><span className="mt-1 block text-xs text-ink-400">{task.title || "Einsatz"}</span></span><span className="rounded-xl bg-brand-100 px-2 py-1 text-[11px] font-bold text-brand-700">Öffnen</span></button>;
+              }) : <p className="text-sm text-ink-400">Keine kommenden Einsätze für dieses Objekt.</p>}
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <h2 className="font-black">Reinigungsplan</h2>
-            {plan ? <p className="mt-1 text-xs text-slate-500">{plan.name || plan.site_name || "Plan"} · {plan.status || "aktiv"}</p> : <p className="mt-1 text-xs text-slate-500">Kein Reinigungsplan gefunden.</p>}
+            {plan ? <p className="mt-1 text-xs text-ink-400">{plan.name || plan.site_name || "Plan"} · {plan.status || "aktiv"}</p> : <p className="mt-1 text-xs text-ink-400">Kein Reinigungsplan gefunden.</p>}
             <div className="mt-3 space-y-2">
               {planItems.length ? planItems.slice(0, 12).map((item) => (
-                <div key={item.id} className="rounded-2xl bg-slate-950 p-3">
+                <div key={item.id} className="rounded-2xl bg-paper-100 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black text-white">{item.task_title || item.area || "Aufgabe"}</p>
-                      <p className="mt-1 text-xs text-slate-500">{item.area || "Bereich offen"} · {item.interval_type || "Intervall offen"}</p>
+                      <p className="text-sm font-black text-ink-900">{item.task_title || item.area || "Aufgabe"}</p>
+                      <p className="mt-1 text-xs text-ink-400">{item.area || "Bereich offen"} · {item.interval_type || "Intervall offen"}</p>
                     </div>
-                    {item.calculation_minutes ? <span className="rounded-lg bg-blue-500/15 px-2 py-1 text-[11px] font-bold text-blue-100">{item.calculation_minutes} min</span> : null}
+                    {item.calculation_minutes ? <span className="rounded-lg bg-brand-100 px-2 py-1 text-[11px] font-bold text-brand-700">{item.calculation_minutes} min</span> : null}
                   </div>
-                  {item.task_description ? <p className="mt-2 text-xs text-slate-400">{item.task_description}</p> : null}
+                  {item.task_description ? <p className="mt-2 text-xs text-ink-400">{item.task_description}</p> : null}
                 </div>
-              )) : <p className="text-sm text-slate-500">Noch keine Planpunkte für dieses Objekt.</p>}
+              )) : <p className="text-sm text-ink-400">Noch keine Planpunkte für dieses Objekt.</p>}
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4">
+          <section className="rounded-3xl border border-paper-300 bg-white p-4">
             <h2 className="font-black">Material am Objekt</h2>
             <div className="mt-3 space-y-2">
               {materials.length ? materials.slice(0, 8).map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-950 p-3">
-                  <span><span className="block text-sm font-black text-white">{item.name || "Material"}</span><span className="block text-xs text-slate-500">{item.category || item.supplier || ""}</span></span>
-                  <span className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{item.current_stock ?? "—"} {item.unit || ""}</span>
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-paper-100 p-3">
+                  <span><span className="block text-sm font-black text-ink-900">{item.name || "Material"}</span><span className="block text-xs text-ink-400">{item.category || item.supplier || ""}</span></span>
+                  <span className="rounded-lg bg-paper-200 px-2 py-1 text-[11px] text-ink-600">{item.current_stock ?? "—"} {item.unit || ""}</span>
                 </div>
-              )) : <p className="text-sm text-slate-500">Kein Material zugeordnet.</p>}
+              )) : <p className="text-sm text-ink-400">Kein Material zugeordnet.</p>}
             </div>
           </section>
         </>
@@ -2493,22 +2618,22 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Objektmeldung</h1>
-          <p className="text-xs text-slate-400">Schäden, Mängel oder Besonderheiten direkt ans Büro melden</p>
+          <p className="text-xs text-ink-400">Schäden, Mängel oder Besonderheiten direkt ans Büro melden</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
 
-      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Objekt</span>
-          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Objekt</span>
+          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
             {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
           </select>
         </label>
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Termin optional</span>
-          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Termin optional</span>
+          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
             <option value="">Ohne konkreten Termin</option>
             {openTasks.map((task) => <option key={task.id} value={task.id}>{dateLabel(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>)}
           </select>
@@ -2516,8 +2641,8 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Art</span>
-            <select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Art</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
               <option>Mangel / Schaden</option>
               <option>Kundenhinweis</option>
               <option>Zugang / Schlüssel</option>
@@ -2527,8 +2652,8 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Dringlichkeit</span>
-            <select value={priority} onChange={(event) => setPriority(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Dringlichkeit</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
               <option value="normal">Normal</option>
               <option value="urgent">Dringend</option>
               <option value="critical">Sofort prüfen</option>
@@ -2537,43 +2662,43 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
         </div>
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Beschreibung</span>
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} required rows={4} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was ist passiert? Wo genau? Was muss das Büro wissen?" />
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Beschreibung</span>
+          <textarea value={description} onChange={(event) => setDescription(event.target.value)} required rows={4} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Was ist passiert? Wo genau? Was muss das Büro wissen?" />
         </label>
 
-        <label className="block rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-4">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Foto optional</span>
+        <label className="block rounded-2xl border border-dashed border-paper-300 bg-paper-100 p-4">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Foto optional</span>
           <input
             key={photoInputKey}
             type="file"
             accept="image/*"
             multiple
             onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
-            className="mt-3 block w-full text-xs text-slate-300 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+            className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-xl file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
           />
-          <p className="mt-2 text-xs text-slate-500">Bis zu 6 Fotos, max. 8 MB pro Foto.</p>
+          <p className="mt-2 text-xs text-ink-400">Bis zu 6 Fotos, max. 8 MB pro Foto.</p>
           {photos.length ? (
             <div className="mt-3 space-y-1">
-              {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-slate-900 px-3 py-2 text-xs text-blue-100">📷 {photo.name}</p>)}
+              {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-white px-3 py-2 text-xs text-brand-700">📷 {photo.name}</p>)}
             </div>
           ) : null}
         </label>
 
-        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
-        <button disabled={saving || !description.trim()} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Objektmeldung senden"}</button>
+        {message && <p className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-brand-700">{message}</p>}
+        <button disabled={saving || !description.trim()} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Objektmeldung senden"}</button>
       </form>
 
       <section className="space-y-2">
         <h2 className="font-black">Letzte Objektmeldungen</h2>
         {recentIssueNotifications.length ? recentIssueNotifications.map((item) => (
-          <article key={item.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+          <article key={item.id} className="rounded-2xl border border-paper-300 bg-white p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-black">{item.title || "Objektmeldung"}</p>
-                <p className="mt-1 line-clamp-3 text-xs text-slate-400">{item.message || "Meldung gespeichert"}</p>
-                <p className="mt-2 text-xs text-slate-500">{item.object_name || item.site || item.work_site_name || "Objekt"} · {item.status || "open"}</p>
+                <p className="mt-1 line-clamp-3 text-xs text-ink-400">{item.message || "Meldung gespeichert"}</p>
+                <p className="mt-2 text-xs text-ink-400">{item.object_name || item.site || item.work_site_name || "Objekt"} · {item.status || "open"}</p>
               </div>
-              {item.read === false ? <span className="rounded-full bg-blue-500/15 px-2 py-1 text-[11px] font-black text-blue-200">neu</span> : null}
+              {item.read === false ? <span className="rounded-full bg-brand-100 px-2 py-1 text-[11px] font-black text-brand-700">neu</span> : null}
             </div>
           </article>
         )) : <EmptyCard title="Noch keine Objektmeldung" text="Mängel, Schäden oder Kundenhinweise erscheinen nach dem Senden hier." />}
@@ -2721,15 +2846,15 @@ function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Leistungsnachweis</h1>
-          <p className="mt-1 text-xs text-slate-400">Kunde bestätigt den erledigten Einsatz direkt auf dem Handy.</p>
+          <p className="mt-1 text-xs text-ink-400">Kunde bestätigt den erledigten Einsatz direkt auf dem Handy.</p>
         </div>
-        <button onClick={onBack} className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-black text-blue-100">Zurück</button>
+        <button onClick={onBack} className="rounded-2xl border border-paper-300 bg-white px-4 py-2 text-sm font-black text-brand-700">Zurück</button>
       </div>
 
-      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Einsatz</span>
-          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold text-white outline-none">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Einsatz</span>
+          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
             {taskOptions.map((task) => (
               <option key={task.id} value={task.id}>{dateLabel(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
             ))}
@@ -2737,27 +2862,27 @@ function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload
         </label>
 
         {selectedTask ? (
-          <section className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
-            <p className="font-black text-blue-100">{selectedTask.title || "Einsatz"}</p>
-            <p className="mt-1 text-sm text-slate-300">{selectedTask.site || selectedTask.customer_name || "Objekt ohne Name"}</p>
-            <p className="mt-1 text-xs text-slate-500">{dateLabel(selectedTask.task_date)} · {taskTime(selectedTask)} · {taskDuration(selectedTask)}</p>
+          <section className="rounded-2xl border border-brand-500/20 bg-brand-50 p-3">
+            <p className="font-black text-brand-700">{selectedTask.title || "Einsatz"}</p>
+            <p className="mt-1 text-sm text-ink-600">{selectedTask.site || selectedTask.customer_name || "Objekt ohne Name"}</p>
+            <p className="mt-1 text-xs text-ink-400">{dateLabel(selectedTask.task_date)} · {taskTime(selectedTask)} · {taskDuration(selectedTask)}</p>
           </section>
         ) : <EmptyCard title="Kein Einsatz vorhanden" text="Bitte zuerst im Admin einen Termin für den Mitarbeiter anlegen." />}
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Name des Kunden / Ansprechpartners</span>
-          <input value={signerName} onChange={(event) => setSignerName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="z. B. Herr Müller" />
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Name des Kunden / Ansprechpartners</span>
+          <input value={signerName} onChange={(event) => setSignerName(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="z. B. Herr Müller" />
         </label>
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Notiz optional</span>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Was wurde bestätigt? Besonderheiten?" />
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz optional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Was wurde bestätigt? Besonderheiten?" />
         </label>
 
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-3">
+        <div className="rounded-2xl border border-dashed border-paper-300 bg-paper-100 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Unterschrift Kunde</p>
-            <button type="button" onClick={clearSignature} className="rounded-xl border border-slate-700 px-3 py-1 text-xs font-black text-slate-300">Löschen</button>
+            <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Unterschrift Kunde</p>
+            <button type="button" onClick={clearSignature} className="rounded-xl border border-paper-300 px-3 py-1 text-xs font-black text-ink-600">Löschen</button>
           </div>
           <canvas
             ref={canvasRef}
@@ -2765,26 +2890,26 @@ function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload
             onPointerMove={draw}
             onPointerUp={stopDrawing}
             onPointerLeave={stopDrawing}
-            className="touch-none rounded-2xl border border-slate-800 bg-slate-900"
+            className="touch-none rounded-2xl border border-paper-300 bg-white"
           />
-          <p className="mt-2 text-xs text-slate-500">Mit Finger oder Stift unterschreiben lassen.</p>
+          <p className="mt-2 text-xs text-ink-400">Mit Finger oder Stift unterschreiben lassen.</p>
         </div>
 
-        {message && <p className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-blue-100">{message}</p>}
-        <button disabled={saving || !selectedTask || !hasSignature} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Leistungsnachweis senden"}</button>
+        {message && <p className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-brand-700">{message}</p>}
+        <button disabled={saving || !selectedTask || !hasSignature} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Leistungsnachweis senden"}</button>
       </form>
 
       <section className="space-y-2">
         <h2 className="font-black">Letzte Leistungsnachweise</h2>
         {recentReports.length ? recentReports.slice(0, 5).map((report) => (
-          <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+          <article key={report.id} className="rounded-2xl border border-paper-300 bg-white p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-black">{report.work_site_name || "Objekt"}</p>
-                <p className="mt-1 text-xs text-slate-400">{report.signer_name || "Kunde"} · {report.status || "signed"}</p>
-                <p className="mt-1 text-xs text-slate-500">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
+                <p className="mt-1 text-xs text-ink-400">{report.signer_name || "Kunde"} · {report.status || "signed"}</p>
+                <p className="mt-1 text-xs text-ink-400">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
               </div>
-              {report.signature_url ? <a href={report.signature_url} target="_blank" rel="noreferrer" className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Signatur</a> : null}
+              {report.signature_url ? <a href={report.signature_url} target="_blank" rel="noreferrer" className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-black text-white">Signatur</a> : null}
             </div>
           </article>
         )) : <EmptyCard title="Noch kein Leistungsnachweis" text="Gespeicherte Kundenbestätigungen erscheinen hier." />}
@@ -2888,36 +3013,36 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
 
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">← Zurück</button>
+      <button onClick={onBack} className="rounded-2xl border border-paper-300 bg-white px-4 py-2 text-sm text-ink-600">← Zurück</button>
       <div>
         <h1 className="text-2xl font-black">Push aktivieren</h1>
-        <p className="text-xs text-slate-400">Damit bekomme ich Einsatz-Erinnerungen, Büro-Meldungen und Freigaben direkt aufs Handy.</p>
+        <p className="text-xs text-ink-400">Damit bekomme ich Einsatz-Erinnerungen, Büro-Meldungen und Freigaben direkt aufs Handy.</p>
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">Status</p>
-        <p className="mt-2 font-black text-blue-100">{enabled ? "Aktiv" : "Noch nicht aktiv"}</p>
-        <p className="mt-2 text-sm text-slate-400">{status}</p>
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
+        <p className="text-xs uppercase tracking-wide text-ink-400">Status</p>
+        <p className="mt-2 font-black text-brand-700">{enabled ? "Aktiv" : "Noch nicht aktiv"}</p>
+        <p className="mt-2 text-sm text-ink-400">{status}</p>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+      <section className="rounded-3xl border border-paper-300 bg-white p-4">
         <p className="font-black">So funktioniert es</p>
-        <div className="mt-3 space-y-2 text-sm text-slate-400">
+        <div className="mt-3 space-y-2 text-sm text-ink-400">
           <p>1. Ich tippe auf „Push auf diesem Gerät aktivieren“.</p>
           <p>2. Ich erlaube die Browser-Benachrichtigung.</p>
           <p>3. Das Büro kann mir später Meldungen aufs Handy schicken.</p>
         </div>
       </section>
 
-      <button disabled={saving} onClick={enablePush} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">
+      <button disabled={saving} onClick={enablePush} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">
         {saving ? "Speichere…" : "Push auf diesem Gerät aktivieren"}
       </button>
-      <button disabled={saving || !enabled} onClick={sendTest} className="w-full rounded-2xl border border-slate-700 bg-slate-950 py-4 font-black text-blue-100 disabled:opacity-40">
+      <button disabled={saving || !enabled} onClick={sendTest} className="w-full rounded-2xl border border-paper-300 bg-paper-100 py-4 font-black text-brand-700 disabled:opacity-40">
         Testmeldung senden
       </button>
-      {lastTest ? <p className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100">{lastTest}</p> : null}
+      {lastTest ? <p className="rounded-2xl border border-brand-500/20 bg-brand-50 p-3 text-sm text-brand-700">{lastTest}</p> : null}
 
-      <p className="text-xs text-slate-500">Hinweis: Auf iPhone/iPad müssen Web-Apps oft erst zum Home-Bildschirm hinzugefügt werden, bevor Push zuverlässig funktioniert.</p>
+      <p className="text-xs text-ink-400">Hinweis: Auf iPhone/iPad müssen Web-Apps oft erst zum Home-Bildschirm hinzugefügt werden, bevor Push zuverlässig funktioniert.</p>
     </div>
   );
 }
@@ -2942,44 +3067,44 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">Mehr</h1>
-        <p className="text-xs text-slate-400">Weitere Funktionen für den Arbeitsalltag</p>
+        <p className="text-xs text-ink-400">Weitere Funktionen für den Arbeitsalltag</p>
       </div>
       {data?.isAdmin ? (
-        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Admin-Auswahl</p>
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
+          <p className="mb-2 text-xs uppercase tracking-wide text-ink-400">Admin-Auswahl</p>
           <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
-          <p className="mt-3 text-xs text-slate-500">Nur Admins dürfen Mitarbeiter wechseln.</p>
+          <p className="mt-3 text-xs text-ink-400">Nur Admins dürfen Mitarbeiter wechseln.</p>
           <div className="mt-4 grid grid-cols-1 gap-2">
-            <a href="/mitarbeiter/admin/tageszentrale" className="block rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-black text-white shadow-glow">Tageszentrale</a>
-            <a href="/mitarbeiter/admin/planung" className="block rounded-2xl border border-blue-500/50 bg-blue-500/10 px-4 py-3 text-center text-sm font-black text-blue-100">Planungszentrale</a>
-            <a href="/mitarbeiter/admin/urlaub" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Urlaubsplanung</a>
-            <a href="/mitarbeiter/admin/kapazitaet" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Kapazitätsplanung</a>
-            <a href="/mitarbeiter/admin/abrechnung" className="block rounded-2xl border border-emerald-500/50 bg-emerald-500/10 px-4 py-3 text-center text-sm font-black text-emerald-100">Kundenabrechnung</a>
-            <a href="/mitarbeiter/admin/auswertung" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Monatsauswertung</a>
-            <a href="/mitarbeiter/admin/push" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Push-Zentrale</a>
-            <a href="/mitarbeiter/admin" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Dashboard</a>
-            <a href="/mitarbeiter/freigaben" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Admin-Freigaben</a>
-            <a href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-center text-sm font-black text-blue-100">Mitarbeiter aktivieren</a>
+            <a href="/mitarbeiter/admin/tageszentrale" className="block rounded-2xl bg-brand-600 px-4 py-3 text-center text-sm font-black text-white shadow-glow">Tageszentrale</a>
+            <a href="/mitarbeiter/admin/planung" className="block rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 text-center text-sm font-black text-brand-700">Planungszentrale</a>
+            <a href="/mitarbeiter/admin/urlaub" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Urlaubsplanung</a>
+            <a href="/mitarbeiter/admin/kapazitaet" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Kapazitätsplanung</a>
+            <a href="/mitarbeiter/admin/abrechnung" className="block rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 text-center text-sm font-black text-brand-700">Kundenabrechnung</a>
+            <a href="/mitarbeiter/admin/auswertung" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Monatsauswertung</a>
+            <a href="/mitarbeiter/admin/push" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Push-Zentrale</a>
+            <a href="/mitarbeiter/admin" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin-Dashboard</a>
+            <a href="/mitarbeiter/freigaben" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin-Freigaben</a>
+            <a href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Mitarbeiter aktivieren</a>
           </div>
         </section>
       ) : (
-        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Angemeldet als</p>
-          <p className="font-black text-blue-100">{data?.employee?.name || employeeName}</p>
-          <p className="mt-1 text-xs text-slate-500">Die App lädt automatisch nur die eigenen Einsätze und Zeiten.</p>
+        <section className="rounded-3xl border border-paper-300 bg-white p-4">
+          <p className="mb-1 text-xs uppercase tracking-wide text-ink-400">Angemeldet als</p>
+          <p className="font-black text-brand-700">{data?.employee?.name || employeeName}</p>
+          <p className="mt-1 text-xs text-ink-400">Die App lädt automatisch nur die eigenen Einsätze und Zeiten.</p>
         </section>
       )}
       <div className="space-y-3">
         {items.map((item) => (
-          <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-4 rounded-3xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-blue-600">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-500/15 text-blue-200"><Icon name={item.icon} /></div>
+          <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-4 rounded-3xl border border-paper-300 bg-white p-4 text-left transition hover:border-brand-600">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-100 text-brand-700"><Icon name={item.icon} /></div>
             <div className="min-w-0">
               <p className="font-black">{item.title}</p>
-              <p className="truncate text-xs text-slate-500">{item.subtitle}</p>
+              <p className="truncate text-xs text-ink-400">{item.subtitle}</p>
             </div>
           </button>
         ))}
-        <button onClick={onLogout} className="w-full rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-left font-black text-red-100">Abmelden</button>
+        <button onClick={onLogout} className="w-full rounded-3xl border border-rose-500/30 bg-rose-100 p-4 text-left font-black text-rose-700">Abmelden</button>
       </div>
     </div>
   );
@@ -2989,9 +3114,9 @@ function LoadingScreen() {
   return (
     <div className="grid min-h-[60vh] place-items-center text-center">
       <div>
-        <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-slate-800 border-t-blue-500" />
+        <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-paper-300 border-t-blue-500" />
         <p className="font-black">Lade echte Daten…</p>
-        <p className="mt-1 text-sm text-slate-500">Supabase wird verbunden.</p>
+        <p className="mt-1 text-sm text-ink-400">Supabase wird verbunden.</p>
       </div>
     </div>
   );
@@ -3000,12 +3125,12 @@ function LoadingScreen() {
 function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div className="space-y-4">
-      <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4">
-        <p className="font-black text-red-100">Daten konnten nicht geladen werden</p>
-        <p className="mt-2 text-sm text-red-100/80">{error}</p>
+      <div className="rounded-3xl border border-rose-500/30 bg-rose-100 p-4">
+        <p className="font-black text-rose-700">Daten konnten nicht geladen werden</p>
+        <p className="mt-2 text-sm text-rose-700/80">{error}</p>
       </div>
-      <button onClick={onRetry} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white">Erneut laden</button>
-      <p className="text-xs text-slate-500">Prüfe in Vercel die Variablen NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY und SUPABASE_SERVICE_ROLE_KEY.</p>
+      <button onClick={onRetry} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white">Erneut laden</button>
+      <p className="text-xs text-ink-400">Prüfe in Vercel die Variablen NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY und SUPABASE_SERVICE_ROLE_KEY.</p>
     </div>
   );
 }
@@ -3035,29 +3160,29 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
   }
 
   return (
-    <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-blue-500/30 bg-slate-950 shadow-2xl shadow-blue-950/40">
-        <div className="flex min-h-[calc(100vh-2rem)] flex-col justify-center bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-5 py-8">
+    <main className="min-h-screen bg-white px-3 py-4 text-ink-900 sm:px-5">
+      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
+        <div className="flex min-h-[calc(100vh-2rem)] flex-col justify-center bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-5 py-8">
           <div className="mb-8 text-center">
-            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-blue-500/40 bg-blue-500/10 text-3xl">🧼</div>
-            <h1 className="text-3xl font-black">CleanTrack Pro</h1>
-            <p className="mt-2 text-sm text-slate-400">Mit Mitarbeiter-Login anmelden</p>
+            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">🧼</div>
+            <h1 className="text-3xl font-black">Schichtklar</h1>
+            <p className="mt-2 text-sm text-ink-400">Mit Mitarbeiter-Login anmelden</p>
           </div>
 
-          <form onSubmit={submit} className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+          <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
             <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">E-Mail</span>
-              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="name@firma.de" />
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
+              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="name@firma.de" />
             </label>
             <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Passwort</span>
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Passwort" />
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Passwort</span>
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Passwort" />
             </label>
-            {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>}
-            <button disabled={saving} className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+            {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+            <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
           </form>
 
-          <p className="mt-4 text-center text-xs text-slate-500">Der Login wird mit Supabase Auth geprüft. Danach werden nur die passenden Mitarbeiter-Daten geladen.</p>
+          <p className="mt-4 text-center text-xs text-ink-400">Der Login wird mit Supabase Auth geprüft. Danach werden nur die passenden Mitarbeiter-Daten geladen.</p>
         </div>
       </div>
     </main>
@@ -3174,8 +3299,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
 
   if (authLoading) {
     return (
-      <main className="phone-bg min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-5">
-        <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[430px] place-items-center rounded-[2rem] border border-blue-500/30 bg-slate-950">
+      <main className="min-h-screen bg-white px-3 py-4 text-ink-900 sm:px-5">
+        <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[430px] place-items-center rounded-[2rem] border border-brand-500/30 bg-paper-100">
           <LoadingScreen />
         </div>
       </main>
@@ -3187,7 +3312,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   }
 
   return (
-    <AppShell active={active} setActive={setActive} unreadCount={unreadCountFromData(data)}>
+    <AppShell active={active} setActive={setActive} unreadCount={unreadCountFromData(data)} employee={data?.employee} onOpenMenu={() => setActive("menu")}>
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && (
