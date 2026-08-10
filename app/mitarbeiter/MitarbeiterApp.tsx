@@ -12,9 +12,10 @@ import {
   StatusPill,
   Stepper,
   UiIcon,
+  ValueTile,
   cx
 } from "@/components/ui";
-import { addDaysIso, formatDateDE, formatDayMonthDE, hhmm, startOfWeekIso } from "@/lib/format";
+import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, startOfWeekIso } from "@/lib/format";
 
 type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push";
 type ClockStatus = "idle" | "working" | "break";
@@ -813,14 +814,14 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
   const monthlyPercent = monthlyLimitHours ? Math.min(100, Math.round((monthlySeconds / 3600 / monthlyLimitHours) * 100)) : 0;
   const birthday = birthdayInfo(employee);
 
-  const quickAccess: Array<{ title: string; subtitle: string; emoji: string; tile: string; tab: Tab }> = [
-    { title: "Stempeluhr", subtitle: "Ein- und ausstempeln", emoji: "⏱️", tile: "bg-brand-50", tab: "clock" },
-    { title: "Aufgaben", subtitle: `${openToday} offen heute`, emoji: "📋", tile: "bg-violet-50", tab: "tasks" },
-    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} Anträge`, emoji: "🌴", tile: "bg-emerald-50", tab: "absence" },
-    { title: "Materialbestellung", subtitle: `${data?.materialReports?.length || 0} Bestellungen`, emoji: "📦", tile: "bg-amber-50", tab: "material" },
-    { title: "Qualitätskontrolle", subtitle: "Einsehen und erledigen", emoji: "📘", tile: "bg-blue-50", tab: "quality" },
-    { title: "Chat", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, emoji: "💬", tile: "bg-rose-50", tab: "chat" },
-    { title: "Mehr", subtitle: "Objekte, Route, Profil, Dokumente", emoji: "⚙️", tile: "bg-paper-200", tab: "menu" }
+  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
+    { title: "Stempeluhr", subtitle: "Ein- und ausstempeln", icon: "stopwatch", tab: "clock" },
+    { title: "Aufgaben", subtitle: `${openToday} offen heute`, icon: "check", tab: "tasks" },
+    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} Anträge`, icon: "calendar", tab: "absence" },
+    { title: "Material", subtitle: `${data?.materialReports?.length || 0} Bestellungen`, icon: "box", tab: "material" },
+    { title: "Qualitätsnachweis", subtitle: "Einsehen und erledigen", icon: "note", tab: "quality" },
+    { title: "Chat mit dem Büro", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
+    { title: "Mehr", subtitle: "Objekte, Route, Profil", icon: "list", tab: "menu" }
   ];
 
   return (
@@ -828,16 +829,12 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
       {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
 
       {birthday?.isToday ? (
-        <section className="rounded-3xl border border-rose-500/30 bg-rose-100 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-rose-700">Geburtstag</p>
-          <h2 className="mt-1 text-xl font-black text-ink-900">Alles Gute zum Geburtstag, {employee?.name?.split(" ")[0] || "Team"}! 🎉</h2>
-          <p className="mt-1 text-sm text-rose-700/80">Ich wünsche dir einen starken Tag, Gesundheit und viele gute Momente.</p>
-        </section>
+        <div className="rounded-2xl bg-brand-50 p-4">
+          <p className="text-[17px] font-bold text-ink-900">Alles Gute zum Geburtstag, {employee?.name?.split(" ")[0] || "Team"}! 🎉</p>
+          <p className="mt-1 text-[14px] text-ink-600">Ich wünsche dir einen starken Tag, Gesundheit und viele gute Momente.</p>
+        </div>
       ) : birthday && birthday.daysUntil <= 14 ? (
-        <section className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-brand-700">Geburtstag</p>
-          <p className="mt-1 text-sm text-brand-700">Dein Geburtstag ist {birthday.nextLabel} · {birthday.date}</p>
-        </section>
+        <Banner tone="info">Dein Geburtstag ist {birthday.nextLabel} · {birthday.date}</Banner>
       ) : null}
 
       {/* Stundenzettel-Karte, wie im Referenzdesign: helles Blau, Fortschrittsring, große Stundenanzeige, Pfeil führt zur Detailansicht. */}
@@ -863,11 +860,7 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
         </div>
 
         {todayTasks.length === 0 ? (
-          <div className="py-10 text-center">
-            <p className="text-4xl">🎉</p>
-            <p className="mt-3 font-black text-ink-900">Nichts zu tun!</p>
-            <p className="mt-1 text-sm text-ink-400">Für heute sind keine Einsätze geplant.</p>
-          </div>
+          <EmptyState icon="calendar" title="Heute nichts geplant" text="Für heute sind keine Einsätze eingetragen." />
         ) : (
           <div className="mt-1 divide-y divide-paper-200">
             {todayTasks.map((assignment) => <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
@@ -876,16 +869,16 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
       </section>
 
       <section>
-        <h2 className="mb-2 font-bold text-ink-900">Schnellzugriffe</h2>
-        <div className="space-y-2">
+        <h2 className="mb-1 text-[17px] font-bold text-ink-900">Weitere Funktionen</h2>
+        <div className="divide-y divide-paper-200">
           {quickAccess.map((item) => (
-            <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-4 rounded-2xl p-3 text-left transition hover:bg-paper-100">
-              <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-xl ${item.tile}`}>{item.emoji}</div>
-              <div className="min-w-0 flex-1">
-                <p className="font-bold text-ink-900">{item.title}</p>
-                <p className="truncate text-xs text-ink-400">{item.subtitle}</p>
-              </div>
-              <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-ink-200" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+            <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-3 py-3.5 text-left">
+              <span className="shrink-0 text-ink-400"><UiIcon name={item.icon} className="h-[22px] w-[22px]" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[16px] font-semibold text-ink-900">{item.title}</span>
+                <span className="mt-0.5 block truncate text-[13px] text-ink-400">{item.subtitle}</span>
+              </span>
+              <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
             </button>
           ))}
         </div>
@@ -1323,112 +1316,88 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
     }
   }
 
+  const canStamp = Boolean(selectedTask && selectedTask.work_site_id && selectedSiteHasGps);
+  const blockReason = !selectedTask
+    ? null
+    : !selectedTask.work_site_id
+      ? "Dieser Einsatz hat kein Objekt. Das Büro muss zuerst eins hinterlegen."
+      : !selectedSiteHasGps
+        ? "Für dieses Objekt fehlen die GPS-Koordinaten. Das Büro muss sie zuerst speichern."
+        : null;
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Stempeluhr</h1>
-        <p className="text-xs text-ink-400">Stempeln ist nur aus einem Termin heraus möglich.</p>
+    <div className="-mx-4 -mt-4">
+      <div className="px-4 pt-2">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Stempeluhr</h1>
       </div>
 
       {!selectedTask ? (
-        <section className="rounded-3xl border border-amber-500/30 bg-amber-100 p-4">
-          <p className="font-black text-amber-700">Kein Termin ausgewählt</p>
-          <p className="mt-2 text-sm text-amber-700/80">Ich habe manuelle Buchungen gesperrt. Bitte öffne im Einsatzplan einen Termin und tippe dort auf „Stempeln“.</p>
-          <button onClick={onOpenSchedule} className="mt-4 w-full rounded-2xl bg-brand-600 py-3 font-black text-white">Zum Einsatzplan</button>
-        </section>
+        <div className="space-y-3 px-4 pt-4">
+          <Banner tone="warn">Stempeln geht nur aus einem Einsatz heraus. Öffne im Kalender den Einsatz und tippe dort auf „Stempeln“.</Banner>
+          <Button variant="primary" full onClick={onOpenSchedule}>Zum Kalender</Button>
+        </div>
       ) : null}
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4 text-center">
-        <div className="flex items-center justify-between text-xs">
-          <div className="text-left">
-            <p className="uppercase tracking-wide text-ink-400">Status</p>
-            <p className="font-bold text-brand-700">• {statusText}</p>
-          </div>
-          <div className="text-right">
-            <p className="uppercase tracking-wide text-ink-400">Heute</p>
-            <p className="font-bold text-brand-700">{minutesToHours(Math.round(seconds / 60))}</p>
-          </div>
-        </div>
-        <p className="mt-8 text-5xl font-black tracking-[0.15em] text-brand-700">{formatDuration(seconds)}</p>
-        <p className="mt-2 text-sm italic text-ink-400">{selectedSiteName}</p>
-        {selectedAssignment ? (
-          <div className="mt-6 rounded-2xl border border-brand-500/25 bg-brand-50 px-4 py-3 text-left text-xs text-brand-700">
-            <p className="font-black">Aktiver Termin</p>
-            <p className="mt-1">{dateLabel(selectedAssignment.date)} · {selectedAssignment.time} · {selectedAssignment.title}</p>
-            <p className="mt-1 opacity-80">{selectedAssignment.customer}</p>
-          </div>
+      <div className="px-4 pt-5 text-center">
+        <StatusPill tone={status === "working" ? "success" : status === "break" ? "warn" : "neutral"}>{statusText}</StatusPill>
+        <p className="mt-4 font-mono text-[44px] font-bold leading-none tracking-tight text-ink-900 tabular-nums">{formatDuration(seconds)}</p>
+        <p className="mt-2 text-[14px] text-ink-400">heute gesamt · {selectedSiteName}</p>
+      </div>
+
+      <div className="px-4 pb-1 pt-6">
+        {status === "idle" ? (
+          <Button variant="primary" full disabled={saving || locating || !data?.employee || !canStamp} onClick={() => stamp("clock_in")}>
+            {locating ? "Standort wird geprüft…" : saving ? "Speichere…" : "Einstempeln"}
+          </Button>
         ) : (
-          <div className="mt-6 flex items-center justify-between rounded-2xl bg-paper-100 px-4 py-3 text-left text-xs">
-            <div>
-              <p className="font-bold text-ink-800">Manuelle Buchung gesperrt</p>
-              <p className="text-ink-400">Kein Start ohne Termin.</p>
-            </div>
-            <span className="grid h-7 w-7 place-items-center rounded-full border border-amber-500 text-amber-700">!</span>
+          <div className="grid grid-cols-2 gap-3">
+            {status === "break" ? (
+              <Button variant="primary" disabled={saving || locating || !canStamp} onClick={() => stamp("break_end")}>
+                {locating ? "Standort…" : "Pause beenden"}
+              </Button>
+            ) : (
+              <Button variant="neutral" disabled={saving || locating || !canStamp} onClick={() => stamp("break_start")}>
+                {locating ? "Standort…" : "Pause"}
+              </Button>
+            )}
+            <Button variant="danger" disabled={saving || locating || !canStamp} onClick={() => stamp("clock_out")}>
+              {locating ? "Standort…" : "Ausstempeln"}
+            </Button>
           </div>
         )}
-      </section>
-
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <p className="text-xs uppercase tracking-wide text-ink-400">Termin-Standort</p>
-        <div className="mt-2 rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900">
-          {selectedTask ? selectedSiteName : "Bitte Termin im Einsatzplan auswählen"}
-        </div>
-        {selectedTask ? (
-          <div className={`mt-3 rounded-2xl border px-3 py-3 text-xs ${selectedSiteHasGps ? "border-brand-500/30 bg-brand-50 text-brand-700" : "border-amber-500/30 bg-amber-100 text-amber-700"}`}>
-            <p className="font-black">{selectedSiteHasGps ? "Objekt-GPS aktiv" : selectedTask.work_site_id ? "Objekt-GPS fehlt noch" : "Termin hat kein Objekt"}</p>
-            <p className="mt-1 opacity-80">
-              {selectedSiteHasGps
-                ? `Radius-Prüfung: ${selectedClockSite?.allowedRadiusM || 150} m erlaubt.`
-                : selectedTask.work_site_id
-                  ? "Stempeln ist gesperrt, bis im Admin-Dashboard die GPS-Koordinaten am Objekt gespeichert sind."
-                  : "Bitte im Admin-Dashboard ein Objekt für diesen Termin auswählen, damit GPS sauber geprüft werden kann."}
-            </p>
-            {lastGps ? <p className="mt-1 opacity-70">Letzter Standort: Genauigkeit ca. {lastGps.accuracy || "—"} m</p> : null}
-          </div>
-        ) : null}
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          {status === "idle" ? (
-            <button disabled={saving || locating || !data?.employee || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_in")} className="col-span-2 rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{locating ? "GPS prüft…" : saving ? "Speichere…" : "Einstempeln"}</button>
-          ) : (
-            <>
-              {status === "break" ? (
-                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_end")} className="rounded-2xl bg-brand-600 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Pause beenden"}</button>
-              ) : (
-                <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("break_start")} className="rounded-2xl bg-paper-200 py-4 font-black text-ink-900 disabled:opacity-50">{locating ? "GPS prüft…" : "Pause"}</button>
-              )}
-              <button disabled={saving || locating || !selectedTask || !selectedTask.work_site_id || !selectedSiteHasGps} onClick={() => stamp("clock_out")} className="rounded-2xl bg-rose-500 py-4 font-black text-white disabled:opacity-50">{locating ? "GPS prüft…" : "Ausstempeln"}</button>
-            </>
-          )}
-        </div>
-        {message && <p className="mt-3 rounded-xl bg-paper-100 px-3 py-2 text-xs text-brand-700">{message}</p>}
-      </section>
-
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-bold">Timeline</h2>
-          {!selectedTask && assignments.length ? <button onClick={onOpenSchedule} className="text-xs font-black text-brand-700">Termin wählen</button> : null}
-        </div>
-        <div className="space-y-2">
-          {latestTwo.length ? latestTwo.map((entry) => (
-            <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
-          )) : <p className="text-sm text-ink-400">Noch keine Stempelzeit vorhanden.</p>}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Timeline({ label, details, time }: { label: string; details: string; time: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl border border-paper-300 bg-white p-3">
-      <div className="flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-100 text-brand-700"><Icon name="clock" /></div>
-        <div>
-          <p className="font-bold">{label}</p>
-          <p className="text-xs text-ink-400">{details}</p>
-        </div>
       </div>
-      <p className="font-black text-brand-700">{time}</p>
+
+      {message ? <div className="px-4 pt-3"><Banner tone={message.startsWith("Gespeichert") ? "success" : "danger"}>{message}</Banner></div> : null}
+      {blockReason ? <div className="px-4 pt-3"><Banner tone="warn">{blockReason}</Banner></div> : null}
+
+      {selectedAssignment ? (
+        <>
+          <SectionHeading>Einsatz</SectionHeading>
+          <DetailRow icon="pin" label="Objekt" value={selectedAssignment.title} hint={selectedAssignment.customer} />
+          <DetailRow icon="calendar" label="Datum" value={formatDateDE(selectedAssignment.date)} />
+          <DetailRow icon="clock" label="Zeitraum" value={selectedAssignment.time} />
+          <DetailRow
+            icon="target"
+            label="Standortprüfung"
+            value={selectedSiteHasGps ? `Aktiv · ${selectedClockSite?.allowedRadiusM || 150} m erlaubt` : "Nicht möglich"}
+            hint={lastGps ? `Zuletzt gemessen: Genauigkeit ca. ${lastGps.accuracy || "—"} m` : undefined}
+            tone={selectedSiteHasGps ? "default" : "danger"}
+          />
+        </>
+      ) : null}
+
+      <SectionHeading right={!selectedTask && assignments.length ? <button onClick={onOpenSchedule} className="text-[14px] font-semibold text-brand-700">Einsatz wählen</button> : undefined}>
+        Letzte Stempel
+      </SectionHeading>
+      {latestTwo.length ? latestTwo.map((entry) => (
+        <DetailRow
+          key={entry.id}
+          icon={entry.action === "clock_out" ? "logout" : entry.action === "clock_in" ? "login" : "coffee"}
+          label={actionLabel(entry.action)}
+          value={entry.created_at ? formatTime(entry.created_at) : "—"}
+          hint={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m vom Objekt` : ""}`}
+        />
+      )) : <p className="px-4 py-3 text-[14px] text-ink-400">Heute wurde noch nicht gestempelt.</p>}
     </div>
   );
 }
@@ -1438,71 +1407,47 @@ function Timesheet({ entries, absences }: { entries: TimeEntry[]; absences: Abse
   const vacationCount = absences.filter((absence) => `${absence.request_type || absence.absence_type || ""}`.toLowerCase().includes("urlaub")).length;
   const sickCount = absences.filter((absence) => `${absence.request_type || absence.absence_type || ""}`.toLowerCase().includes("krank")).length;
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black">Stundenzettel</h1>
-          <p className="text-xs text-ink-400">{monthLabel()}</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-brand-700">‹</button>
-          <button className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-brand-700">›</button>
-        </div>
+    <div className="-mx-4 -mt-4">
+      <div className="px-4 pt-2">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Stundenzettel</h1>
+        <p className="mt-0.5 text-[14px] text-ink-400">{monthLabel()}</p>
       </div>
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <p className="text-[11px] uppercase tracking-wide text-ink-400">Arbeitsstunden</p>
-        <div className="mt-2 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-3xl font-black text-ink-900">{minutesToHours(total)}</p>
-            <p className="text-xs text-ink-400">aus time_entries berechnet</p>
-          </div>
-          <div className="h-16 flex-1 rounded-2xl bg-paper-100 p-3">
-            <div className="mt-8 h-2 rounded-full bg-brand-600" style={{ width: `${Math.min(100, Math.round((total / (168 * 60)) * 100))}%` }} />
-          </div>
-        </div>
-      </section>
-
-      <div className="grid grid-cols-2 gap-3">
-        <MetricCard title="Urlaub" value={`${vacationCount}`} caption="Anträge" accent="text-brand-700" />
-        <MetricCard title="Krank" value={`${sickCount}`} caption="Meldungen" accent="text-rose-700" />
+      <div className="px-4 pt-5">
+        <p className="text-[40px] font-bold leading-none tracking-tight text-ink-900">{hhmm(total)}<span className="text-[20px] font-semibold text-ink-400"> h</span></p>
+        <p className="mt-1 text-[14px] text-ink-400">erfasste Arbeitszeit in diesem Monat</p>
       </div>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-bold">Tageseinträge</h2>
-          <button className="text-xs font-semibold text-brand-600">Filter</button>
+      {vacationCount || sickCount ? (
+        <div className="grid grid-cols-2 gap-3 px-4 pt-4">
+          <ValueTile icon="calendar" label="Urlaub" value={`${vacationCount} Anträge`} />
+          <ValueTile icon="warning" label="Krank" value={`${sickCount} Meldungen`} />
         </div>
-        <div className="space-y-2">
-          {entries.length ? entries.map((entry) => <TimeRow key={entry.id} entry={entry} />) : <EmptyCard title="Noch keine Zeiten" text="Sobald gestempelt wird, erscheinen die Einträge hier." />}
-        </div>
-      </section>
+      ) : null}
+
+      <SectionHeading>Tage</SectionHeading>
+      {entries.length ? entries.map((entry) => <TimeRow key={entry.id} entry={entry} />) : (
+        <EmptyState icon="clock" title="Noch keine Zeiten" text="Sobald gestempelt wird, erscheinen die Tage hier." />
+      )}
     </div>
   );
 }
 
 function TimeRow({ entry }: { entry: TimeEntry }) {
-  const status = {
-    approved: "Freigegeben",
-    open: "Offen",
-    sick: "Krank",
-    missing: "Fehlt"
-  }[entry.status];
-  const badgeClass = entry.status === "approved" ? "bg-brand-100 text-brand-600" : entry.status === "open" ? "bg-amber-100 text-amber-700" : entry.status === "sick" ? "bg-rose-100 text-rose-600" : "bg-paper-300 text-ink-600";
+  const label = { approved: "Freigegeben", open: "Ausstehend", sick: "Krank", missing: "Unvollständig" }[entry.status];
+  const tone = entry.status === "approved" ? "success" : entry.status === "open" ? "pending" : entry.status === "sick" ? "danger" : "warn";
   return (
-    <article className="rounded-2xl border border-paper-300 bg-white p-3">
-      <div className="grid grid-cols-[44px_1fr_auto] items-center gap-3">
-        <div className="text-center text-xs text-ink-400">{entry.day}</div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-black text-brand-700">{entry.start}{entry.end ? ` - ${entry.end}` : ""}</p>
-            <span className={`rounded px-2 py-0.5 text-[10px] font-black uppercase ${badgeClass}`}>{status}</span>
-          </div>
-          <p className="truncate text-xs text-ink-400">{entry.site}</p>
-        </div>
-        <p className="text-lg font-black text-brand-700">{entry.minutes ? minutesToHours(entry.minutes) : "—"}</p>
+    <div className="flex items-start gap-3 border-b border-paper-200 px-4 py-3.5 last:border-b-0">
+      <span className="w-12 shrink-0 pt-0.5 text-[13px] text-ink-400">{entry.day}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[16px] font-semibold text-ink-900">{entry.start}{entry.end ? ` – ${entry.end}` : ""}</p>
+        <p className="mt-0.5 truncate text-[13px] text-ink-400">{entry.site}</p>
       </div>
-    </article>
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <StatusPill tone={tone}>{label}</StatusPill>
+        <span className="text-[15px] font-semibold text-ink-900">{entry.minutes ? `${hhmm(entry.minutes)} h` : "—"}</span>
+      </div>
+    </div>
   );
 }
 
@@ -1534,76 +1479,88 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
     }
   }
 
+  const nothingAtAll = !notifications.length && !chatReplies.length && !absenceUpdates.length;
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Meldungen</h1>
-          <p className="text-xs text-ink-400">Freigaben, Chat-Antworten und Systemhinweise</p>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Meldungen</h1>
+          <p className="text-[14px] text-ink-400">{unread ? `${unread} ungelesen` : "Alles gelesen"}</p>
         </div>
-        <BackButton onBack={onBack} />
+        {unread ? (
+          <button disabled={saving} onClick={markAllRead} className="shrink-0 rounded-xl px-3 py-2 text-[15px] font-semibold text-brand-700 disabled:opacity-50">
+            {saving ? "…" : "Alle gelesen"}
+          </button>
+        ) : null}
       </div>
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-ink-400">Ungelesen</p>
-            <p className="mt-1 text-3xl font-black text-ink-900">{unread}</p>
-            <p className="text-xs text-ink-400">für {data?.employee?.name || "Mitarbeiter"}</p>
-          </div>
-          <button disabled={saving || unread === 0} onClick={markAllRead} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">Gelesen</button>
-        </div>
-        {message ? <p className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm text-brand-700">{message}</p> : null}
-      </section>
+      {message ? <div className="px-4 pt-3"><Banner tone="success">{message}</Banner></div> : null}
 
-      <section>
-        <h2 className="mb-2 font-bold">Systemmeldungen</h2>
-        <div className="space-y-3">
-          {notifications.length ? notifications.map((item) => (
-            <article key={item.id} className={`rounded-3xl border p-4 ${notificationTone(item)}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-black">{item.title || "Meldung"}</p>
-                  <p className="mt-1 text-sm opacity-90">{item.message || item.work_site_name || item.object_name || "Neue Meldung"}</p>
-                  <p className="mt-2 text-xs opacity-70">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
-                </div>
-                {item.read === false ? <span className="rounded-full bg-rose-500 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
-              </div>
-            </article>
-          )) : <EmptyCard title="Keine Systemmeldungen" text="Neue Admin-Hinweise und Freigaben erscheinen hier." />}
-        </div>
-      </section>
+      {nothingAtAll ? (
+        <EmptyState icon="bell" title="Keine Meldungen" text="Hinweise vom Büro, Antworten aus dem Chat und Entscheidungen zu deinen Anträgen erscheinen hier." />
+      ) : null}
 
-      <section>
-        <h2 className="mb-2 font-bold">Chat-Antworten vom Büro</h2>
-        <div className="space-y-3">
-          {chatReplies.length ? chatReplies.slice(0, 8).map((item) => (
-            <article key={item.id} className="rounded-3xl border border-paper-300 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-black text-brand-700">{item.sender_name || "Büro"}</p>
-                  <p className="mt-1 text-sm text-ink-600">{item.message || item.body || item.text || "Neue Antwort"}</p>
-                  <p className="mt-2 text-xs text-ink-400">{item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "—"}</p>
-                </div>
-                {item.read_by_employee === false ? <span className="rounded-full bg-brand-600 px-2 py-1 text-[10px] font-black text-white">neu</span> : null}
-              </div>
-            </article>
-          )) : <EmptyCard title="Keine Chat-Antworten" text="Antworten vom Admin/Büro landen zusätzlich hier." />}
-        </div>
-      </section>
+      {notifications.length ? (
+        <>
+          <SectionHeading>Vom Büro</SectionHeading>
+          {notifications.map((item) => (
+            <DetailRow
+              key={item.id}
+              icon="bell"
+              label={item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "Meldung"}
+              value={
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">{item.title || "Meldung"}</span>
+                  {item.read === false ? <StatusPill tone="pending">neu</StatusPill> : null}
+                </span>
+              }
+              hint={item.message || item.work_site_name || item.object_name || undefined}
+            />
+          ))}
+        </>
+      ) : null}
 
-      <section>
-        <h2 className="mb-2 font-bold">Abwesenheiten</h2>
-        <div className="space-y-3">
-          {absenceUpdates.length ? absenceUpdates.slice(0, 6).map((item) => (
-            <article key={item.id} className={`rounded-3xl border p-4 ${String(item.status).toLowerCase() === "approved" ? "border-brand-500/30 bg-brand-50 text-brand-700" : "border-rose-500/30 bg-rose-100 text-rose-700"}`}>
-              <p className="font-black">{String(item.status).toLowerCase() === "approved" ? "Genehmigt" : "Abgelehnt"}</p>
-              <p className="mt-1 text-sm opacity-90">{item.start_date} bis {item.end_date} · {item.absence_type || item.request_type || "Abwesenheit"}</p>
-              {item.admin_response ? <p className="mt-2 text-sm opacity-80">{item.admin_response}</p> : null}
-            </article>
-          )) : <EmptyCard title="Keine neuen Abwesenheitsmeldungen" text="Genehmigungen und Ablehnungen erscheinen hier." />}
-        </div>
-      </section>
+      {chatReplies.length ? (
+        <>
+          <SectionHeading>Antworten aus dem Chat</SectionHeading>
+          {chatReplies.slice(0, 8).map((item) => (
+            <DetailRow
+              key={item.id}
+              icon="chat"
+              label={`${item.sender_name || "Büro"}${item.created_at ? ` · ${dateLabel(item.created_at.slice(0, 10))} ${formatTime(item.created_at)}` : ""}`}
+              value={
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">{item.message || item.body || item.text || "Neue Antwort"}</span>
+                  {item.read_by_employee === false ? <StatusPill tone="info">neu</StatusPill> : null}
+                </span>
+              }
+            />
+          ))}
+        </>
+      ) : null}
+
+      {absenceUpdates.length ? (
+        <>
+          <SectionHeading>Deine Anträge</SectionHeading>
+          {absenceUpdates.slice(0, 6).map((item) => {
+            const approved = String(item.status).toLowerCase() === "approved";
+            return (
+              <DetailRow
+                key={item.id}
+                icon={approved ? "check" : "warning"}
+                label={`${item.absence_type || item.request_type || "Abwesenheit"} · ${formatShortDateDE(item.start_date)} bis ${formatShortDateDE(item.end_date)}`}
+                value={approved ? "Genehmigt" : "Abgelehnt"}
+                hint={item.admin_response || undefined}
+                tone={approved ? "default" : "danger"}
+              />
+            );
+          })}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1626,22 +1583,31 @@ function Tasks({ tasks, authToken, onReload }: { tasks: RawTask[]; authToken: st
     }
   }
 
+  const openTasks = tasks.filter((task) => !task.task_date || task.task_date >= todayIso());
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Aufgaben</h1>
-        <p className="text-xs text-ink-400">tasks-Tabelle live abhaken</p>
+    <div className="-mx-4 -mt-4">
+      <div className="px-4 pt-2">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Aufgaben</h1>
+        <p className="mt-0.5 text-[14px] text-ink-400">Heute und später · zum Abhaken antippen</p>
       </div>
-      <div className="space-y-3">
-        {tasks.filter((task) => !task.task_date || task.task_date >= todayIso()).length ? tasks.filter((task) => !task.task_date || task.task_date >= todayIso()).map((task) => (
-          <label key={task.id} className="flex items-center gap-3 rounded-3xl border border-paper-300 bg-white p-4">
-            <input type="checkbox" checked={Boolean(task.done)} disabled={savingId === task.id} onChange={(event) => toggleTask(task, event.target.checked)} className="h-5 w-5 accent-blue-600" />
-            <div className="min-w-0">
-              <p className="font-black">{task.title || "Aufgabe"}</p>
-              <p className="truncate text-xs text-ink-400">{dateLabel(task.task_date)} · {task.site || task.customer_name || "Ohne Objekt"}</p>
-            </div>
+
+      <div className="pt-3">
+        {openTasks.length ? openTasks.map((task) => (
+          <label key={task.id} className="flex items-start gap-3 border-b border-paper-200 px-4 py-3.5">
+            <input
+              type="checkbox"
+              checked={Boolean(task.done)}
+              disabled={savingId === task.id}
+              onChange={(event) => toggleTask(task, event.target.checked)}
+              className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
+            />
+            <span className="min-w-0 flex-1">
+              <span className={cx("block text-[16px] font-semibold", task.done ? "text-ink-400 line-through" : "text-ink-900")}>{task.title || "Aufgabe"}</span>
+              <span className="mt-0.5 block truncate text-[13px] text-ink-400">{formatDateDE(task.task_date)} · {task.site || task.customer_name || "Ohne Objekt"}</span>
+            </span>
           </label>
-        )) : <EmptyCard title="Keine Aufgaben gefunden" text="Für diesen Mitarbeiter gibt es aktuell keine Aufgaben im Zeitraum." />}
+        )) : <EmptyState icon="check" title="Keine offenen Aufgaben" text="Für dich ist aktuell nichts eingetragen." />}
       </div>
     </div>
   );
@@ -2201,20 +2167,27 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
       </div>
 
       {absences.length ? (
-        <div className="space-y-2">
-          {absences.map((absence) => (
-            <article key={absence.id} className="rounded-2xl border border-paper-300 bg-white p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-black text-ink-900">{absence.absence_type || absence.request_type || "Abwesenheit"}</p>
-                <span className="rounded-full bg-paper-100 px-3 py-1 text-[11px] font-black text-brand-700">{absence.status || "angefragt"}</span>
-              </div>
-              <p className="mt-1 text-xs text-ink-400">{absence.start_date} bis {absence.end_date}</p>
-              {absence.admin_response && <p className="mt-2 rounded-xl bg-paper-100 px-3 py-2 text-xs text-ink-600">{absence.admin_response}</p>}
-            </article>
-          ))}
+        <div className="divide-y divide-paper-200">
+          {absences.map((absence) => {
+            const state = String(absence.status || "").toLowerCase();
+            const tone = state === "approved" ? "success" : state === "rejected" ? "danger" : "pending";
+            const label = state === "approved" ? "Genehmigt" : state === "rejected" ? "Abgelehnt" : "Ausstehend";
+            return (
+              <article key={absence.id} className="py-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[16px] font-semibold text-ink-900">{absence.absence_type || absence.request_type || "Abwesenheit"}</p>
+                    <p className="mt-0.5 text-[13px] text-ink-400">{formatShortDateDE(absence.start_date)} bis {formatShortDateDE(absence.end_date)}</p>
+                  </div>
+                  <StatusPill tone={tone}>{label}</StatusPill>
+                </div>
+                {absence.admin_response ? <p className="mt-2 text-[13px] text-ink-600">{absence.admin_response}</p> : null}
+              </article>
+            );
+          })}
         </div>
       ) : (
-        <ListEmptyState emoji="🌴" title="Keine Abwesenheiten" text="Hier erscheinen Urlaub, Krankheit und Freitage." />
+        <EmptyState icon="calendar" title="Keine Abwesenheiten" text="Hier erscheinen Urlaub, Krankheit und freie Tage." />
       )}
 
       <button onClick={() => { setMessage(null); setSheetOpen(true); }} className="fixed inset-x-4 bottom-24 z-20 rounded-2xl bg-brand-600 py-4 text-center font-black text-white shadow-glow md:absolute">Neue Abwesenheit einreichen</button>
@@ -2293,23 +2266,31 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
         <BackButton onBack={onBack} />
       </div>
 
-      <section className="max-h-[52vh] space-y-3 overflow-y-auto rounded-3xl border border-paper-300 bg-white p-4">
+      <section className="max-h-[52vh] space-y-2 overflow-y-auto">
         {messages.length ? messages.map((item) => {
           const own = `${item.sender_role || ""}`.toLowerCase() === "employee";
           const body = item.message || item.body || item.text || "Nachricht";
           return (
-            <article key={item.id} className={`rounded-2xl px-4 py-3 ${own ? "ml-8 bg-brand-600 text-white" : "mr-8 bg-paper-200 text-ink-800"}`}>
-              <p className="text-sm font-semibold">{body}</p>
-              <p className={`mt-1 text-[10px] ${own ? "text-brand-700" : "text-ink-400"}`}>{item.sender_name || (own ? data?.employee?.name : "Admin")} · {item.created_at ? formatTime(item.created_at) : "—"}</p>
+            <article key={item.id} className={cx("max-w-[85%] rounded-2xl px-4 py-2.5", own ? "ml-auto bg-brand-600 text-white" : "mr-auto bg-paper-100 text-ink-900")}>
+              <p className="text-[15px] leading-snug">{body}</p>
+              <p className={cx("mt-1 text-[11px]", own ? "text-white/70" : "text-ink-400")}>
+                {item.sender_name || (own ? data?.employee?.name : "Büro")} · {item.created_at ? formatTime(item.created_at) : "—"}
+              </p>
             </article>
           );
-        }) : <EmptyCard title="Noch keine Nachrichten" text="Schreibe dem Büro direkt aus der App." />}
+        }) : <EmptyState icon="chat" title="Noch keine Nachrichten" text="Schreib dem Büro direkt aus der App." />}
       </section>
 
-      {message && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-700">{message}</p>}
-      <form onSubmit={sendMessage} className="rounded-3xl border border-paper-300 bg-white p-3">
-        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} className="w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Nachricht schreiben…" />
-        <button disabled={saving || !text.trim()} className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Nachricht senden"}</button>
+      {message && <Banner tone="danger">{message}</Banner>}
+      <form onSubmit={sendMessage} className="space-y-3">
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          rows={3}
+          className="w-full rounded-xl border border-paper-200 px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
+          placeholder="Nachricht schreiben…"
+        />
+        <Button variant="primary" full type="submit" disabled={saving || !text.trim()}>{saving ? "Sende…" : "Nachricht senden"}</Button>
       </form>
     </div>
   );
@@ -2438,27 +2419,36 @@ function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBac
   const employee = data?.employee;
   const birthday = birthdayInfo(employee);
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Profil</h1>
-          <p className="text-xs text-ink-400">Meine Mitarbeiterdaten</p>
-        </div>
-        <BackButton onBack={onBack} />
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <h1 className="min-w-0 flex-1 pt-1 text-[22px] font-bold text-ink-900">Profil</h1>
       </div>
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <div className="mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-brand-100 text-2xl font-black text-brand-700">{(employee?.name || "?").slice(0, 1)}</div>
-        <p className="text-xl font-black">{employee?.name || "Mitarbeiter"}</p>
-        <p className="text-sm text-ink-400">{employee?.email || "Keine E-Mail"}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <MetricCard title="Rolle" value={employee?.role || "—"} caption="Zugriff" accent="text-brand-700" />
-          <MetricCard title="Urlaub" value={`${employee?.annual_vacation_days ?? employee?.vacation_days ?? "—"}`} caption="Anspruch/Jahr" accent="text-brand-700" />
-          <MetricCard title="Stundensatz" value={moneyPerHour(employee?.hourly_rate)} caption="Lohnsatz" accent="text-amber-700" />
-          <MetricCard title="Geburtstag" value={birthday?.date || "—"} caption={birthday?.nextLabel || "nicht gepflegt"} accent={birthday?.isToday ? "text-rose-700" : "text-brand-700"} />
+
+      <div className="flex items-center gap-4 px-4 pb-2 pt-4">
+        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-brand-100 text-[22px] font-bold text-brand-700">
+          {(employee?.name || "?").slice(0, 1).toUpperCase()}
         </div>
-        {birthday?.isToday ? <p className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-100 p-3 text-sm font-bold text-rose-600">Alles Gute zum Geburtstag! 🎉</p> : null}
-      </section>
-      <button onClick={onLogout} className="w-full rounded-3xl border border-rose-500/30 bg-rose-100 p-4 text-left font-black text-rose-700">Abmelden</button>
+        <div className="min-w-0">
+          <p className="truncate text-[20px] font-bold text-ink-900">{employee?.name || "Mitarbeiter"}</p>
+          <p className="truncate text-[14px] text-ink-400">{employee?.email || "Keine E-Mail hinterlegt"}</p>
+        </div>
+      </div>
+
+      {birthday?.isToday ? <div className="px-4 pb-1 pt-3"><Banner tone="info">Alles Gute zum Geburtstag! 🎉</Banner></div> : null}
+
+      <SectionHeading>Deine Daten</SectionHeading>
+      <DetailRow icon="user" label="Rolle" value={employee?.role === "admin" ? "Admin" : "Mitarbeiter"} />
+      <DetailRow icon="calendar" label="Urlaubsanspruch" value={`${employee?.annual_vacation_days ?? employee?.vacation_days ?? "—"} Tage pro Jahr`} />
+      <DetailRow icon="euro" label="Stundensatz" value={moneyPerHour(employee?.hourly_rate)} />
+      <DetailRow icon="clock" label="Monatsstunden" value={employee?.monthly_hour_limit ? `${employee.monthly_hour_limit} h` : "Nicht hinterlegt"} />
+      <DetailRow icon="flag" label="Geburtstag" value={birthday?.date || "Nicht hinterlegt"} hint={birthday?.nextLabel} />
+
+      <div className="px-4 py-6">
+        <Button variant="neutral" full onClick={onLogout}>Abmelden</Button>
+      </div>
     </div>
   );
 }
@@ -3157,37 +3147,29 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
   }
 
   return (
-    <div className="space-y-4">
-      <button onClick={onBack} className="rounded-2xl border border-paper-300 bg-white px-4 py-2 text-sm text-ink-600">← Zurück</button>
-      <div>
-        <h1 className="text-2xl font-black">Push aktivieren</h1>
-        <p className="text-xs text-ink-400">Damit bekomme ich Einsatz-Erinnerungen, Büro-Meldungen und Freigaben direkt aufs Handy.</p>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Benachrichtigungen</h1>
+          <p className="text-[14px] text-ink-400">Erinnerungen und Hinweise aufs Handy</p>
+        </div>
+        <div className="pt-2"><StatusPill tone={enabled ? "success" : "neutral"}>{enabled ? "Aktiv" : "Aus"}</StatusPill></div>
       </div>
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <p className="text-xs uppercase tracking-wide text-ink-400">Status</p>
-        <p className="mt-2 font-black text-brand-700">{enabled ? "Aktiv" : "Noch nicht aktiv"}</p>
-        <p className="mt-2 text-sm text-ink-400">{status}</p>
-      </section>
+      <DetailRow icon="bell" label="Status auf diesem Gerät" value={enabled ? "Aktiv" : "Noch nicht aktiv"} hint={status} />
+      <DetailRow icon="clock" label="Wofür" value="Einsatz-Erinnerungen, Meldungen vom Büro, Entscheidungen zu Anträgen" />
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <p className="font-black">So funktioniert es</p>
-        <div className="mt-3 space-y-2 text-sm text-ink-400">
-          <p>1. Ich tippe auf „Push auf diesem Gerät aktivieren“.</p>
-          <p>2. Ich erlaube die Browser-Benachrichtigung.</p>
-          <p>3. Das Büro kann mir später Meldungen aufs Handy schicken.</p>
-        </div>
-      </section>
-
-      <button disabled={saving} onClick={enablePush} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">
-        {saving ? "Speichere…" : "Push auf diesem Gerät aktivieren"}
-      </button>
-      <button disabled={saving || !enabled} onClick={sendTest} className="w-full rounded-2xl border border-paper-300 bg-paper-100 py-4 font-black text-brand-700 disabled:opacity-40">
-        Testmeldung senden
-      </button>
-      {lastTest ? <p className="rounded-2xl border border-brand-500/20 bg-brand-50 p-3 text-sm text-brand-700">{lastTest}</p> : null}
-
-      <p className="text-xs text-ink-400">Hinweis: Auf iPhone/iPad müssen Web-Apps oft erst zum Home-Bildschirm hinzugefügt werden, bevor Push zuverlässig funktioniert.</p>
+      <div className="space-y-3 px-4 pt-5">
+        <Button variant="primary" full disabled={saving} onClick={enablePush}>
+          {saving ? "Speichere…" : enabled ? "Erneut aktivieren" : "Auf diesem Gerät aktivieren"}
+        </Button>
+        <Button variant="neutral" full disabled={saving || !enabled} onClick={sendTest}>Testmeldung senden</Button>
+        {lastTest ? <Banner tone="info">{lastTest}</Banner> : null}
+        <p className="text-[13px] text-ink-400">Auf dem iPhone muss die App zuerst über „Teilen → Zum Home-Bildschirm“ hinzugefügt werden, sonst kommen keine Meldungen an.</p>
+      </div>
     </div>
   );
 }
@@ -3208,60 +3190,75 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { title: "Tagesabschluss", subtitle: "Arbeitsende ans Büro melden", icon: "sheet", tab: "dayclose" },
     { title: "Profil", subtitle: data?.employee?.email || "Stammdaten", icon: "user", tab: "profile" }
   ];
+  const adminLinks = [
+    { href: "/mitarbeiter/admin/tageszentrale", label: "Tageszentrale" },
+    { href: "/mitarbeiter/admin/zeiten", label: "Zeitenfreigabe" },
+    { href: "/mitarbeiter/admin/planung", label: "Planungszentrale" },
+    { href: "/mitarbeiter/admin/urlaub", label: "Urlaubsplanung" },
+    { href: "/mitarbeiter/admin/kapazitaet", label: "Kapazitätsplanung" },
+    { href: "/mitarbeiter/admin/abrechnung", label: "Kundenabrechnung" },
+    { href: "/mitarbeiter/admin/auswertung", label: "Monatsauswertung" },
+    { href: "/mitarbeiter/admin/push", label: "Push-Zentrale" },
+    { href: "/mitarbeiter/admin", label: "Admin-Dashboard" },
+    { href: "/mitarbeiter/freigaben", label: "Freigaben" },
+    { href: "/mitarbeiter/aktivieren", label: "Mitarbeiter aktivieren" }
+  ];
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Mehr</h1>
-        <p className="text-xs text-ink-400">Weitere Funktionen für den Arbeitsalltag</p>
+    <div className="-mx-4 -mt-4">
+      <div className="px-4 pt-2">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Mehr</h1>
+        <p className="mt-0.5 text-[14px] text-ink-400">{data?.employee?.name || employeeName}</p>
       </div>
+
       {data?.isAdmin ? (
-        <section className="rounded-3xl border border-paper-300 bg-white p-4">
-          <p className="mb-2 text-xs uppercase tracking-wide text-ink-400">Admin-Auswahl</p>
-          <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
-          <p className="mt-3 text-xs text-ink-400">Nur Admins dürfen Mitarbeiter wechseln.</p>
-          <div className="mt-4 grid grid-cols-1 gap-2">
-            <a href="/mitarbeiter/admin/tageszentrale" className="block rounded-2xl bg-brand-600 px-4 py-3 text-center text-sm font-black text-white shadow-glow">Tageszentrale</a>
-            <a href="/mitarbeiter/admin/planung" className="block rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 text-center text-sm font-black text-brand-700">Planungszentrale</a>
-            <a href="/mitarbeiter/admin/urlaub" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Urlaubsplanung</a>
-            <a href="/mitarbeiter/admin/kapazitaet" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Kapazitätsplanung</a>
-            <a href="/mitarbeiter/admin/abrechnung" className="block rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 text-center text-sm font-black text-brand-700">Kundenabrechnung</a>
-            <a href="/mitarbeiter/admin/auswertung" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Monatsauswertung</a>
-            <a href="/mitarbeiter/admin/push" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Push-Zentrale</a>
-            <a href="/mitarbeiter/admin" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin-Dashboard</a>
-            <a href="/mitarbeiter/freigaben" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin-Freigaben</a>
-            <a href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Mitarbeiter aktivieren</a>
+        <>
+          <SectionHeading>Mitarbeiter ansehen</SectionHeading>
+          <div className="px-4 pb-1">
+            <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
           </div>
-        </section>
-      ) : (
-        <section className="rounded-3xl border border-paper-300 bg-white p-4">
-          <p className="mb-1 text-xs uppercase tracking-wide text-ink-400">Angemeldet als</p>
-          <p className="font-black text-brand-700">{data?.employee?.name || employeeName}</p>
-          <p className="mt-1 text-xs text-ink-400">Die App lädt automatisch nur die eigenen Einsätze und Zeiten.</p>
-        </section>
-      )}
-      <div className="space-y-3">
-        {items.map((item) => (
-          <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-4 rounded-3xl border border-paper-300 bg-white p-4 text-left transition hover:border-brand-600">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-100 text-brand-700"><Icon name={item.icon} /></div>
-            <div className="min-w-0">
-              <p className="font-black">{item.title}</p>
-              <p className="truncate text-xs text-ink-400">{item.subtitle}</p>
-            </div>
-          </button>
-        ))}
-        <button onClick={onLogout} className="w-full rounded-3xl border border-rose-500/30 bg-rose-100 p-4 text-left font-black text-rose-700">Abmelden</button>
+          <SectionHeading>Adminbereich</SectionHeading>
+          {adminLinks.map((link) => (
+            <a key={link.href} href={link.href} className="flex items-center gap-3 border-b border-paper-200 px-4 py-3.5">
+              <span className="shrink-0 text-ink-400"><UiIcon name="shield" className="h-[22px] w-[22px]" /></span>
+              <span className="min-w-0 flex-1 text-[16px] font-semibold text-ink-900">{link.label}</span>
+              <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
+            </a>
+          ))}
+        </>
+      ) : null}
+
+      <SectionHeading>Funktionen</SectionHeading>
+      {items.map((item) => (
+        <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-3 border-b border-paper-200 px-4 py-3.5 text-left">
+          <span className="shrink-0 text-ink-400"><UiIcon name={menuIcon(item.icon)} className="h-[22px] w-[22px]" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[16px] font-semibold text-ink-900">{item.title}</span>
+            <span className="mt-0.5 block truncate text-[13px] text-ink-400">{item.subtitle}</span>
+          </span>
+          <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
+        </button>
+      ))}
+
+      <div className="px-4 py-6">
+        <Button variant="neutral" full onClick={onLogout}>Abmelden</Button>
       </div>
     </div>
   );
+}
+
+/** Alte Icon-Namen des Menüs auf den gemeinsamen Icon-Satz abbilden. */
+function menuIcon(name: string) {
+  const map: Record<string, string> = { shield: "check", sheet: "note", map: "pin" };
+  return map[name] || name;
 }
 
 function LoadingScreen() {
   return (
     <div className="grid min-h-[60vh] place-items-center text-center">
       <div>
-        <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-paper-300 border-t-blue-500" />
-        <p className="font-black">Lade echte Daten…</p>
-        <p className="mt-1 text-sm text-ink-400">Supabase wird verbunden.</p>
+        <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-[3px] border-paper-200 border-t-brand-600" />
+        <p className="text-[15px] text-ink-400">Daten werden geladen…</p>
       </div>
     </div>
   );
@@ -3269,13 +3266,10 @@ function LoadingScreen() {
 
 function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-3xl border border-rose-500/30 bg-rose-100 p-4">
-        <p className="font-black text-rose-700">Daten konnten nicht geladen werden</p>
-        <p className="mt-2 text-sm text-rose-700/80">{error}</p>
-      </div>
-      <button onClick={onRetry} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white">Erneut laden</button>
-      <p className="text-xs text-ink-400">Prüfe in Vercel die Variablen NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY und SUPABASE_SERVICE_ROLE_KEY.</p>
+    <div className="space-y-4 pt-6">
+      <Banner tone="danger">{error}</Banner>
+      <Button variant="primary" full onClick={onRetry}>Erneut laden</Button>
+      <p className="text-[13px] text-ink-400">Bleibt der Fehler, ist meist die Verbindung zur Datenbank gestört. Dann bitte im Büro melden.</p>
     </div>
   );
 }
@@ -3305,30 +3299,44 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
   }
 
   return (
-    <main className="min-h-screen bg-white px-3 py-4 text-ink-900 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
-        <div className="flex min-h-[calc(100vh-2rem)] flex-col justify-center bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-5 py-8">
-          <div className="mb-8 text-center">
-            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">🧼</div>
-            <h1 className="text-3xl font-black">Schichtklar</h1>
-            <p className="mt-2 text-sm text-ink-400">Mit Mitarbeiter-Login anmelden</p>
-          </div>
-
-          <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
-            <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
-              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="name@firma.de" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Passwort</span>
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Passwort" />
-            </label>
-            {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
-            <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
-          </form>
-
-          <p className="mt-4 text-center text-xs text-ink-400">Der Login wird mit Supabase Auth geprüft. Danach werden nur die passenden Mitarbeiter-Daten geladen.</p>
+    <main className="min-h-[100dvh] bg-white px-5 text-ink-900">
+      <div className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col justify-center py-10">
+        <div className="mb-8">
+          <div className="mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-2xl">🧼</div>
+          <h1 className="text-[30px] font-bold tracking-tight">Schichtklar</h1>
+          <p className="mt-1 text-[15px] text-ink-400">Melde dich mit deiner Arbeits-E-Mail an.</p>
         </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          <label className="block">
+            <span className="text-[13px] text-ink-400">E-Mail</span>
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              type="email"
+              required
+              autoComplete="email"
+              className="mt-1.5 w-full rounded-xl border border-paper-200 px-4 py-3.5 text-[16px] text-ink-900 outline-none focus:border-brand-500"
+              placeholder="name@firma.de"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[13px] text-ink-400">Passwort</span>
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              required
+              autoComplete="current-password"
+              className="mt-1.5 w-full rounded-xl border border-paper-200 px-4 py-3.5 text-[16px] text-ink-900 outline-none focus:border-brand-500"
+              placeholder="Passwort"
+            />
+          </label>
+          {error && <Banner tone="danger">{error}</Banner>}
+          <Button variant="primary" full type="submit" disabled={saving}>{saving ? "Melde an…" : "Anmelden"}</Button>
+        </form>
+
+        <p className="mt-6 text-[13px] text-ink-400">Zugang vergessen? Melde dich im Büro, dann setzen wir dir ein neues Passwort.</p>
       </div>
     </main>
   );
