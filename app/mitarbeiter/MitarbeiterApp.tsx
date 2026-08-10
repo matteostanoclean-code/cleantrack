@@ -497,13 +497,6 @@ function unreadCountFromData(data: AppData | null) {
   return unreadNotifications + unreadChats + pendingAbsences;
 }
 
-function notificationTone(item: Notification) {
-  const text = `${item.notification_type || ""} ${item.status || ""} ${item.title || ""}`.toLowerCase();
-  if (text.includes("reject") || text.includes("abgelehnt") || text.includes("gps") || text.includes("warning")) return "border-rose-500/30 bg-rose-100 text-rose-700";
-  if (text.includes("approved") || text.includes("genehmigt") || text.includes("done") || text.includes("erledigt")) return "border-brand-500/30 bg-brand-50 text-brand-700";
-  return "border-brand-500/25 bg-brand-50 text-brand-700";
-}
-
 function normalizePriority(task: RawTask): Assignment["priority"] {
   const priority = `${task.priority || ""}`.toLowerCase();
   const status = `${task.status || ""}`.toLowerCase();
@@ -753,7 +746,7 @@ function Header({ unreadCount = 0, employee, onOpenNotifications, onOpenMenu }: 
           ) : (
             <div className="grid h-11 w-11 place-items-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">{initials}</div>
           )}
-          <p className="text-xl font-black tracking-tight text-ink-900">Hallo, {firstName} 👋</p>
+          <p className="text-[20px] font-bold tracking-tight text-ink-900">Hallo, {firstName} 👋</p>
         </button>
         <div className="flex items-center gap-2">
           <button onClick={onOpenNotifications} className="relative rounded-full p-2 text-ink-600" aria-label="Benachrichtigungen öffnen">
@@ -766,16 +759,6 @@ function Header({ unreadCount = 0, employee, onOpenNotifications, onOpenMenu }: 
         </div>
       </div>
     </header>
-  );
-}
-
-function MetricCard({ title, value, caption, accent }: { title: string; value: string; caption: string; accent?: string }) {
-  return (
-    <div className="rounded-2xl border border-paper-300 bg-white p-4">
-      <p className="text-[11px] uppercase tracking-wide text-ink-400">{title}</p>
-      <p className={`mt-2 text-2xl font-black ${accent || "text-ink-900"}`}>{value}</p>
-      <p className="mt-1 text-xs text-ink-400">{caption}</p>
-    </div>
   );
 }
 
@@ -1626,7 +1609,7 @@ function BottomSheet({ title, onClose, children, footer }: { title: string; onCl
           <button onClick={onClose} className="absolute left-4 text-ink-600" aria-label="Schließen">
             <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
           </button>
-          <h2 className="text-lg font-black text-ink-900">{title}</h2>
+          <h2 className="text-[17px] font-bold text-ink-900">{title}</h2>
         </div>
         <div className="border-t border-paper-200" />
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -1647,16 +1630,6 @@ function SheetRow({ icon, children, showChevron }: { icon: string; children: Rea
       {showChevron ? (
         <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-ink-400" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
       ) : null}
-    </div>
-  );
-}
-
-function ListEmptyState({ emoji, title, text }: { emoji: string; title: string; text: string }) {
-  return (
-    <div className="py-16 text-center">
-      <p className="text-4xl">{emoji}</p>
-      <p className="mt-3 font-black text-ink-900">{title}</p>
-      <p className="mt-1 text-sm text-ink-400">{text}</p>
     </div>
   );
 }
@@ -1758,60 +1731,67 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Qualitätsnachweis</h1>
-          <p className="text-xs text-ink-400">Reinigungsplan prüfen und Einsatz abschließen</p>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Qualitätsnachweis</h1>
+          <p className="text-[14px] text-ink-400">Reinigungsplan abhaken und Einsatz abschließen</p>
         </div>
-        <BackButton onBack={onBack} />
       </div>
 
       {tasks.length ? (
-        <form onSubmit={submit} className="space-y-4">
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Einsatz</span>
-              <select value={taskIndex} onChange={(event) => setTaskIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
-                {tasks.map((task, index) => (
-                  <option key={task.id} value={index}>{dateLabel(task.task_date)} · {formatTime(task.start_time)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
-                ))}
-              </select>
-            </label>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <MetricCard title="Objekt" value={selectedTask?.site || "—"} caption={selectedTask?.customer_name || "Kunde offen"} accent="text-brand-700" />
-              <MetricCard title="Plan" value={selectedPlan ? "aktiv" : "Standard"} caption={selectedPlan?.name || "Fallback-Checkliste"} accent="text-brand-700" />
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-black">Checkliste</h2>
-                <p className="text-xs text-ink-400">{checkedLabels.length}/{labels.length} Punkte abgehakt</p>
-              </div>
-              <button type="button" onClick={() => setChecked(Object.fromEntries(labels.map((label) => [label, true])))} className="rounded-2xl border border-paper-300 px-3 py-2 text-xs font-black text-brand-700">Alle</button>
-            </div>
-            <div className="space-y-2">
-              {labels.map((label) => (
-                <label key={label} className="flex items-start gap-3 rounded-2xl border border-paper-300 bg-paper-100 p-3">
-                  <input type="checkbox" checked={Boolean(checked[label])} onChange={(event) => setChecked((current) => ({ ...current, [label]: event.target.checked }))} className="mt-1 h-5 w-5 accent-blue-600" />
-                  <span className="text-sm font-semibold text-ink-800">{label}</span>
-                </label>
+        <form onSubmit={submit}>
+          <SectionHeading>Einsatz</SectionHeading>
+          <div className="px-4 pb-1">
+            <select
+              value={taskIndex}
+              onChange={(event) => setTaskIndex(Number(event.target.value))}
+              className="w-full rounded-xl border border-paper-200 px-4 py-3.5 text-[15px] font-medium text-ink-900 outline-none"
+            >
+              {tasks.map((task, index) => (
+                <option key={task.id} value={index}>{formatShortDateDE(task.task_date)} · {formatTime(task.start_time)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
               ))}
-            </div>
-          </section>
+            </select>
+          </div>
+          <DetailRow icon="pin" label="Objekt" value={selectedTask?.site || "—"} hint={selectedTask?.customer_name || "Kunde offen"} />
+          <DetailRow icon="note" label="Reinigungsplan" value={selectedPlan?.name || "Standard-Checkliste"} />
 
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <label className="block">
-              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz / Besonderheit</span>
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="z.B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt" />
+          <SectionHeading
+            right={
+              <button type="button" onClick={() => setChecked(Object.fromEntries(labels.map((label) => [label, true])))} className="text-[14px] font-semibold text-brand-700">
+                Alle abhaken
+              </button>
+            }
+          >
+            Checkliste
+          </SectionHeading>
+          <p className="px-4 pb-1 text-[13px] text-ink-400">{checkedLabels.length} von {labels.length} erledigt</p>
+          {labels.map((label) => (
+            <label key={label} className="flex items-start gap-3 border-b border-paper-200 px-4 py-3.5">
+              <input
+                type="checkbox"
+                checked={Boolean(checked[label])}
+                onChange={(event) => setChecked((current) => ({ ...current, [label]: event.target.checked }))}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
+              />
+              <span className="text-[15px] text-ink-900">{label}</span>
             </label>
-            <div className="mt-4 space-y-3 rounded-2xl border border-brand-500/20 bg-brand-50 p-4">
-              <div>
-                <p className="text-sm font-black text-brand-700">Fotos hinzufügen</p>
-                <p className="mt-1 text-xs text-ink-400">Bis zu 6 Bilder, z. B. Vorher/Nachher, Schaden oder fertiger Bereich.</p>
-              </div>
+          ))}
+
+          <SectionHeading>Notiz und Fotos</SectionHeading>
+          <div className="space-y-3 px-4 pb-6">
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-paper-200 px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
+              placeholder="z. B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt"
+            />
+            <label className="block rounded-xl border border-dashed border-paper-300 p-4">
+              <span className="text-[13px] text-ink-400">Bis zu 6 Fotos, z. B. vorher und nachher</span>
               <input
                 type="file"
                 accept="image/*"
@@ -1821,39 +1801,42 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
                   const selected = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/")).slice(0, 6);
                   setPhotos(selected);
                 }}
-                className="block w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-xs text-ink-600 file:mr-3 file:rounded-xl file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
               />
               {photos.length ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {photos.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="rounded-2xl border border-paper-300 bg-paper-100 p-2 text-center text-[11px] text-ink-600">
-                      <div className="mb-1 text-lg">📷</div>
-                      <p className="truncate">{file.name}</p>
-                    </div>
-                  ))}
-                </div>
+                <p className="mt-3 text-[13px] text-ink-600">{photos.length} Foto{photos.length === 1 ? "" : "s"} ausgewählt</p>
               ) : null}
-            </div>
-          </section>
-
-          {message && <p className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-brand-700">{message}</p>}
-          <button disabled={saving || !selectedTask} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Nachweis senden & Einsatz abschließen"}</button>
+            </label>
+            {message && <Banner tone="info">{message}</Banner>}
+            <Button variant="primary" full type="submit" disabled={saving || !selectedTask}>
+              {saving ? "Speichere…" : "Nachweis senden und abschließen"}
+            </Button>
+          </div>
         </form>
-      ) : <EmptyCard title="Kein Einsatz für Nachweis" text="Sobald ein Einsatz in tasks vorhanden ist, kann hier ein Qualitätsnachweis erstellt werden." />}
+      ) : <EmptyState icon="note" title="Kein Einsatz vorhanden" text="Sobald dir ein Einsatz zugeteilt ist, kannst du hier einen Nachweis erstellen." />}
 
-      <section className="space-y-2">
-        <h2 className="font-black">Letzte Nachweise</h2>
-        {(data?.qualityReports || []).length ? (data?.qualityReports || []).slice(0, 5).map((report) => (
-          <article key={report.id} className="rounded-2xl border border-paper-300 bg-white p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-black">{report.work_site_name || "Objekt"}</p>
-              <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-600">{report.status || "submitted"}</span>
+      <SectionHeading>Letzte Nachweise</SectionHeading>
+      {(data?.qualityReports || []).length ? (data?.qualityReports || []).slice(0, 5).map((report) => (
+        <div key={report.id} className="border-b border-paper-200 px-4 py-3.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[16px] font-semibold text-ink-900">{report.work_site_name || "Objekt"}</p>
+              <p className="mt-0.5 text-[13px] text-ink-400">
+                {report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
+                {" · "}{report.photo_count || report.photo_urls?.length || 0} Foto(s)
+              </p>
             </div>
-            <p className="mt-1 text-xs text-ink-400">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · {report.photo_count || report.photo_urls?.length || 0} Foto(s)</p>
-            {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Qualitätsfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
-          </article>
-        )) : <EmptyCard title="Noch keine Nachweise" text="Gesendete Qualitätsnachweise erscheinen nach dem Speichern hier." />}
-      </section>
+            <StatusPill tone={String(report.status || "").toLowerCase() === "approved" ? "success" : "neutral"}>
+              {String(report.status || "").toLowerCase() === "approved" ? "Freigegeben" : "Gesendet"}
+            </StatusPill>
+          </div>
+          {report.photo_urls?.length ? (
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Qualitätsfoto" className="h-20 w-full rounded-xl object-cover" />)}
+            </div>
+          ) : null}
+        </div>
+      )) : <p className="px-4 py-3 text-[14px] text-ink-400">Noch keine Nachweise gesendet.</p>}
     </div>
   );
 }
@@ -2162,7 +2145,7 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-black text-ink-900">Deine Abwesenheiten</h1>
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Abwesenheit</h1>
         <BackButton onBack={onBack} />
       </div>
 
@@ -2260,8 +2243,8 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black">Chat</h1>
-          <p className="text-xs text-ink-400">Nachricht an Admin / Büro</p>
+          <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Chat</h1>
+          <p className="mt-0.5 text-[14px] text-ink-400">Direkt ans Büro</p>
         </div>
         <BackButton onBack={onBack} />
       </div>
@@ -2346,71 +2329,63 @@ function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData |
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Tagesabschluss</h1>
-          <p className="text-xs text-ink-400">Arbeitsende ans Büro melden</p>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Tagesabschluss</h1>
+          <p className="text-[14px] text-ink-400">Arbeitsende ans Büro melden</p>
         </div>
-        <BackButton onBack={onBack} />
       </div>
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <p className="text-xs uppercase tracking-wide text-ink-400">Heute</p>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Zeit</p>
-            <p className="mt-1 text-xl font-black text-brand-700">{workedMinutes ? minutesToHours(workedMinutes) : "0h"}</p>
-          </div>
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Erledigt</p>
-            <p className="mt-1 text-xl font-black text-brand-700">{doneTasks.length}</p>
-          </div>
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Offen</p>
-            <p className={`mt-1 text-xl font-black ${openTasks.length ? "text-rose-700" : "text-brand-700"}`}>{openTasks.length}</p>
-          </div>
-        </div>
-        {hasOpenClock ? (
-          <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-100 px-3 py-3 text-sm text-amber-700">
-            Achtung: Es läuft noch eine Stempelung oder Pause. Bitte zuerst ausstempeln, damit der Tagesabschluss sauber ist.
-          </div>
-        ) : null}
-      </section>
+      <div className="grid grid-cols-3 gap-3 px-4 pt-4">
+        <ValueTile icon="stopwatch" label="Zeit" value={workedMinutes ? `${hhmm(workedMinutes)} h` : "0:00 h"} />
+        <ValueTile icon="check" label="Erledigt" value={String(doneTasks.length)} />
+        <ValueTile icon="warning" label="Offen" value={String(openTasks.length)} />
+      </div>
 
-      <section>
-        <h2 className="mb-2 font-bold">Heutige Einsätze</h2>
-        <div className="space-y-3">
-          {todayTasks.length ? todayTasks.map((task) => {
-            const done = task.done || String(task.status || "").toLowerCase() === "done";
-            return (
-              <article key={task.id} className="rounded-3xl border border-paper-300 bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-brand-700">{taskTime(task)}</p>
-                    <p className="mt-1 font-black text-ink-900">{task.title || "Einsatz"}</p>
-                    <p className="mt-1 truncate text-xs text-ink-400">{task.site || task.customer_name || "Ohne Objekt"}</p>
-                  </div>
-                  <span className={`rounded-full px-3 py-1 text-[11px] font-black ${done ? "bg-brand-100 text-brand-700" : "bg-rose-100 text-rose-700"}`}>{done ? "OK" : "offen"}</span>
-                </div>
-              </article>
-            );
-          }) : <EmptyCard title="Keine Einsätze für heute" text="Der Tagesabschluss kann trotzdem mit Notiz gesendet werden." />}
+      {hasOpenClock ? (
+        <div className="px-4 pt-3">
+          <Banner tone="warn">Es läuft noch eine Stempelung oder Pause. Bitte zuerst ausstempeln, sonst fehlt die Zeit im Abschluss.</Banner>
         </div>
-      </section>
+      ) : null}
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz ans Büro</span>
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="z. B. Objekt fertig, Material fehlt, Kunde war nicht erreichbar…" />
-        </label>
-        <label className="mt-3 flex items-start gap-3 rounded-2xl bg-paper-100 p-3 text-sm text-ink-600">
-          <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} className="mt-1 h-5 w-5 accent-blue-600" />
+      <SectionHeading>Heutige Einsätze</SectionHeading>
+      {todayTasks.length ? todayTasks.map((task) => {
+        const done = task.done || String(task.status || "").toLowerCase() === "done";
+        return (
+          <DetailRow
+            key={task.id}
+            icon={done ? "check" : "clock"}
+            label={`${taskTime(task)} · ${task.site || task.customer_name || "Ohne Objekt"}`}
+            value={
+              <span className="flex items-center gap-2">
+                <span className="min-w-0 flex-1">{task.title || "Einsatz"}</span>
+                <StatusPill tone={done ? "success" : "neutral"}>{done ? "Erledigt" : "Offen"}</StatusPill>
+              </span>
+            }
+          />
+        );
+      }) : <p className="px-4 py-3 text-[14px] text-ink-400">Für heute war nichts geplant. Der Abschluss kann trotzdem gesendet werden.</p>}
+
+      <SectionHeading>Notiz ans Büro</SectionHeading>
+      <div className="space-y-3 px-4 pb-6">
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          rows={4}
+          className="w-full rounded-xl border border-paper-200 px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
+          placeholder="z. B. Objekt fertig, Material fehlt, Kunde war nicht erreichbar…"
+        />
+        <label className="flex items-start gap-3 rounded-xl bg-paper-100 p-3.5 text-[14px] text-ink-600">
+          <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" />
           <span>Ich bestätige den Tagesabschluss für heute. Offene Einsätze werden dem Büro mitgemeldet.</span>
         </label>
-        {message ? <p className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm text-brand-700">{message}</p> : null}
-        <button disabled={!canSubmit} onClick={submit} className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50">{saving ? "Sende…" : "Tagesabschluss senden"}</button>
-      </section>
+        {message ? <Banner tone="info">{message}</Banner> : null}
+        <Button variant="primary" full disabled={!canSubmit} onClick={submit}>{saving ? "Sende…" : "Tagesabschluss senden"}</Button>
+      </div>
     </div>
   );
 }
@@ -2470,79 +2445,83 @@ function RoutePlanScreen({ assignments, onBack, onOpenAssignment }: { assignment
   const routeUrl = mapsDirectionsUrl(routeTasks);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <BackButton onBack={onBack} />
-        <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">Tagesroute</span>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Tagesroute</h1>
+          <p className="text-[14px] text-ink-400">{formatDateDE(selectedDay)}</p>
+        </div>
       </div>
 
-      <section className="rounded-3xl border border-brand-500/25 bg-white p-4">
-        <p className="text-xs font-black uppercase tracking-wide text-brand-700">Route planen</p>
-        <h1 className="mt-2 text-2xl font-black text-ink-900">Tagesroute</h1>
-        <p className="mt-1 text-sm text-ink-400">Nur Einsätze vom gewählten Tag. Alte Aufträge werden hier nicht angezeigt.</p>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Einsätze</p>
-            <p className="mt-1 text-xl font-black text-ink-900">{dayAssignments.length}</p>
-          </div>
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Offen</p>
-            <p className="mt-1 text-xl font-black text-amber-700">{openAssignments.length}</p>
-          </div>
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Geplant</p>
-            <p className="mt-1 text-xl font-black text-brand-700">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
-          </div>
-        </div>
-      </section>
-
-      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+      <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 py-4">
         {days.map((day) => {
           const selected = day === selectedDay;
           const count = assignments.filter((assignment) => assignment.date === day).length;
           return (
-            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-              <span className="block text-[10px] uppercase text-ink-400">{dateLabel(day).split(" ")[0]}</span>
-              <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
-              <span className="mt-1 block text-[10px] text-ink-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
+            <button
+              key={day}
+              onClick={() => setSelectedDay(day)}
+              className={cx(
+                "flex min-w-14 shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-2",
+                selected ? "border-brand-600 bg-brand-600 text-white" : "border-paper-200 text-ink-600"
+              )}
+            >
+              <span className="text-[12px]">{weekdayShort(day)}</span>
+              <span className="text-[17px] font-semibold">{dayNumber(day)}</span>
+              <span className={cx("h-1.5 w-1.5 rounded-full", count ? (selected ? "bg-white" : "bg-paper-300") : "bg-transparent")} />
             </button>
           );
         })}
       </div>
 
+      <div className="grid grid-cols-3 gap-3 px-4">
+        <ValueTile icon="pin" label="Einsätze" value={String(dayAssignments.length)} />
+        <ValueTile icon="clock" label="Offen" value={String(openAssignments.length)} />
+        <ValueTile icon="target" label="Geplant" value={plannedMinutes ? `${hhmm(plannedMinutes)} h` : "—"} />
+      </div>
+
+      <div className="px-4 pt-4">
+        <a
+          href={routeUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={cx(
+            "block rounded-xl px-4 py-3.5 text-center text-[16px] font-semibold",
+            routeTasks.length ? "bg-brand-600 text-white" : "pointer-events-none bg-paper-100 text-ink-200"
+          )}
+        >
+          Route in Google Maps öffnen
+        </a>
+        <p className="mt-2 text-[13px] text-ink-400">Öffnet die offenen Einsätze dieses Tages in der geplanten Reihenfolge.</p>
+      </div>
+
       {nextAssignment ? (
-        <section className="rounded-3xl border border-brand-500/25 bg-brand-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-brand-700">Nächster Einsatz</p>
-          <p className="mt-2 text-lg font-black text-ink-900">{nextAssignment.title}</p>
-          <p className="mt-1 text-sm text-brand-700/80">{nextAssignment.time} · {nextAssignment.address}</p>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <a href={mapSearchUrl(nextAssignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-2xl border border-brand-500/30 bg-paper-100 px-3 py-3 text-center text-sm font-black text-brand-700">Route</a>
-            <button onClick={() => onOpenAssignment(nextAssignment)} className="rounded-2xl bg-brand-600 px-3 py-3 text-sm font-black text-white shadow-glow">Termin öffnen</button>
-          </div>
-        </section>
+        <>
+          <SectionHeading>Als Nächstes</SectionHeading>
+          <DetailRow
+            icon="pin"
+            label={`${nextAssignment.time} · ${nextAssignment.customer}`}
+            value={nextAssignment.title}
+            hint={nextAssignment.address}
+            onClick={() => onOpenAssignment(nextAssignment)}
+          />
+        </>
       ) : null}
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-black">Route für den Tag</h2>
-            <p className="text-xs text-ink-400">Google Maps öffnet die offenen Einsätze in Reihenfolge.</p>
-          </div>
-          <a href={routeUrl} target="_blank" rel="noreferrer" className={`rounded-2xl px-4 py-3 text-sm font-black ${routeTasks.length ? "bg-brand-600 text-white shadow-glow" : "bg-paper-200 text-ink-400"}`}>Route öffnen</a>
-        </div>
-        <div className="mt-4 space-y-3">
-          {dayAssignments.length ? dayAssignments.map((assignment, index) => (
-            <button key={assignment.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start gap-3 rounded-2xl bg-paper-100 p-3 text-left">
-              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl text-sm font-black ${assignment.done ? "bg-brand-100 text-brand-700" : "bg-brand-100 text-brand-700"}`}>{index + 1}</span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-black text-ink-900">{assignment.time} · {assignment.title}</span>
-                <span className="mt-1 block truncate text-xs text-ink-400">{assignment.address}</span>
-                <span className="mt-1 block text-[11px] text-ink-600">{assignment.done ? "Erledigt" : "Offen"} · {assignment.customer}</span>
-              </span>
-            </button>
-          )) : <EmptyCard title="Keine Einsätze an diesem Tag" text="Lege im Admin-Dashboard einen Termin an oder wähle einen anderen Tag." />}
-        </div>
-      </section>
+      <SectionHeading>Reihenfolge</SectionHeading>
+      {dayAssignments.length ? dayAssignments.map((assignment, index) => (
+        <button key={assignment.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start gap-3 border-b border-paper-200 px-4 py-3.5 text-left">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-paper-100 text-[14px] font-semibold text-ink-600">{index + 1}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[16px] font-semibold text-ink-900">{assignment.title}</span>
+            <span className="mt-0.5 block truncate text-[13px] text-ink-400">{assignment.time} · {assignment.address}</span>
+          </span>
+          <StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>
+        </button>
+      )) : <EmptyState icon="pin" title="Keine Einsätze an diesem Tag" text="Wähle oben einen anderen Tag." />}
     </div>
   );
 }
@@ -2604,87 +2583,98 @@ function ObjectsScreen({ data, onBack, onOpenAssignment }: { data: AppData | nul
   const radius = selectedSite ? getSiteRadius(selectedSite) : null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <BackButton onBack={onBack} />
-        <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">Objektmappe</span>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Objektmappe</h1>
+          <p className="text-[14px] text-ink-400">Infos, Reinigungsplan und Material je Objekt</p>
+        </div>
       </div>
 
-      <section className="rounded-3xl border border-brand-500/25 bg-white p-4">
-        <p className="text-xs font-black uppercase tracking-wide text-brand-700">Objektmappe</p>
-        <h1 className="mt-2 text-2xl font-black text-ink-900">Objekte & Reinigungspläne</h1>
-        <p className="mt-1 text-sm text-ink-400">Alle Objektinfos, Tages-Termine, Checklisten und Material auf einen Blick.</p>
-      </section>
-
-      <label className="block rounded-3xl border border-paper-300 bg-white p-4">
-        <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Objekt auswählen</span>
-        <select value={selectedSite?.id || ""} onChange={(event) => setSelectedSiteId(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500">
+      <div className="px-4 pt-4">
+        <select
+          value={selectedSite?.id || ""}
+          onChange={(event) => setSelectedSiteId(event.target.value)}
+          className="w-full rounded-xl border border-paper-200 px-4 py-3.5 text-[15px] font-medium text-ink-900 outline-none"
+        >
           {sites.map((site) => <option key={site.id} value={site.id}>{workSiteName(site)}</option>)}
         </select>
-      </label>
+      </div>
 
-      {!selectedSite ? <EmptyCard title="Keine Objekte gefunden" text="Ordne dem Mitarbeiter ein Objekt zu oder lege einen Einsatz mit Objekt an." /> : (
+      {!selectedSite ? <EmptyState icon="building" title="Keine Objekte" text="Dir ist noch kein Objekt zugeordnet." /> : (
         <>
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-xl font-black text-ink-900">{workSiteName(selectedSite)}</h2>
-                <p className="mt-1 text-sm text-ink-400">{selectedSite.customer_name || plan?.customer_name || "Kein Kunde hinterlegt"}</p>
-                <p className="mt-1 text-xs text-ink-400">{workSiteAddress(selectedSite)}</p>
-              </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-black ${gpsReady ? "bg-brand-100 text-brand-700" : "bg-amber-100 text-amber-700"}`}>{gpsReady ? "GPS aktiv" : "GPS fehlt"}</span>
+          <div className="flex items-start justify-between gap-3 px-4 pb-1 pt-5">
+            <div className="min-w-0">
+              <h2 className="text-[20px] font-bold text-ink-900">{workSiteName(selectedSite)}</h2>
+              <p className="mt-0.5 text-[14px] text-ink-400">{selectedSite.customer_name || plan?.customer_name || "Kein Kunde hinterlegt"}</p>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-2xl bg-paper-100 p-3"><p className="text-ink-400">Einsätze</p><p className="mt-1 text-xl font-black text-ink-900">{siteTasks.length}</p></div>
-              <div className="rounded-2xl bg-paper-100 p-3"><p className="text-ink-400">Planpunkte</p><p className="mt-1 text-xl font-black text-brand-700">{planItems.length}</p></div>
-              <div className="rounded-2xl bg-paper-100 p-3"><p className="text-ink-400">Radius</p><p className="mt-1 text-xl font-black text-brand-700">{radius ? `${radius}m` : "—"}</p></div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <a href={mapSearchUrl(siteTasks[0] || { site: workSiteName(selectedSite), customer_name: selectedSite.customer_name || null })} target="_blank" rel="noreferrer" className="rounded-2xl bg-brand-600 px-3 py-3 text-center text-sm font-black text-white shadow-glow">Route öffnen</a>
-              <button onClick={() => futureTasks[0] && onOpenAssignment(assignmentsFromTasks([futureTasks[0]])[0])} disabled={!futureTasks.length} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-black text-brand-700 disabled:text-ink-600">Nächsten Termin</button>
-            </div>
-          </section>
+            <StatusPill tone={gpsReady ? "success" : "warn"}>{gpsReady ? "GPS aktiv" : "GPS fehlt"}</StatusPill>
+          </div>
 
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <h2 className="font-black">Nächste Einsätze</h2>
-            <div className="mt-3 space-y-3">
-              {futureTasks.length ? futureTasks.map((task) => {
-                const assignment = siteAssignments.find((item) => item.id === task.id) || assignmentFromTask(task);
-                return <button key={task.id} onClick={() => onOpenAssignment(assignment)} className="flex w-full items-start justify-between gap-3 rounded-2xl bg-paper-100 p-3 text-left"><span><span className="block text-sm font-black text-ink-900">{dateLabel(task.task_date)} · {taskTime(task)}</span><span className="mt-1 block text-xs text-ink-400">{task.title || "Einsatz"}</span></span><span className="rounded-xl bg-brand-100 px-2 py-1 text-[11px] font-bold text-brand-700">Öffnen</span></button>;
-              }) : <p className="text-sm text-ink-400">Keine kommenden Einsätze für dieses Objekt.</p>}
-            </div>
-          </section>
+          <DetailRow icon="pin" label="Adresse" value={workSiteAddress(selectedSite)} />
+          <DetailRow icon="target" label="Erlaubter Abstand beim Stempeln" value={radius ? `${radius} m` : "Nicht hinterlegt"} />
 
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <h2 className="font-black">Reinigungsplan</h2>
-            {plan ? <p className="mt-1 text-xs text-ink-400">{plan.name || plan.site_name || "Plan"} · {plan.status || "aktiv"}</p> : <p className="mt-1 text-xs text-ink-400">Kein Reinigungsplan gefunden.</p>}
-            <div className="mt-3 space-y-2">
-              {planItems.length ? planItems.slice(0, 12).map((item) => (
-                <div key={item.id} className="rounded-2xl bg-paper-100 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-black text-ink-900">{item.task_title || item.area || "Aufgabe"}</p>
-                      <p className="mt-1 text-xs text-ink-400">{item.area || "Bereich offen"} · {item.interval_type || "Intervall offen"}</p>
-                    </div>
-                    {item.calculation_minutes ? <span className="rounded-lg bg-brand-100 px-2 py-1 text-[11px] font-bold text-brand-700">{item.calculation_minutes} min</span> : null}
-                  </div>
-                  {item.task_description ? <p className="mt-2 text-xs text-ink-400">{item.task_description}</p> : null}
-                </div>
-              )) : <p className="text-sm text-ink-400">Noch keine Planpunkte für dieses Objekt.</p>}
-            </div>
-          </section>
+          <div className="grid grid-cols-2 gap-3 px-4 pt-4">
+            <a
+              href={mapSearchUrl(siteTasks[0] || { site: workSiteName(selectedSite), customer_name: selectedSite.customer_name || null })}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl bg-brand-600 px-4 py-3.5 text-center text-[16px] font-semibold text-white"
+            >
+              Route öffnen
+            </a>
+            <Button variant="neutral" disabled={!futureTasks.length} onClick={() => futureTasks[0] && onOpenAssignment(assignmentsFromTasks([futureTasks[0]])[0])}>
+              Nächster Einsatz
+            </Button>
+          </div>
 
-          <section className="rounded-3xl border border-paper-300 bg-white p-4">
-            <h2 className="font-black">Material am Objekt</h2>
-            <div className="mt-3 space-y-2">
-              {materials.length ? materials.slice(0, 8).map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-paper-100 p-3">
-                  <span><span className="block text-sm font-black text-ink-900">{item.name || "Material"}</span><span className="block text-xs text-ink-400">{item.category || item.supplier || ""}</span></span>
-                  <span className="rounded-lg bg-paper-200 px-2 py-1 text-[11px] text-ink-600">{item.current_stock ?? "—"} {item.unit || ""}</span>
-                </div>
-              )) : <p className="text-sm text-ink-400">Kein Material zugeordnet.</p>}
-            </div>
-          </section>
+          <SectionHeading>Nächste Einsätze</SectionHeading>
+          {futureTasks.length ? futureTasks.map((task) => {
+            const assignment = siteAssignments.find((item) => item.id === task.id) || assignmentFromTask(task);
+            return (
+              <DetailRow
+                key={task.id}
+                icon="calendar"
+                label={`${formatDateDE(task.task_date)} · ${taskTime(task)}`}
+                value={task.title || "Einsatz"}
+                onClick={() => onOpenAssignment(assignment)}
+              />
+            );
+          }) : <p className="px-4 py-3 text-[14px] text-ink-400">Keine kommenden Einsätze für dieses Objekt.</p>}
+
+          <SectionHeading>Reinigungsplan</SectionHeading>
+          {planItems.length ? planItems.slice(0, 12).map((item) => (
+            <DetailRow
+              key={item.id}
+              icon="check"
+              label={`${item.area || "Bereich offen"} · ${item.interval_type || "Intervall offen"}`}
+              value={
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">{item.task_title || item.area || "Aufgabe"}</span>
+                  {item.calculation_minutes ? <span className="shrink-0 text-[13px] text-ink-400">{item.calculation_minutes} min</span> : null}
+                </span>
+              }
+              hint={item.task_description || undefined}
+            />
+          )) : <p className="px-4 py-3 text-[14px] text-ink-400">Für dieses Objekt ist kein Reinigungsplan hinterlegt.</p>}
+
+          <SectionHeading>Material am Objekt</SectionHeading>
+          {materials.length ? materials.slice(0, 8).map((item) => (
+            <DetailRow
+              key={item.id}
+              icon="box"
+              label={item.category || item.supplier || "Ohne Gruppe"}
+              value={
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">{item.name || "Material"}</span>
+                  <span className="shrink-0 text-[13px] text-ink-400">{item.current_stock ?? "—"} {item.unit || ""}</span>
+                </span>
+              }
+            />
+          )) : <p className="px-4 py-3 pb-6 text-[14px] text-ink-400">Kein Material zugeordnet.</p>}
         </>
       )}
     </div>
@@ -2748,36 +2738,41 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
     .filter((item) => String(item.notification_type || "").toLowerCase().includes("issue") || String(item.title || "").toLowerCase().includes("objektmeldung"))
     .slice(0, 5);
 
+  const fieldClass = "mt-1.5 w-full rounded-xl border border-paper-200 px-4 py-3.5 text-[15px] text-ink-900 outline-none focus:border-brand-500";
+  const labelClass = "text-[13px] text-ink-400";
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Objektmeldung</h1>
-          <p className="text-xs text-ink-400">Schäden, Mängel oder Besonderheiten direkt ans Büro melden</p>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Objektmeldung</h1>
+          <p className="text-[14px] text-ink-400">Schaden, Mangel oder Hinweis ans Büro</p>
         </div>
-        <BackButton onBack={onBack} />
       </div>
 
-      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
+      <form onSubmit={submit} className="space-y-4 px-4 pt-5">
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Objekt</span>
-          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
+          <span className={labelClass}>Objekt</span>
+          <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className={fieldClass}>
             {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
           </select>
         </label>
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Termin optional</span>
-          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
-            <option value="">Ohne konkreten Termin</option>
-            {openTasks.map((task) => <option key={task.id} value={task.id}>{dateLabel(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>)}
+          <span className={labelClass}>Einsatz (optional)</span>
+          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className={fieldClass}>
+            <option value="">Ohne konkreten Einsatz</option>
+            {openTasks.map((task) => <option key={task.id} value={task.id}>{formatShortDateDE(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>)}
           </select>
         </label>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Art</span>
-            <select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
+            <span className={labelClass}>Art</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value)} className={fieldClass}>
               <option>Mangel / Schaden</option>
               <option>Kundenhinweis</option>
               <option>Zugang / Schlüssel</option>
@@ -2787,8 +2782,8 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Dringlichkeit</span>
-            <select value={priority} onChange={(event) => setPriority(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
+            <span className={labelClass}>Dringlichkeit</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)} className={fieldClass}>
               <option value="normal">Normal</option>
               <option value="urgent">Dringend</option>
               <option value="critical">Sofort prüfen</option>
@@ -2797,47 +2792,44 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
         </div>
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Beschreibung</span>
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} required rows={4} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Was ist passiert? Wo genau? Was muss das Büro wissen?" />
+          <span className={labelClass}>Beschreibung</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            required
+            rows={4}
+            className={`${fieldClass} placeholder:text-ink-200`}
+            placeholder="Was ist passiert? Wo genau? Was muss das Büro wissen?"
+          />
         </label>
 
-        <label className="block rounded-2xl border border-dashed border-paper-300 bg-paper-100 p-4">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Foto optional</span>
+        <label className="block rounded-xl border border-dashed border-paper-300 p-4">
+          <span className={labelClass}>Fotos (optional, bis zu 6)</span>
           <input
             key={photoInputKey}
             type="file"
             accept="image/*"
             multiple
             onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
-            className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-xl file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+            className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
           />
-          <p className="mt-2 text-xs text-ink-400">Bis zu 6 Fotos, max. 8 MB pro Foto.</p>
-          {photos.length ? (
-            <div className="mt-3 space-y-1">
-              {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-white px-3 py-2 text-xs text-brand-700">📷 {photo.name}</p>)}
-            </div>
-          ) : null}
+          {photos.length ? <p className="mt-3 text-[13px] text-ink-600">{photos.length} Foto{photos.length === 1 ? "" : "s"} ausgewählt</p> : null}
         </label>
 
-        {message && <p className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-brand-700">{message}</p>}
-        <button disabled={saving || !description.trim()} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Sende…" : "Objektmeldung senden"}</button>
+        {message && <Banner tone="info">{message}</Banner>}
+        <Button variant="primary" full type="submit" disabled={saving || !description.trim()}>{saving ? "Sende…" : "Meldung senden"}</Button>
       </form>
 
-      <section className="space-y-2">
-        <h2 className="font-black">Letzte Objektmeldungen</h2>
-        {recentIssueNotifications.length ? recentIssueNotifications.map((item) => (
-          <article key={item.id} className="rounded-2xl border border-paper-300 bg-white p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-black">{item.title || "Objektmeldung"}</p>
-                <p className="mt-1 line-clamp-3 text-xs text-ink-400">{item.message || "Meldung gespeichert"}</p>
-                <p className="mt-2 text-xs text-ink-400">{item.object_name || item.site || item.work_site_name || "Objekt"} · {item.status || "open"}</p>
-              </div>
-              {item.read === false ? <span className="rounded-full bg-brand-100 px-2 py-1 text-[11px] font-black text-brand-700">neu</span> : null}
-            </div>
-          </article>
-        )) : <EmptyCard title="Noch keine Objektmeldung" text="Mängel, Schäden oder Kundenhinweise erscheinen nach dem Senden hier." />}
-      </section>
+      <SectionHeading>Zuletzt gemeldet</SectionHeading>
+      {recentIssueNotifications.length ? recentIssueNotifications.map((item) => (
+        <DetailRow
+          key={item.id}
+          icon="warning"
+          label={`${item.object_name || item.site || item.work_site_name || "Objekt"}${item.created_at ? ` · ${formatShortDateDE(item.created_at.slice(0, 10))}` : ""}`}
+          value={item.title || "Objektmeldung"}
+          hint={item.message || undefined}
+        />
+      )) : <p className="px-4 py-3 pb-6 text-[14px] text-ink-400">Noch keine Meldung gesendet.</p>}
     </div>
   );
 }
@@ -2976,48 +2968,53 @@ function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload
     }
   }
 
+  const fieldClass = "mt-1.5 w-full rounded-xl border border-paper-200 px-4 py-3.5 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500";
+  const labelClass = "text-[13px] text-ink-400";
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">Leistungsnachweis</h1>
-          <p className="mt-1 text-xs text-ink-400">Kunde bestätigt den erledigten Einsatz direkt auf dem Handy.</p>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="text-[22px] font-bold text-ink-900">Leistungsnachweis</h1>
+          <p className="text-[14px] text-ink-400">Kunde bestätigt den Einsatz auf dem Handy</p>
         </div>
-        <button onClick={onBack} className="rounded-2xl border border-paper-300 bg-white px-4 py-2 text-sm font-black text-brand-700">Zurück</button>
       </div>
 
-      <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
+      <form onSubmit={submit} className="space-y-4 px-4 pt-5">
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Einsatz</span>
-          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-semibold text-ink-900 outline-none">
+          <span className={labelClass}>Einsatz</span>
+          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} className={fieldClass}>
             {taskOptions.map((task) => (
-              <option key={task.id} value={task.id}>{dateLabel(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
+              <option key={task.id} value={task.id}>{formatShortDateDE(task.task_date)} · {taskTime(task)} · {task.site || task.customer_name || task.title || "Einsatz"}</option>
             ))}
           </select>
         </label>
 
         {selectedTask ? (
-          <section className="rounded-2xl border border-brand-500/20 bg-brand-50 p-3">
-            <p className="font-black text-brand-700">{selectedTask.title || "Einsatz"}</p>
-            <p className="mt-1 text-sm text-ink-600">{selectedTask.site || selectedTask.customer_name || "Objekt ohne Name"}</p>
-            <p className="mt-1 text-xs text-ink-400">{dateLabel(selectedTask.task_date)} · {taskTime(selectedTask)} · {taskDuration(selectedTask)}</p>
-          </section>
-        ) : <EmptyCard title="Kein Einsatz vorhanden" text="Bitte zuerst im Admin einen Termin für den Mitarbeiter anlegen." />}
+          <div className="rounded-xl bg-paper-100 p-3.5">
+            <p className="text-[16px] font-semibold text-ink-900">{selectedTask.title || "Einsatz"}</p>
+            <p className="mt-0.5 text-[14px] text-ink-600">{selectedTask.site || selectedTask.customer_name || "Objekt ohne Name"}</p>
+            <p className="mt-0.5 text-[13px] text-ink-400">{formatDateDE(selectedTask.task_date)} · {taskTime(selectedTask)} · {taskDuration(selectedTask)}</p>
+          </div>
+        ) : <Banner tone="warn">Für dich ist kein Einsatz eingetragen. Das Büro muss zuerst einen anlegen.</Banner>}
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Name des Kunden / Ansprechpartners</span>
-          <input value={signerName} onChange={(event) => setSignerName(event.target.value)} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="z. B. Herr Müller" />
+          <span className={labelClass}>Name des Kunden oder Ansprechpartners</span>
+          <input value={signerName} onChange={(event) => setSignerName(event.target.value)} className={fieldClass} placeholder="z. B. Herr Müller" />
         </label>
 
         <label className="block">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Notiz optional</span>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" placeholder="Was wurde bestätigt? Besonderheiten?" />
+          <span className={labelClass}>Notiz (optional)</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className={fieldClass} placeholder="Was wurde bestätigt? Besonderheiten?" />
         </label>
 
-        <div className="rounded-2xl border border-dashed border-paper-300 bg-paper-100 p-3">
+        <div className="rounded-xl border border-dashed border-paper-300 p-3.5">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Unterschrift Kunde</p>
-            <button type="button" onClick={clearSignature} className="rounded-xl border border-paper-300 px-3 py-1 text-xs font-black text-ink-600">Löschen</button>
+            <p className={labelClass}>Unterschrift des Kunden</p>
+            <button type="button" onClick={clearSignature} className="text-[14px] font-semibold text-brand-700">Löschen</button>
           </div>
           <canvas
             ref={canvasRef}
@@ -3025,30 +3022,33 @@ function ServiceReportScreen({ data, authToken, selectedTaskId, onBack, onReload
             onPointerMove={draw}
             onPointerUp={stopDrawing}
             onPointerLeave={stopDrawing}
-            className="touch-none rounded-2xl border border-paper-300 bg-white"
+            className="touch-none rounded-xl border border-paper-200 bg-white"
           />
-          <p className="mt-2 text-xs text-ink-400">Mit Finger oder Stift unterschreiben lassen.</p>
+          <p className="mt-2 text-[13px] text-ink-400">Mit dem Finger unterschreiben lassen.</p>
         </div>
 
-        {message && <p className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-brand-700">{message}</p>}
-        <button disabled={saving || !selectedTask || !hasSignature} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Leistungsnachweis senden"}</button>
+        {message && <Banner tone="info">{message}</Banner>}
+        <Button variant="primary" full type="submit" disabled={saving || !selectedTask || !hasSignature}>
+          {saving ? "Speichere…" : "Leistungsnachweis senden"}
+        </Button>
       </form>
 
-      <section className="space-y-2">
-        <h2 className="font-black">Letzte Leistungsnachweise</h2>
-        {recentReports.length ? recentReports.slice(0, 5).map((report) => (
-          <article key={report.id} className="rounded-2xl border border-paper-300 bg-white p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-black">{report.work_site_name || "Objekt"}</p>
-                <p className="mt-1 text-xs text-ink-400">{report.signer_name || "Kunde"} · {report.status || "signed"}</p>
-                <p className="mt-1 text-xs text-ink-400">{report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
-              </div>
-              {report.signature_url ? <a href={report.signature_url} target="_blank" rel="noreferrer" className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-black text-white">Signatur</a> : null}
-            </div>
-          </article>
-        )) : <EmptyCard title="Noch kein Leistungsnachweis" text="Gespeicherte Kundenbestätigungen erscheinen hier." />}
-      </section>
+      <SectionHeading>Zuletzt bestätigt</SectionHeading>
+      {recentReports.length ? recentReports.slice(0, 5).map((report) => (
+        <div key={report.id} className="flex items-start gap-3 border-b border-paper-200 px-4 py-3.5">
+          <span className="mt-0.5 shrink-0 text-ink-400"><UiIcon name="note" className="h-[22px] w-[22px]" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[16px] font-semibold text-ink-900">{report.work_site_name || "Objekt"}</p>
+            <p className="mt-0.5 text-[13px] text-ink-400">
+              {report.signer_name || "Kunde"}
+              {report.created_at ? ` · ${new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}
+            </p>
+          </div>
+          {report.signature_url ? (
+            <a href={report.signature_url} target="_blank" rel="noreferrer" className="shrink-0 text-[14px] font-semibold text-brand-700">Unterschrift</a>
+          ) : null}
+        </div>
+      )) : <p className="px-4 py-3 pb-6 text-[14px] text-ink-400">Noch keine Kundenbestätigung gespeichert.</p>}
     </div>
   );
 }
