@@ -161,6 +161,93 @@ async function insertTimeEntry(auth: any, payload: Record<string, any>) {
   throw new Error(lastError?.message || "Stempelzeit konnte nicht gespeichert werden.");
 }
 
+/** Lokales Datum eines Zeitstempels als "YYYY-MM-DD" (nicht UTC). */
+function localDay(value?: string | null) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * Schließt eine Uhr, die von einem früheren Tag noch offen steht.
+ *
+ * Es wird bewusst keine Arbeitszeit erfunden: gebucht wird bis zum geplanten
+ * Feierabend des Einsatzes, und wenn es keinen gibt, bis zum letzten Stempel.
+ * Der Eintrag geht als "pending" ins Büro, muss also freigegeben werden.
+ */
+async function closeStaleClock(auth: any, openEntry: Record<string, any>, employeeName: string, employeeId: string) {
+  let task: Record<string, any> | null = null;
+  if (openEntry.task_id) {
+    const taskResult = await auth.supabase.from("tasks").select("*").eq("id", openEntry.task_id).maybeSingle();
+    if (!taskResult.error) task = taskResult.data;
+  }
+
+  const openedAt = new Date(openEntry.created_at);
+  let closeAt = openedAt;
+
+  const plannedEnd = taskExpectedEnd(task, localDay(openEntry.created_at));
+  if (plannedEnd && plannedEnd.getTime() > openedAt.getTime()) closeAt = plannedEnd;
+
+  const plannedMinutes = task ? plannedMinutesFromTask(task) : 0;
+  const previousResult = await auth.supabase
+    .from("time_entries")
+    .select("*")
+    .eq("employee_name", employeeName)
+    .gte("created_at", `${localDay(openEntry.created_at)}T00:00:00`)
+    .lte("created_at", `${localDay(openEntry.created_at)}T23:59:59`)
+    .neq("success", false)
+    .order("created_at", { ascending: true });
+
+  const previousEntries = previousResult.error ? [] : previousResult.data || [];
+  const actualMinutes = workedMinutesFromEntries([
+    ...previousEntries,
+    { action: "clock_out", created_at: closeAt.toISOString(), success: true }
+  ]);
+
+  const entry = await insertTimeEntry(auth, {
+    task_id: openEntry.task_id || null,
+    employee_name: employeeName,
+    employee_id: employeeId,
+    work_site_id: openEntry.work_site_id || null,
+    work_site_name: openEntry.work_site_name || null,
+    action: "clock_out",
+    success: true,
+    auto_clock_out: true,
+    created_at: closeAt.toISOString(),
+    planned_minutes: plannedMinutes || null,
+    actual_minutes: actualMinutes || null,
+    overtime_minutes: plannedMinutes ? Math.max(0, actualMinutes - plannedMinutes) : 0,
+    approved_minutes: null,
+    approval_status: "pending",
+    error_message: "Automatisch beendet: es wurde nicht ausgestempelt. Bitte im Büro prüfen."
+  });
+
+  await auth.supabase.from("admin_notifications").insert({
+    title: "Stempeluhr automatisch beendet",
+    message: `${employeeName} hat am ${localDay(openEntry.created_at)} nicht ausgestempelt. Die Uhr wurde automatisch geschlossen. Bitte die Zeit in der Zeitenfreigabe prüfen und korrigieren.`,
+    employee_name: employeeName,
+    work_site_name: openEntry.work_site_name || null,
+    object_name: openEntry.work_site_name || null,
+    read: false,
+    status: "open",
+    notification_type: "time_auto_clock_out",
+    task_id: openEntry.task_id || null,
+    work_site_id: openEntry.work_site_id || null,
+    created_at: new Date().toISOString()
+  });
+
+  return entry;
+}
+
+/** Geplantes Ende eines Einsatzes an einem bestimmten Tag. */
+function taskExpectedEnd(task: Record<string, any> | null, day: string) {
+  const end = clean(task?.end_time);
+  if (!task || !end || !day) return null;
+  const parsed = new Date(`${day}T${end.length === 5 ? `${end}:00` : end}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export async function POST(request: Request) {
   try {
     const auth = await getAuthenticatedMobileProfile(request);
@@ -214,14 +301,26 @@ export async function POST(request: Request) {
 
     const latestResult = await auth.supabase
       .from("time_entries")
-      .select("id, action, success, created_at")
+      .select("*")
       .eq("employee_name", employeeName)
       .neq("success", false)
       .order("created_at", { ascending: false })
       .limit(1);
     if (latestResult.error) throw new Error(latestResult.error.message);
 
-    const currentStatus = latestStatus(latestResult.data?.[0]?.action);
+    const latestEntry = latestResult.data?.[0] || null;
+    let currentStatus: "idle" | "working" | "break" = latestStatus(latestEntry?.action);
+    let autoClosed: Record<string, any> | null = null;
+
+    // Vergessenes Ausstempeln darf niemanden aussperren: Läuft die Uhr noch von
+    // einem früheren Tag, wird sie automatisch geschlossen und zur Prüfung ins
+    // Büro gemeldet. Ohne das bekäme der Mitarbeiter am nächsten Morgen nur
+    // "Du bist bereits eingestempelt" und käme nicht mehr weiter.
+    if (currentStatus !== "idle" && latestEntry && localDay(latestEntry.created_at) !== localDay(new Date().toISOString())) {
+      autoClosed = await closeStaleClock(auth, latestEntry, employeeName, employeeId);
+      currentStatus = "idle";
+    }
+
     const sequenceError = validateSequence(currentStatus, action);
     if (sequenceError) {
       return NextResponse.json({ ok: false, error: sequenceError }, { status: 409 });
@@ -361,7 +460,20 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, entry, approval: approvalInfo, gpsStatus, distanceM: distance, allowedRadiusM: hasSiteGps ? allowedRadius : null, hasSiteGps, taskId: task.id });
+    return NextResponse.json({
+      ok: true,
+      entry,
+      approval: approvalInfo,
+      gpsStatus,
+      distanceM: distance,
+      allowedRadiusM: hasSiteGps ? allowedRadius : null,
+      hasSiteGps,
+      taskId: task.id,
+      autoClosedPreviousDay: autoClosed ? { at: autoClosed.created_at } : null,
+      hint: autoClosed
+        ? "Deine Uhr lief noch von einem früheren Tag. Sie wurde automatisch beendet und das Büro prüft die Zeit."
+        : null
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Stempeln fehlgeschlagen.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
