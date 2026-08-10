@@ -154,22 +154,22 @@ export default function ActivateEmployeesPage() {
     return (
       <main className="min-h-screen bg-paper-100 px-3 py-4 text-ink-900">
         <section className="mx-auto max-w-[430px] rounded-[2rem] border border-brand-500/30 bg-paper-100 p-5 shadow-2xl shadow-ink-900/10">
-          <h1 className="text-2xl font-black">Mitarbeiter aktivieren</h1>
+          <h1 className="text-2xl font-bold">Mitarbeiter aktivieren</h1>
           <p className="mt-2 text-sm text-ink-400">Bitte erst als Admin in der Mitarbeiter-App anmelden.</p>
-          <Link href="/mitarbeiter" className="mt-5 block rounded-2xl bg-brand-600 px-5 py-4 text-center font-black">Zum Login</Link>
+          <Link href="/mitarbeiter" className="mt-5 block rounded-2xl bg-brand-600 px-5 py-4 text-center font-bold">Zum Login</Link>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
+    <main className="min-h-[100dvh] bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
       <section className="mx-auto max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
         <header className="sticky top-0 z-10 border-b border-paper-300 bg-white/95 px-5 py-4 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-wide text-brand-700">Admin</p>
-              <h1 className="text-2xl font-black">Mitarbeiter aktivieren</h1>
+              <h1 className="text-2xl font-bold">Mitarbeiter aktivieren</h1>
             </div>
             <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 px-4 py-2 text-sm font-bold text-brand-700">App</Link>
           </div>
@@ -177,20 +177,20 @@ export default function ActivateEmployeesPage() {
 
         <div className="space-y-4 px-5 py-5">
           <section className="grid grid-cols-2 gap-3">
-            <div className="rounded-3xl border border-paper-300 bg-white p-4">
+            <div className="rounded-2xl border border-paper-200 bg-white p-4">
               <p className="text-xs text-ink-400">Aktiv</p>
-              <p className="mt-1 text-3xl font-black text-brand-700">{activeEmployees.length}</p>
+              <p className="mt-1 text-3xl font-bold text-brand-700">{activeEmployees.length}</p>
             </div>
-            <div className="rounded-3xl border border-paper-300 bg-white p-4">
+            <div className="rounded-2xl border border-paper-200 bg-white p-4">
               <p className="text-xs text-ink-400">Offen</p>
-              <p className="mt-1 text-3xl font-black text-yellow-200">{inactiveEmployees.length}</p>
+              <p className="mt-1 text-3xl font-bold text-yellow-200">{inactiveEmployees.length}</p>
             </div>
           </section>
 
           {loading && (
-            <div className="rounded-3xl border border-paper-300 bg-white p-5 text-center">
+            <div className="rounded-2xl border border-paper-200 bg-white p-5 text-center">
               <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-paper-300 border-t-blue-500" />
-              <p className="font-black">Lade Mitarbeiter…</p>
+              <p className="font-bold">Lade Mitarbeiter…</p>
             </div>
           )}
 
@@ -200,20 +200,20 @@ export default function ActivateEmployeesPage() {
           {!loading && (
             <>
               <section className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
-                <p className="font-black text-brand-700">So nutzt du es</p>
+                <p className="font-bold text-brand-700">So nutzt du es</p>
                 <p className="mt-2 text-sm leading-6 text-ink-600">Ich aktiviere einen Mitarbeiter, kopiere E-Mail und Startpasswort und gebe es der Person. Danach kann sie sich in der App anmelden.</p>
               </section>
 
               <section className="space-y-3">
-                <h2 className="font-black">Noch ohne Login</h2>
+                <h2 className="font-bold">Noch ohne Login</h2>
                 {inactiveEmployees.length ? inactiveEmployees.map((employee) => (
-                  <article key={employee.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+                  <article key={employee.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-black">{employee.name || "Ohne Name"}</p>
+                        <p className="font-bold">{employee.name || "Ohne Name"}</p>
                         <p className="truncate text-xs text-ink-400">{employee.email || "Keine E-Mail"}</p>
                       </div>
-                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(employee)}`}>{statusText(employee)}</span>
+                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-bold ${statusClass(employee)}`}>{statusText(employee)}</span>
                     </div>
 
                     <label className="mt-4 block">
@@ -230,48 +230,48 @@ export default function ActivateEmployeesPage() {
                     <button
                       disabled={savingId === employee.id || !employee.email}
                       onClick={() => activateEmployee(employee)}
-                      className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-50"
+                      className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-50"
                     >
                       {savingId === employee.id ? "Aktiviere…" : "Login aktivieren"}
                     </button>
 
                     {createdLogins[employee.id] && (
                       <div className="mt-4 rounded-2xl border border-brand-500/30 bg-brand-50 p-3 text-sm text-brand-700">
-                        <p className="font-black">Zugangsdaten</p>
+                        <p className="font-bold">Zugangsdaten</p>
                         <p className="mt-2 break-all">E-Mail: {createdLogins[employee.id].email}</p>
                         <p className="break-all">Passwort: {createdLogins[employee.id].password}</p>
                         <button
                           onClick={() => copyToClipboard(`E-Mail: ${createdLogins[employee.id].email}\nPasswort: ${createdLogins[employee.id].password}`)}
-                          className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-ink-900"
+                          className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-ink-900"
                         >
                           Kopieren
                         </button>
                       </div>
                     )}
                   </article>
-                )) : <p className="rounded-3xl border border-paper-300 bg-white p-4 text-sm text-ink-400">Alle Mitarbeiter haben bereits einen aktiven Login.</p>}
+                )) : <p className="rounded-2xl border border-paper-200 bg-white p-4 text-sm text-ink-400">Alle Mitarbeiter haben bereits einen aktiven Login.</p>}
               </section>
 
               <section className="space-y-3">
-                <h2 className="font-black">Aktive Logins</h2>
+                <h2 className="font-bold">Aktive Logins</h2>
                 {activeEmployees.length ? activeEmployees.map((employee) => (
-                  <article key={employee.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+                  <article key={employee.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-black">{employee.name || "Ohne Name"}</p>
+                        <p className="font-bold">{employee.name || "Ohne Name"}</p>
                         <p className="truncate text-xs text-ink-400">{employee.email || "Keine E-Mail"}</p>
                       </div>
-                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(employee)}`}>{statusText(employee)}</span>
+                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-bold ${statusClass(employee)}`}>{statusText(employee)}</span>
                     </div>
                     <button
                       disabled={savingId === employee.id}
                       onClick={() => deactivateEmployee(employee)}
-                      className="mt-4 w-full rounded-2xl border border-rose-500/30 bg-rose-100 py-3 font-black text-rose-700 disabled:opacity-50"
+                      className="mt-4 w-full rounded-2xl border border-rose-500/30 bg-rose-100 py-3 font-bold text-rose-700 disabled:opacity-50"
                     >
                       Deaktivieren
                     </button>
                   </article>
-                )) : <p className="rounded-3xl border border-paper-300 bg-white p-4 text-sm text-ink-400">Noch keine aktiven Mitarbeiter-Logins.</p>}
+                )) : <p className="rounded-2xl border border-paper-200 bg-white p-4 text-sm text-ink-400">Noch keine aktiven Mitarbeiter-Logins.</p>}
               </section>
             </>
           )}

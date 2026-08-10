@@ -125,16 +125,14 @@ function hoursLabel(minutes: number) {
 function StatusPill({ value }: { value?: unknown }) {
   const text = clean(value) || "open";
   const tone = ["done", "approved", "active", "true"].includes(text.toLowerCase()) ? "border-brand-500/30 bg-brand-50 text-brand-700" : text.toLowerCase().includes("reject") || text.toLowerCase() === "false" ? "border-rose-500/30 bg-rose-100 text-rose-700" : "border-brand-500/30 bg-brand-50 text-brand-700";
-  return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${tone}`}>{text}</span>;
+  return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${tone}`}>{text}</span>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
-        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-4 py-5">
-          {children}
-        </div>
+    <main className="min-h-[100dvh] bg-paper-100 text-ink-900">
+      <div className="mx-auto min-h-[100dvh] max-w-[520px] px-4 py-5" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
+        {children}
       </div>
     </main>
   );
@@ -169,10 +167,10 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
       <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">🧽</div>
-          <h1 className="text-3xl font-black">Admin-Dashboard</h1>
+          <h1 className="text-3xl font-bold">Admin-Dashboard</h1>
           <p className="mt-2 text-sm text-ink-400">Kunden, Objekte, Einsätze und Mitarbeiter verwalten.</p>
         </div>
-        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
+        <form onSubmit={submit} className="space-y-4 rounded-2xl border border-paper-200 bg-white p-4">
           <label className="block">
             <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
             <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
@@ -182,7 +180,7 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
             <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
           {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
-          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
         </form>
       </div>
     </Shell>
@@ -191,9 +189,9 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
-    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+    <div className="rounded-2xl border border-paper-200 bg-white p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-ink-400">{title}</p>
-      <p className="mt-2 text-2xl font-black text-ink-900">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-ink-900">{value}</p>
       <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
@@ -202,7 +200,7 @@ function StatCard({ title, value, caption }: { title: string; value: string | nu
 function TabButton({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
   return (
     <button onClick={onClick} className={`w-full rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-      <span className="block truncate font-black">{label}</span>
+      <span className="block truncate font-bold">{label}</span>
       {typeof count === "number" ? <span className="text-[10px] opacity-80">{count} Einträge</span> : null}
     </button>
   );
@@ -217,12 +215,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inputClass = "w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500";
+const inputClass = "w-full rounded-xl border border-paper-200 bg-white px-4 py-3.5 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500";
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-3xl border border-paper-300 bg-white p-4">
-      <p className="font-black text-ink-800">{title}</p>
+    <div className="rounded-2xl border border-paper-200 bg-white p-4">
+      <p className="font-bold text-ink-800">{title}</p>
       <p className="mt-1 text-sm text-ink-400">{text}</p>
     </div>
   );
@@ -431,10 +429,10 @@ export default function AdminDashboardPage() {
         <header className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-brand-600">Schichtklar Admin</p>
-            <h1 className="text-3xl font-black">Dashboard</h1>
+            <h1 className="text-3xl font-bold">Dashboard</h1>
             <p className="mt-1 text-xs text-ink-400">Angemeldet als {data?.profile?.name || "Admin"}</p>
           </div>
-          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">Logout</button>
+          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-bold text-ink-600">Logout</button>
         </header>
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -462,26 +460,26 @@ export default function AdminDashboardPage() {
               <StatCard title="Planzeit" value={hoursLabel(stats.monthMinutes)} caption="sichtbarer Zeitraum" />
               <StatCard title="Freigaben" value={stats.openRequests} caption="offene Meldungen" />
             </div>
-            <section className="rounded-3xl border border-paper-300 bg-white p-4">
-              <p className="font-black">Schnellzugriff</p>
+            <section className="rounded-2xl border border-paper-200 bg-white p-4">
+              <p className="font-bold">Schnellzugriff</p>
               <div className="mt-3 grid gap-2">
-                <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-brand-600 px-4 py-3 font-black text-white">Tageszentrale öffnen</Link>
-                <Link href="/mitarbeiter/admin/zeiten" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-black text-brand-700">Zeitenfreigabe öffnen</Link>
-                <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-black text-brand-700">Planungszentrale öffnen</Link>
-                <Link href="/mitarbeiter/admin/urlaub" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700">Urlaubsplanung öffnen</Link>
-                <Link href="/mitarbeiter/admin/kapazitaet" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700">Kapazitätsplanung öffnen</Link>
-                <Link href="/mitarbeiter/admin/abrechnung" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-black text-brand-700">Kundenabrechnung öffnen</Link>
-                <button onClick={() => setTab("tasks")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-black text-brand-700">Einsatz erstellen</button>
-                <button onClick={() => setTab("customers")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-black text-brand-700">Kunde anlegen</button>
-                <button onClick={() => setTab("sites")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-black text-brand-700">Objekt anlegen</button>
-                <Link href="/mitarbeiter/freigaben" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700">Freigaben bearbeiten</Link>
-                <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700">Mitarbeiter aktivieren</Link>
-                <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-ink-600">Zur Mitarbeiter-App</Link>
+                <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-brand-600 px-4 py-3 font-bold text-white">Tageszentrale öffnen</Link>
+                <Link href="/mitarbeiter/admin/zeiten" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-bold text-brand-700">Zeitenfreigabe öffnen</Link>
+                <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-bold text-brand-700">Planungszentrale öffnen</Link>
+                <Link href="/mitarbeiter/admin/urlaub" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Urlaubsplanung öffnen</Link>
+                <Link href="/mitarbeiter/admin/kapazitaet" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Kapazitätsplanung öffnen</Link>
+                <Link href="/mitarbeiter/admin/abrechnung" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-bold text-brand-700">Kundenabrechnung öffnen</Link>
+                <button onClick={() => setTab("tasks")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Einsatz erstellen</button>
+                <button onClick={() => setTab("customers")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Kunde anlegen</button>
+                <button onClick={() => setTab("sites")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Objekt anlegen</button>
+                <Link href="/mitarbeiter/freigaben" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Freigaben bearbeiten</Link>
+                <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Mitarbeiter aktivieren</Link>
+                <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-ink-600">Zur Mitarbeiter-App</Link>
               </div>
             </section>
-            <section className="rounded-3xl border border-paper-300 bg-white p-4">
+            <section className="rounded-2xl border border-paper-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="font-black">Geburtstage</p>
+                <p className="font-bold">Geburtstage</p>
                 <span className="text-xs text-ink-400">nächste 30 Tage</span>
               </div>
               <div className="space-y-2">
@@ -489,27 +487,27 @@ export default function AdminDashboardPage() {
                   <div key={employee.id} className={`rounded-2xl border p-3 ${info?.isToday ? "border-rose-500/30 bg-rose-100" : "border-paper-300 bg-paper-100"}`}>
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="font-black">{labelEmployee(employee)}</p>
+                        <p className="font-bold">{labelEmployee(employee)}</p>
                         <p className="text-xs text-ink-400">{info?.date || "—"}</p>
                       </div>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-black ${info?.isToday ? "bg-rose-100 text-rose-600" : "bg-brand-100 text-brand-700"}`}>{info?.label}</span>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${info?.isToday ? "bg-rose-100 text-rose-600" : "bg-brand-100 text-brand-700"}`}>{info?.label}</span>
                     </div>
                   </div>
                 )) : <EmptyCard title="Keine Geburtstage" text="In den nächsten 30 Tagen ist kein Geburtstag gepflegt." />}
               </div>
             </section>
 
-            <section className="rounded-3xl border border-paper-300 bg-white p-4">
+            <section className="rounded-2xl border border-paper-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="font-black">Kommende Einsätze</p>
-                <button onClick={() => load(token)} className="text-xs font-black text-brand-700">Neu laden</button>
+                <p className="font-bold">Kommende Einsätze</p>
+                <button onClick={() => load(token)} className="text-xs font-bold text-brand-700">Neu laden</button>
               </div>
               <div className="space-y-3">
                 {upcomingTasks.map((task) => (
                   <div key={task.id} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className="font-black">{task.title || "Einsatz"}</p>
+                        <p className="font-bold">{task.title || "Einsatz"}</p>
                         <p className="text-xs text-ink-400">{dateText(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
                         <p className="mt-1 text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"} · {task.site || task.customer_name || "Ohne Objekt"}</p>
                       </div>
@@ -525,10 +523,10 @@ export default function AdminDashboardPage() {
 
         {tab === "tasks" && (
           <div className="space-y-4">
-            <form onSubmit={(event) => { event.preventDefault(); save("task", taskForm, () => setTaskForm({ ...emptyTask })); }} className="space-y-3 rounded-3xl border border-paper-300 bg-white p-4">
+            <form onSubmit={(event) => { event.preventDefault(); save("task", taskForm, () => setTaskForm({ ...emptyTask })); }} className="space-y-3 rounded-2xl border border-paper-200 bg-white p-4">
               <div className="flex items-center justify-between">
-                <p className="font-black">{taskForm.id ? "Einsatz bearbeiten" : "Einsatz erstellen"}</p>
-                {taskForm.id && <button type="button" onClick={() => setTaskForm({ ...emptyTask })} className="text-xs font-black text-ink-400">Abbrechen</button>}
+                <p className="font-bold">{taskForm.id ? "Einsatz bearbeiten" : "Einsatz erstellen"}</p>
+                {taskForm.id && <button type="button" onClick={() => setTaskForm({ ...emptyTask })} className="text-xs font-bold text-ink-400">Abbrechen</button>}
               </div>
               <Field label="Titel"><input value={taskForm.title} onChange={(event) => setTaskForm({ ...taskForm, title: event.target.value })} required className={inputClass} /></Field>
               <div className="grid grid-cols-2 gap-3">
@@ -539,7 +537,7 @@ export default function AdminDashboardPage() {
                 <Field label="Start"><input type="time" value={taskForm.start_time} onChange={(event) => setTaskForm({ ...taskForm, start_time: event.target.value })} className={inputClass} /></Field>
                 <Field label="Ende"><input type="time" value={taskForm.end_time} onChange={(event) => setTaskForm({ ...taskForm, end_time: event.target.value })} className={inputClass} /></Field>
               </div>
-              <div className="rounded-3xl border border-paper-300 bg-white/70 p-3">
+              <div className="rounded-2xl border border-paper-200 bg-white/70 p-3">
                 <Field label="Wiederholung">
                   <select value={taskForm.repeat_mode || "none"} onChange={(event) => setTaskForm({ ...taskForm, repeat_mode: event.target.value, recurrence_days: event.target.value === "weekly" ? taskForm.recurrence_days : [] })} className={inputClass}>
                     <option value="none">Einmaliger Einsatz</option>
@@ -560,7 +558,7 @@ export default function AdminDashboardPage() {
                         <div className="grid grid-cols-7 gap-1">
                           {weekdayOptions.map((day) => {
                             const active = Array.isArray(taskForm.recurrence_days) && taskForm.recurrence_days.map(String).includes(day.value);
-                            return <button key={day.value} type="button" onClick={() => toggleTaskWeekday(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-black ${active ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>{day.label}</button>;
+                            return <button key={day.value} type="button" onClick={() => toggleTaskWeekday(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-bold ${active ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>{day.label}</button>;
                           })}
                         </div>
                       </div>
@@ -591,15 +589,15 @@ export default function AdminDashboardPage() {
                 </select>
               </Field>
               <Field label="Notiz"><textarea value={taskForm.notes} onChange={(event) => setTaskForm({ ...taskForm, notes: event.target.value })} rows={3} className={inputClass} /></Field>
-              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : taskForm.id ? "Einsatz speichern" : "Einsatz anlegen"}</button>
+              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : taskForm.id ? "Einsatz speichern" : "Einsatz anlegen"}</button>
             </form>
 
             <div className="space-y-3">
               {filtered.tasks.map((task) => (
-                <div key={task.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+                <div key={task.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-black">{task.title || "Einsatz"}</p>
+                      <p className="font-bold">{task.title || "Einsatz"}</p>
                       <p className="text-xs text-ink-400">{dateText(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
                       <p className="mt-1 text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"} · {task.site || task.customer_name || "Ohne Objekt"}</p>
                       {task.recurrence_group_id && <p className="mt-1 text-[11px] font-bold text-brand-600">Serien-Einsatz</p>}
@@ -607,18 +605,18 @@ export default function AdminDashboardPage() {
                     <StatusPill value={task.done ? "done" : task.status} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => setTaskForm({ ...emptyTask, ...task, planned_minutes: String(task.planned_minutes || task.max_minutes || ""), recurrence_interval: String(task.recurrence_interval || "1"), recurrence_end_date: clean(task.recurrence_end_date), recurrence_days: Array.isArray(task.recurrence_days) ? task.recurrence_days.map(String) : [], repeat_mode: clean(task.repeat_mode || "none"), notify_employee: true })} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-brand-700">Bearbeiten</button>
-                    <button onClick={() => patch({ type: "task_status", id: task.id, done: !task.done, status: task.done ? "open" : "done" }, task.done ? "Einsatz wieder geöffnet." : "Einsatz erledigt.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-brand-700">{task.done ? "Öffnen" : "Erledigt"}</button>
+                    <button onClick={() => setTaskForm({ ...emptyTask, ...task, planned_minutes: String(task.planned_minutes || task.max_minutes || ""), recurrence_interval: String(task.recurrence_interval || "1"), recurrence_end_date: clean(task.recurrence_end_date), recurrence_days: Array.isArray(task.recurrence_days) ? task.recurrence_days.map(String) : [], repeat_mode: clean(task.repeat_mode || "none"), notify_employee: true })} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-brand-700">Bearbeiten</button>
+                    <button onClick={() => patch({ type: "task_status", id: task.id, done: !task.done, status: task.done ? "open" : "done" }, task.done ? "Einsatz wieder geöffnet." : "Einsatz erledigt.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-brand-700">{task.done ? "Öffnen" : "Erledigt"}</button>
                   </div>
                   {task.recurrence_group_id && (
                     <div className="mt-3 rounded-2xl border border-brand-500/20 bg-brand-50 p-3">
-                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-brand-700">Serie übertragen</p>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-700">Serie übertragen</p>
                       <div className="grid grid-cols-[1fr_auto] gap-2">
                         <select value={seriesAssign[task.recurrence_group_id] || task.employee_name || ""} onChange={(event) => setSeriesAssign({ ...seriesAssign, [task.recurrence_group_id]: event.target.value })} className={inputClass}>
                           <option value="">Ohne Mitarbeiter</option>
                           {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                         </select>
-                        <button type="button" onClick={() => patch({ type: "task_series_assign", id: task.id, recurrence_group_id: task.recurrence_group_id, employee_name: seriesAssign[task.recurrence_group_id] || task.employee_name || "" }, "Serie wurde übertragen.")} className="rounded-2xl bg-brand-600 px-3 py-2 text-xs font-black text-white">Übertragen</button>
+                        <button type="button" onClick={() => patch({ type: "task_series_assign", id: task.id, recurrence_group_id: task.recurrence_group_id, employee_name: seriesAssign[task.recurrence_group_id] || task.employee_name || "" }, "Serie wurde übertragen.")} className="rounded-2xl bg-brand-600 px-3 py-2 text-xs font-bold text-white">Übertragen</button>
                       </div>
                     </div>
                   )}
@@ -631,10 +629,10 @@ export default function AdminDashboardPage() {
 
         {tab === "employees" && (
           <div className="space-y-4">
-            <form onSubmit={(event) => { event.preventDefault(); save("employee", employeeForm, () => setEmployeeForm({ ...emptyEmployee })); }} className="space-y-3 rounded-3xl border border-paper-300 bg-white p-4">
+            <form onSubmit={(event) => { event.preventDefault(); save("employee", employeeForm, () => setEmployeeForm({ ...emptyEmployee })); }} className="space-y-3 rounded-2xl border border-paper-200 bg-white p-4">
               <div className="flex items-center justify-between">
-                <p className="font-black">{employeeForm.id ? "Mitarbeiter bearbeiten" : "Mitarbeiter anlegen"}</p>
-                {employeeForm.id && <button type="button" onClick={() => setEmployeeForm({ ...emptyEmployee })} className="text-xs font-black text-ink-400">Abbrechen</button>}
+                <p className="font-bold">{employeeForm.id ? "Mitarbeiter bearbeiten" : "Mitarbeiter anlegen"}</p>
+                {employeeForm.id && <button type="button" onClick={() => setEmployeeForm({ ...emptyEmployee })} className="text-xs font-bold text-ink-400">Abbrechen</button>}
               </div>
               <Field label="Name"><input value={employeeForm.name} onChange={(event) => setEmployeeForm({ ...employeeForm, name: event.target.value })} required className={inputClass} /></Field>
               <Field label="E-Mail"><input type="email" value={employeeForm.email} onChange={(event) => setEmployeeForm({ ...employeeForm, email: event.target.value })} className={inputClass} /></Field>
@@ -651,15 +649,15 @@ export default function AdminDashboardPage() {
                 <Field label="Rolle"><select value={employeeForm.role} onChange={(event) => setEmployeeForm({ ...employeeForm, role: event.target.value })} className={inputClass}><option value="employee">employee</option><option value="admin">admin</option></select></Field>
                 <Field label="Aktiv"><select value={String(employeeForm.active)} onChange={(event) => setEmployeeForm({ ...employeeForm, active: event.target.value === "true" })} className={inputClass}><option value="false">Nein</option><option value="true">Ja</option></select></Field>
               </div>
-              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Mitarbeiter speichern"}</button>
-              <Link href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Login-Zugang aktivieren</Link>
+              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Mitarbeiter speichern"}</button>
+              <Link href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Login-Zugang aktivieren</Link>
             </form>
             <div className="space-y-3">
               {filtered.employees.map((employee) => (
-                <div key={employee.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+                <div key={employee.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-black">{labelEmployee(employee)}</p>
+                      <p className="font-bold">{labelEmployee(employee)}</p>
                       <p className="text-xs text-ink-400">{employee.email || "Keine E-Mail"}</p>
                       <p className="mt-1 text-xs text-ink-400">{employee.role || "employee"} · {employee.auth_user_id ? "Login verbunden" : "ohne Login"}</p>
                       <p className="mt-1 text-xs text-ink-400">{moneyPerHour(employee.hourly_rate)} · Urlaub {employee.annual_vacation_days ?? employee.vacation_days ?? "—"} Tage</p>
@@ -668,8 +666,8 @@ export default function AdminDashboardPage() {
                     <StatusPill value={employee.active ? "active" : "inactive"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => { setEmployeeForm({ ...emptyEmployee, ...employee, active: employee.active !== false, hourly_rate: String(employee.hourly_rate || "0"), monthly_hour_limit: String(employee.monthly_hour_limit || "0"), vacation_days: String(employee.vacation_days || employee.annual_vacation_days || "0"), annual_vacation_days: String(employee.annual_vacation_days || employee.vacation_days || "0"), birthday: clean(employee.birthday) }); scrollToTop(); }} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-brand-700">Bearbeiten</button>
-                    <button onClick={() => patch({ type: "employee", ...employee, active: employee.active === false }, employee.active === false ? "Mitarbeiter aktiviert." : "Mitarbeiter deaktiviert.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-ink-800">{employee.active === false ? "Aktivieren" : "Deaktivieren"}</button>
+                    <button onClick={() => { setEmployeeForm({ ...emptyEmployee, ...employee, active: employee.active !== false, hourly_rate: String(employee.hourly_rate || "0"), monthly_hour_limit: String(employee.monthly_hour_limit || "0"), vacation_days: String(employee.vacation_days || employee.annual_vacation_days || "0"), annual_vacation_days: String(employee.annual_vacation_days || employee.vacation_days || "0"), birthday: clean(employee.birthday) }); scrollToTop(); }} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-brand-700">Bearbeiten</button>
+                    <button onClick={() => patch({ type: "employee", ...employee, active: employee.active === false }, employee.active === false ? "Mitarbeiter aktiviert." : "Mitarbeiter deaktiviert.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-ink-800">{employee.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
               ))}
@@ -679,10 +677,10 @@ export default function AdminDashboardPage() {
 
         {tab === "customers" && (
           <div className="space-y-4">
-            <form onSubmit={(event) => { event.preventDefault(); save("customer", customerForm, () => setCustomerForm({ ...emptyCustomer })); }} className="space-y-3 rounded-3xl border border-paper-300 bg-white p-4">
+            <form onSubmit={(event) => { event.preventDefault(); save("customer", customerForm, () => setCustomerForm({ ...emptyCustomer })); }} className="space-y-3 rounded-2xl border border-paper-200 bg-white p-4">
               <div className="flex items-center justify-between">
-                <p className="font-black">{customerForm.id ? "Kunde bearbeiten" : "Kunde anlegen"}</p>
-                {customerForm.id && <button type="button" onClick={() => setCustomerForm({ ...emptyCustomer })} className="text-xs font-black text-ink-400">Abbrechen</button>}
+                <p className="font-bold">{customerForm.id ? "Kunde bearbeiten" : "Kunde anlegen"}</p>
+                {customerForm.id && <button type="button" onClick={() => setCustomerForm({ ...emptyCustomer })} className="text-xs font-bold text-ink-400">Abbrechen</button>}
               </div>
               <Field label="Kundenname"><input value={customerForm.name} onChange={(event) => setCustomerForm({ ...customerForm, name: event.target.value })} required className={inputClass} /></Field>
               <Field label="Adresse"><input value={customerForm.address} onChange={(event) => setCustomerForm({ ...customerForm, address: event.target.value })} className={inputClass} /></Field>
@@ -694,10 +692,10 @@ export default function AdminDashboardPage() {
               <div className="rounded-3xl border border-brand-500/20 bg-brand-50 p-3">
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-brand-700">Jahresplanung</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-brand-700">Jahresplanung</p>
                     <p className="mt-1 text-xs text-brand-700/80">Erstellt für 1 Jahr offene Termine ohne Mitarbeiter. Die Serie kann später übertragen werden.</p>
                   </div>
-                  <label className="flex items-center gap-2 text-xs font-black text-brand-700">
+                  <label className="flex items-center gap-2 text-xs font-bold text-brand-700">
                     <input type="checkbox" checked={Boolean(customerForm.generate_year_plan)} onChange={(event) => setCustomerForm({ ...customerForm, generate_year_plan: event.target.checked })} />
                     anlegen
                   </label>
@@ -722,19 +720,19 @@ export default function AdminDashboardPage() {
                   <div className="grid grid-cols-7 gap-1">
                     {weekdayOptions.map((day) => {
                       const active = Array.isArray(customerForm.work_days) && customerForm.work_days.map(String).includes(day.value);
-                      return <button key={day.value} type="button" onClick={() => toggleCustomerWeekday(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-black ${active ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>{day.label}</button>;
+                      return <button key={day.value} type="button" onClick={() => toggleCustomerWeekday(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-bold ${active ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>{day.label}</button>;
                     })}
                   </div>
                 </div>
               </div>
-              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : customerForm.generate_year_plan ? "Kunde speichern + Jahresplanung" : "Kunde speichern"}</button>
+              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : customerForm.generate_year_plan ? "Kunde speichern + Jahresplanung" : "Kunde speichern"}</button>
             </form>
             <div className="space-y-3">
               {filtered.customers.map((customer) => (
-                <div key={customer.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+                <div key={customer.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-black">{labelCustomer(customer)}</p>
+                      <p className="font-bold">{labelCustomer(customer)}</p>
                       <p className="text-xs text-ink-400">{rowAddress(customer) || "Keine Adresse"}</p>
                       <p className="mt-1 text-xs text-ink-400">{customer.phone || customer.customer_phone || "—"} · {customer.email || customer.customer_email || "—"}</p>
                       {(customer.work_days || customer.default_start_time || customer.default_end_time || customer.planning_limit_minutes_per_day) && <p className="mt-1 text-xs text-brand-700">Plan: {Array.isArray(customer.work_days) ? customer.work_days.join(",") : "—"} · {customer.default_start_time || "—"}-{customer.default_end_time || "—"} · Limit {customer.planning_limit_minutes_per_day ? `${Number(customer.planning_limit_minutes_per_day) / 60}h` : "—"}</p>}
@@ -742,8 +740,8 @@ export default function AdminDashboardPage() {
                     <StatusPill value={customer.active === false ? "inactive" : "active"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => { setCustomerForm({ ...emptyCustomer, id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: clean(customer.phone || customer.customer_phone), email: clean(customer.email || customer.customer_email), customer_number: clean(customer.customer_number), notes: clean(customer.notes || customer.customer_notes), active: customer.active !== false, work_days: Array.isArray(customer.work_days) ? customer.work_days.map(String) : [], plan_start_time: clean(customer.default_start_time) || "08:00", plan_end_time: clean(customer.default_end_time) || "10:00", planning_limit_hours_per_day: customer.planning_limit_minutes_per_day ? String(Number(customer.planning_limit_minutes_per_day) / 60) : "2", default_task_title: clean(customer.default_task_title) || "Unterhaltsreinigung", work_site_id: clean(customer.default_work_site_id), generate_year_plan: false }); scrollToTop(); }} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-brand-700">Bearbeiten</button>
-                    <button onClick={() => patch({ type: "customer", id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: customer.phone || customer.customer_phone, email: customer.email || customer.customer_email, notes: customer.notes || customer.customer_notes, active: customer.active === false, work_days: Array.isArray(customer.work_days) ? customer.work_days : null, plan_start_time: customer.default_start_time, plan_end_time: customer.default_end_time, planning_limit_minutes_per_day: customer.planning_limit_minutes_per_day, default_task_title: customer.default_task_title, default_work_site_id: customer.default_work_site_id }, customer.active === false ? "Kunde aktiviert." : "Kunde deaktiviert.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-ink-800">{customer.active === false ? "Aktivieren" : "Deaktivieren"}</button>
+                    <button onClick={() => { setCustomerForm({ ...emptyCustomer, id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: clean(customer.phone || customer.customer_phone), email: clean(customer.email || customer.customer_email), customer_number: clean(customer.customer_number), notes: clean(customer.notes || customer.customer_notes), active: customer.active !== false, work_days: Array.isArray(customer.work_days) ? customer.work_days.map(String) : [], plan_start_time: clean(customer.default_start_time) || "08:00", plan_end_time: clean(customer.default_end_time) || "10:00", planning_limit_hours_per_day: customer.planning_limit_minutes_per_day ? String(Number(customer.planning_limit_minutes_per_day) / 60) : "2", default_task_title: clean(customer.default_task_title) || "Unterhaltsreinigung", work_site_id: clean(customer.default_work_site_id), generate_year_plan: false }); scrollToTop(); }} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-brand-700">Bearbeiten</button>
+                    <button onClick={() => patch({ type: "customer", id: customer.id, name: labelCustomer(customer), address: rowAddress(customer), phone: customer.phone || customer.customer_phone, email: customer.email || customer.customer_email, notes: customer.notes || customer.customer_notes, active: customer.active === false, work_days: Array.isArray(customer.work_days) ? customer.work_days : null, plan_start_time: customer.default_start_time, plan_end_time: customer.default_end_time, planning_limit_minutes_per_day: customer.planning_limit_minutes_per_day, default_task_title: customer.default_task_title, default_work_site_id: customer.default_work_site_id }, customer.active === false ? "Kunde aktiviert." : "Kunde deaktiviert.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-ink-800">{customer.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
               ))}
@@ -753,10 +751,10 @@ export default function AdminDashboardPage() {
 
         {tab === "sites" && (
           <div className="space-y-4">
-            <form onSubmit={(event) => { event.preventDefault(); save("site", siteForm, () => setSiteForm({ ...emptySite })); }} className="space-y-3 rounded-3xl border border-paper-300 bg-white p-4">
+            <form onSubmit={(event) => { event.preventDefault(); save("site", siteForm, () => setSiteForm({ ...emptySite })); }} className="space-y-3 rounded-2xl border border-paper-200 bg-white p-4">
               <div className="flex items-center justify-between">
-                <p className="font-black">{siteForm.id ? "Objekt bearbeiten" : "Objekt anlegen"}</p>
-                {siteForm.id && <button type="button" onClick={() => setSiteForm({ ...emptySite })} className="text-xs font-black text-ink-400">Abbrechen</button>}
+                <p className="font-bold">{siteForm.id ? "Objekt bearbeiten" : "Objekt anlegen"}</p>
+                {siteForm.id && <button type="button" onClick={() => setSiteForm({ ...emptySite })} className="text-xs font-bold text-ink-400">Abbrechen</button>}
               </div>
               <Field label="Objektname"><input value={siteForm.name} onChange={(event) => setSiteForm({ ...siteForm, name: event.target.value })} required className={inputClass} /></Field>
               <Field label="Kunde"><select value={siteForm.customer_id} onChange={(event) => setSiteForm({ ...siteForm, customer_id: event.target.value })} className={inputClass}><option value="">Ohne Kunde</option>{(data?.customers || []).map((customer) => <option key={customer.id} value={customer.id}>{labelCustomer(customer)}</option>)}</select></Field>
@@ -764,10 +762,10 @@ export default function AdminDashboardPage() {
               <div className="rounded-2xl border border-brand-500/20 bg-brand-50 p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-brand-700">GPS-Prüfung</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-brand-700">GPS-Prüfung</p>
                     <p className="mt-1 text-xs text-brand-700/80">Standort am Objekt speichern, damit Mitarbeiter nur vor Ort stempeln.</p>
                   </div>
-                  <button type="button" onClick={useCurrentLocationForSite} className="rounded-2xl bg-brand-600 px-3 py-2 text-xs font-black text-white">Hier bin ich</button>
+                  <button type="button" onClick={useCurrentLocationForSite} className="rounded-2xl bg-brand-600 px-3 py-2 text-xs font-bold text-white">Hier bin ich</button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Latitude"><input value={siteForm.latitude} onChange={(event) => setSiteForm({ ...siteForm, latitude: event.target.value })} className={inputClass} placeholder="48.1234567" /></Field>
@@ -783,14 +781,14 @@ export default function AdminDashboardPage() {
                 <Field label="Monatsstunden"><input type="number" value={siteForm.monthly_hour_quota} onChange={(event) => setSiteForm({ ...siteForm, monthly_hour_quota: event.target.value })} className={inputClass} /></Field>
               </div>
               <Field label="Notizen"><textarea value={siteForm.notes} onChange={(event) => setSiteForm({ ...siteForm, notes: event.target.value })} rows={3} className={inputClass} /></Field>
-              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Objekt speichern"}</button>
+              <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Objekt speichern"}</button>
             </form>
             <div className="space-y-3">
               {filtered.workSites.map((site) => (
-                <div key={site.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+                <div key={site.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-black">{labelSite(site)}</p>
+                      <p className="font-bold">{labelSite(site)}</p>
                       <p className="text-xs text-ink-400">{rowAddress(site) || "Keine Adresse"}</p>
                       <p className="mt-1 text-xs text-ink-400">{site.customer_name || "Ohne Kunde"} · Radius {site.allowed_radius_m || 150} m</p>
                       <p className="mt-1 text-xs text-ink-400">GPS: {site.latitude && site.longitude ? `${site.latitude}, ${site.longitude}` : "nicht gesetzt"}{site.gps_required ? " · Pflicht" : ""}</p>
@@ -798,8 +796,8 @@ export default function AdminDashboardPage() {
                     <StatusPill value={site.active === false ? "inactive" : "active"} />
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button onClick={() => { setSiteForm({ ...emptySite, id: site.id, name: labelSite(site), customer_id: clean(site.customer_id), address: rowAddress(site), latitude: clean(site.latitude), longitude: clean(site.longitude), gps_required: Boolean(site.gps_required), allowed_radius_m: String(site.allowed_radius_m || 150), monthly_hour_quota: String(site.monthly_hour_quota || site.hour_quota || 0), notes: clean(site.notes), active: site.active !== false }); scrollToTop(); }} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-brand-700">Bearbeiten</button>
-                    <button onClick={() => patch({ type: "site", id: site.id, name: labelSite(site), customer_id: site.customer_id, address: rowAddress(site), latitude: site.latitude, longitude: site.longitude, gps_required: site.gps_required, allowed_radius_m: site.allowed_radius_m, monthly_hour_quota: site.monthly_hour_quota || site.hour_quota, notes: site.notes, active: site.active === false }, site.active === false ? "Objekt aktiviert." : "Objekt deaktiviert.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-black text-ink-800">{site.active === false ? "Aktivieren" : "Deaktivieren"}</button>
+                    <button onClick={() => { setSiteForm({ ...emptySite, id: site.id, name: labelSite(site), customer_id: clean(site.customer_id), address: rowAddress(site), latitude: clean(site.latitude), longitude: clean(site.longitude), gps_required: Boolean(site.gps_required), allowed_radius_m: String(site.allowed_radius_m || 150), monthly_hour_quota: String(site.monthly_hour_quota || site.hour_quota || 0), notes: clean(site.notes), active: site.active !== false }); scrollToTop(); }} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-brand-700">Bearbeiten</button>
+                    <button onClick={() => patch({ type: "site", id: site.id, name: labelSite(site), customer_id: site.customer_id, address: rowAddress(site), latitude: site.latitude, longitude: site.longitude, gps_required: site.gps_required, allowed_radius_m: site.allowed_radius_m, monthly_hour_quota: site.monthly_hour_quota || site.hour_quota, notes: site.notes, active: site.active === false }, site.active === false ? "Objekt aktiviert." : "Objekt deaktiviert.")} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-sm font-bold text-ink-800">{site.active === false ? "Aktivieren" : "Deaktivieren"}</button>
                   </div>
                 </div>
               ))}
@@ -810,10 +808,10 @@ export default function AdminDashboardPage() {
         {tab === "times" && (
           <div className="space-y-3">
             {filtered.timeEntries.map((entry) => (
-              <div key={entry.id} className="rounded-3xl border border-paper-300 bg-white p-4">
+              <div key={entry.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-black">{entry.employee_name || "Mitarbeiter"}</p>
+                    <p className="font-bold">{entry.employee_name || "Mitarbeiter"}</p>
                     <p className="text-xs text-ink-400">{entry.work_site_name || "Ohne Objekt"}</p>
                     <p className="mt-1 text-xs text-ink-400">{dateTimeText(entry.created_at)} · {entry.action || "Stempel"}</p>
                     <p className="mt-1 text-xs text-ink-400">GPS: {entry.latitude && entry.longitude ? `${entry.latitude}, ${entry.longitude}` : "nicht gespeichert"}{typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m / ${entry.allowed_radius_m || 150} m` : ""}</p>

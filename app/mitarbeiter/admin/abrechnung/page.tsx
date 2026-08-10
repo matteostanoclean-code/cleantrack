@@ -50,7 +50,7 @@ type BillingData = {
 
 const now = new Date();
 const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const inputClass = "w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500";
+const inputClass = "w-full rounded-xl border border-paper-200 bg-white px-4 py-3.5 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500";
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
@@ -114,9 +114,9 @@ function downloadCsv(filename: string, csv: string) {
 
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
-    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+    <div className="rounded-2xl border border-paper-200 bg-white p-4">
       <p className="text-xs uppercase tracking-wide text-ink-400">{title}</p>
-      <p className="mt-2 text-2xl font-black text-ink-900">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-ink-900">{value}</p>
       <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
@@ -138,34 +138,34 @@ function CustomerCard({ customer, hourlyRate }: { customer: BillingCustomer; hou
   const latestEntries = customer.timeEntries.slice(-8).reverse();
 
   return (
-    <section className="rounded-3xl border border-paper-300 bg-white p-4">
+    <section className="rounded-2xl border border-paper-200 bg-white p-4">
       <button onClick={() => setOpen((value) => !value)} className="flex w-full items-start justify-between gap-3 text-left">
         <div className="min-w-0">
-          <p className="truncate text-lg font-black text-ink-900">{customer.customerName}</p>
+          <p className="truncate text-lg font-bold text-ink-900">{customer.customerName}</p>
           <p className="mt-1 truncate text-xs text-ink-400">{customer.customerNumber ? `Kdnr. ${customer.customerNumber} · ` : ""}{customer.address || "keine Adresse"}</p>
         </div>
         <div className="rounded-2xl bg-brand-100 px-3 py-2 text-right">
           <p className="text-xs text-brand-700">Netto</p>
-          <p className="font-black text-brand-700">{money(netAmount)}</p>
+          <p className="font-bold text-brand-700">{money(netAmount)}</p>
         </div>
       </button>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         <div className="rounded-2xl bg-paper-100 p-3">
           <p className="text-xs text-ink-400">Abrechenbar</p>
-          <p className="font-black text-ink-900">{hours(customer.billableMinutes)}</p>
+          <p className="font-bold text-ink-900">{hours(customer.billableMinutes)}</p>
         </div>
         <div className="rounded-2xl bg-paper-100 p-3">
           <p className="text-xs text-ink-400">Einsätze</p>
-          <p className="font-black text-ink-900">{customer.taskCount}</p>
+          <p className="font-bold text-ink-900">{customer.taskCount}</p>
         </div>
         <div className="rounded-2xl bg-paper-100 p-3">
           <p className="text-xs text-ink-400">Plan</p>
-          <p className="font-black text-ink-900">{hours(customer.plannedMinutes)}</p>
+          <p className="font-bold text-ink-900">{hours(customer.plannedMinutes)}</p>
         </div>
         <div className="rounded-2xl bg-paper-100 p-3">
           <p className="text-xs text-ink-400">Ist</p>
-          <p className="font-black text-ink-900">{hours(customer.actualMinutes)}</p>
+          <p className="font-bold text-ink-900">{hours(customer.actualMinutes)}</p>
         </div>
       </div>
 
@@ -177,7 +177,7 @@ function CustomerCard({ customer, hourlyRate }: { customer: BillingCustomer; hou
         </div>
       ) : null}
 
-      <button onClick={() => setOpen((value) => !value)} className="mt-4 w-full rounded-2xl border border-paper-300 bg-paper-100 py-3 text-sm font-black text-brand-700">
+      <button onClick={() => setOpen((value) => !value)} className="mt-4 w-full rounded-2xl border border-paper-300 bg-paper-100 py-3 text-sm font-bold text-brand-700">
         {open ? "Details schließen" : "Details öffnen"}
       </button>
 
@@ -192,7 +192,7 @@ function CustomerCard({ customer, hourlyRate }: { customer: BillingCustomer; hou
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-black text-ink-600">Einsätze im Monat</p>
+            <p className="mb-2 text-sm font-bold text-ink-600">Einsätze im Monat</p>
             <div className="space-y-2">
               {latestTasks.length ? latestTasks.map((task) => (
                 <div key={task.id || `${task.task_date}-${task.site}`} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
@@ -208,7 +208,7 @@ function CustomerCard({ customer, hourlyRate }: { customer: BillingCustomer; hou
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-black text-ink-600">Letzte Stempelungen</p>
+            <p className="mb-2 text-sm font-bold text-ink-600">Letzte Stempelungen</p>
             <div className="space-y-2">
               {latestEntries.length ? latestEntries.map((entry) => (
                 <div key={entry.id || `${entry.created_at}-${entry.action}`} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
@@ -275,13 +275,13 @@ export default function AdminBillingPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-brand-600">Admin</p>
-            <h1 className="text-2xl font-black">Kundenabrechnung</h1>
+            <h1 className="text-2xl font-bold">Kundenabrechnung</h1>
             <p className="text-xs text-ink-400">Planzeit, Ist-Zeit und Leistungsnachweise pro Kunde.</p>
           </div>
-          <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 bg-white px-4 py-3 text-sm font-black text-brand-700">App</Link>
+          <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 bg-white px-4 py-3 text-sm font-bold text-brand-700">App</Link>
         </div>
 
-        <section className="rounded-3xl border border-paper-300 bg-white p-4">
+        <section className="rounded-2xl border border-paper-200 bg-white p-4">
           <div className="grid gap-3 md:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="text-xs text-ink-400">Monat</span>
@@ -297,9 +297,9 @@ export default function AdminBillingPage() {
             </label>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <button onClick={() => void load()} className="rounded-2xl bg-brand-600 px-4 py-3 font-black text-white shadow-glow">Aktualisieren</button>
-            <button disabled={!data?.csv} onClick={() => data?.csv && downloadCsv(`cleantrack-abrechnung-${month}.csv`, data.csv)} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700 disabled:opacity-50">CSV exportieren</button>
-            <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center font-black text-brand-700">Monatsauswertung</Link>
+            <button onClick={() => void load()} className="rounded-2xl bg-brand-600 px-4 py-3 font-bold text-white shadow-glow">Aktualisieren</button>
+            <button disabled={!data?.csv} onClick={() => data?.csv && downloadCsv(`cleantrack-abrechnung-${month}.csv`, data.csv)} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700 disabled:opacity-50">CSV exportieren</button>
+            <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center font-bold text-brand-700">Monatsauswertung</Link>
           </div>
         </section>
 
@@ -315,8 +315,8 @@ export default function AdminBillingPage() {
               <StatCard title="Offen" value={filteredCustomers.reduce((sum, customer) => sum + customer.openTasks, 0)} caption="offene Einsätze" />
             </div>
 
-            <section className="rounded-3xl border border-paper-300 bg-white p-4">
-              <p className="font-black">So lese ich die Abrechnung</p>
+            <section className="rounded-2xl border border-paper-200 bg-white p-4">
+              <p className="font-bold">So lese ich die Abrechnung</p>
               <div className="mt-3 space-y-2 text-sm text-ink-400">
                 <p><b className="text-ink-800">Plan</b> kommt aus den angelegten Einsätzen.</p>
                 <p><b className="text-ink-800">Ist</b> kommt aus der Stempeluhr.</p>
@@ -327,7 +327,7 @@ export default function AdminBillingPage() {
             <div className="space-y-3">
               {filteredCustomers.length ? filteredCustomers.map((customer) => (
                 <CustomerCard key={customer.key} customer={customer} hourlyRate={rate} />
-              )) : <p className="rounded-3xl border border-paper-300 bg-white p-6 text-center text-sm text-ink-400">Für diesen Monat gibt es keine abrechenbaren Daten.</p>}
+              )) : <p className="rounded-2xl border border-paper-200 bg-white p-6 text-center text-sm text-ink-400">Für diesen Monat gibt es keine abrechenbaren Daten.</p>}
             </div>
           </>
         ) : null}

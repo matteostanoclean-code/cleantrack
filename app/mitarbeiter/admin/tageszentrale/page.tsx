@@ -134,11 +134,9 @@ function mapUrl(task: Row) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="phone-bg min-h-screen bg-paper-100 px-3 py-4 text-ink-900 sm:px-5">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[2rem] border border-brand-500/30 bg-paper-100 shadow-2xl shadow-ink-900/10">
-        <div className="min-h-[calc(100vh-2rem)] bg-gradient-to-b from-paper-100 via-paper-100 to-paper-50 px-4 py-5">
-          {children}
-        </div>
+    <main className="min-h-[100dvh] bg-paper-100 text-ink-900">
+      <div className="mx-auto min-h-[100dvh] max-w-[520px] px-4 py-5" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
+        {children}
       </div>
     </main>
   );
@@ -173,10 +171,10 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
       <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-brand-500/40 bg-brand-50 text-3xl">📍</div>
-          <h1 className="text-3xl font-black">Tageszentrale</h1>
+          <h1 className="text-3xl font-bold">Tageszentrale</h1>
           <p className="mt-2 text-sm text-ink-400">Live-Status für heutige Einsätze.</p>
         </div>
-        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-paper-300 bg-white p-4">
+        <form onSubmit={submit} className="space-y-4 rounded-2xl border border-paper-200 bg-white p-4">
           <label className="block">
             <span className="text-xs font-bold uppercase tracking-wide text-ink-400">E-Mail</span>
             <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
@@ -186,7 +184,7 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
             <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500" />
           </label>
           {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
-          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
+          <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Melde an…" : "Anmelden"}</button>
         </form>
       </div>
     </Shell>
@@ -195,9 +193,9 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
-    <div className="rounded-3xl border border-paper-300 bg-white p-4">
+    <div className="rounded-2xl border border-paper-200 bg-white p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-ink-400">{title}</p>
-      <p className="mt-2 text-2xl font-black text-ink-900">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-ink-900">{value}</p>
       <p className="mt-1 text-xs text-ink-400">{caption}</p>
     </div>
   );
@@ -205,8 +203,8 @@ function StatCard({ title, value, caption }: { title: string; value: string | nu
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-3xl border border-paper-300 bg-white p-4">
-      <p className="font-black text-ink-800">{title}</p>
+    <div className="rounded-2xl border border-paper-200 bg-white p-4">
+      <p className="font-bold text-ink-800">{title}</p>
       <p className="mt-1 text-sm text-ink-400">{text}</p>
     </div>
   );
@@ -324,10 +322,10 @@ export default function TageszentralePage() {
         <header className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-brand-600">Schichtklar Admin</p>
-            <h1 className="text-3xl font-black">Tageszentrale</h1>
+            <h1 className="text-3xl font-bold">Tageszentrale</h1>
             <p className="mt-1 text-xs text-ink-400">{dateText(today)} · {data?.profile?.name || "Admin"}</p>
           </div>
-          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-black text-ink-600">Logout</button>
+          <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-bold text-ink-600">Logout</button>
         </header>
 
         <div className="grid grid-cols-2 gap-3">
@@ -338,9 +336,9 @@ export default function TageszentralePage() {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => load()} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-glow">{loading ? "Lade…" : "Neu laden"}</button>
-          <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Auswertung</Link>
-          <Link href="/mitarbeiter/admin" className="col-span-2 rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-black text-brand-700">Admin-Dashboard</Link>
+          <button onClick={() => load()} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-glow">{loading ? "Lade…" : "Neu laden"}</button>
+          <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Auswertung</Link>
+          <Link href="/mitarbeiter/admin" className="col-span-2 rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Admin-Dashboard</Link>
         </div>
 
         {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
@@ -358,7 +356,7 @@ export default function TageszentralePage() {
             ["done", "Erledigt", counts.done]
           ] as Array<["all" | TaskState, string, number]>).map(([key, label, count]) => (
             <button key={key} onClick={() => setFilter(key)} className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${filter === key ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-              <span className="block font-black">{label}</span>
+              <span className="block font-bold">{label}</span>
               <span className="opacity-80">{count}</span>
             </button>
           ))}
@@ -369,39 +367,39 @@ export default function TageszentralePage() {
             <article key={task.id} className={`rounded-3xl border p-4 ${state === "late" ? "border-red-500/40 bg-rose-100" : "border-paper-300 bg-white"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-brand-600">{taskTime(task)}</p>
-                  <h2 className="mt-1 text-lg font-black text-ink-900">{task.title || "Einsatz"}</h2>
+                  <p className="text-xs font-bold uppercase tracking-wide text-brand-600">{taskTime(task)}</p>
+                  <h2 className="mt-1 text-lg font-bold text-ink-900">{task.title || "Einsatz"}</h2>
                   <p className="mt-1 truncate text-sm text-ink-600">{task.site || task.customer_name || "Ohne Objekt"}</p>
                   <p className="mt-1 text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"}</p>
                 </div>
-                <span className={`min-w-fit rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-wide ${statusClass(state)}`}>{statusLabel(state)}</span>
+                <span className={`min-w-fit rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wide ${statusClass(state)}`}>{statusLabel(state)}</span>
               </div>
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                 <div className="rounded-2xl bg-paper-100 px-3 py-2">
                   <p className="text-ink-400">Plan</p>
-                  <p className="font-black text-brand-700">{hoursLabel(minutesFromTimes(task.start_time, task.end_time, task.planned_minutes || task.max_minutes))}</p>
+                  <p className="font-bold text-brand-700">{hoursLabel(minutesFromTimes(task.start_time, task.end_time, task.planned_minutes || task.max_minutes))}</p>
                 </div>
                 <div className="rounded-2xl bg-paper-100 px-3 py-2">
                   <p className="text-ink-400">Buchungen</p>
-                  <p className="font-black text-brand-700">{entries.length}</p>
+                  <p className="font-bold text-brand-700">{entries.length}</p>
                 </div>
                 <div className="rounded-2xl bg-paper-100 px-3 py-2">
                   <p className="text-ink-400">Letzte</p>
-                  <p className="font-black text-brand-700">{last ? timeText(last.created_at) : "—"}</p>
+                  <p className="font-bold text-brand-700">{last ? timeText(last.created_at) : "—"}</p>
                 </div>
               </div>
 
               {last ? (
                 <p className="mt-3 rounded-2xl bg-paper-100 px-3 py-2 text-xs text-ink-600">
-                  Letzte Aktion: <span className="font-black text-brand-700">{clean(last.action) || "Stempel"}</span>
+                  Letzte Aktion: <span className="font-bold text-brand-700">{clean(last.action) || "Stempel"}</span>
                   {typeof last.distance_m === "number" ? ` · GPS ${last.distance_m} m` : ""}
                 </p>
               ) : null}
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <a href={mapUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-center text-sm font-black text-brand-700">Route</a>
-                <button disabled={savingId === task.id} onClick={() => updateTaskStatus(task, state !== "done")} className="rounded-2xl bg-brand-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60">
+                <a href={mapUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-center text-sm font-bold text-brand-700">Route</a>
+                <button disabled={savingId === task.id} onClick={() => updateTaskStatus(task, state !== "done")} className="rounded-2xl bg-brand-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">
                   {savingId === task.id ? "Speichere…" : state === "done" ? "Wieder öffnen" : "Erledigt"}
                 </button>
               </div>
