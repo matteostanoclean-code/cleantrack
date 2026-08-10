@@ -2,6 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
+import {
+  Banner,
+  Button,
+  DetailRow,
+  EmptyState,
+  SectionHeading,
+  SegmentedTabs,
+  StatusPill,
+  Stepper,
+  UiIcon,
+  cx
+} from "@/components/ui";
+import { addDaysIso, formatDateDE, formatDayMonthDE, hhmm, startOfWeekIso } from "@/lib/format";
 
 type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push";
 type ClockStatus = "idle" | "working" | "break";
@@ -164,6 +177,9 @@ type MaterialProduct = {
   name?: string | null;
   category?: string | null;
   unit?: string | null;
+  image_url?: string | null;
+  photo_url?: string | null;
+  image?: string | null;
   current_stock?: number | null;
   min_stock?: number | null;
   minimum_stock?: number | null;
@@ -853,8 +869,8 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
             <p className="mt-1 text-sm text-ink-400">Für heute sind keine Einsätze geplant.</p>
           </div>
         ) : (
-          <div className="mt-3 space-y-3">
-            {todayTasks.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
+          <div className="mt-1 divide-y divide-paper-200">
+            {todayTasks.map((assignment) => <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
           </div>
         )}
       </section>
@@ -899,112 +915,139 @@ function Activity({ label, time }: { label: string; time: string }) {
   );
 }
 
+const WEEKDAY_SHORT = new Intl.DateTimeFormat("de-DE", { weekday: "short" });
+const MONTH_LONG = new Intl.DateTimeFormat("de-DE", { month: "long" });
+
+function plannedMinutesOf(task?: RawTask | null) {
+  return Number(task?.planned_minutes || task?.max_minutes || task?.paid_minutes || task?.wage_minutes || 0);
+}
+
+function weekdayShort(iso: string) {
+  const date = new Date(`${iso}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : WEEKDAY_SHORT.format(date).replace(".", "");
+}
+
+function dayNumber(iso: string) {
+  return Number(iso.slice(8, 10)) || "";
+}
+
+function monthTitle(iso: string) {
+  const date = new Date(`${iso}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : MONTH_LONG.format(date);
+}
+
+/** Wochenkalender: Tagesstreifen oben, darunter die Aufgaben des gewählten Tages. */
 function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]; onOpenAssignment: (assignment: Assignment) => void }) {
   const [selectedDay, setSelectedDay] = useState(todayIso());
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() + index);
-    return date.toISOString().slice(0, 10);
-  });
+  const weekStart = startOfWeekIso(selectedDay);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysIso(weekStart, index)), [weekStart]);
 
-  const futureAssignments = useMemo(() => assignments
-    .filter((assignment) => (assignment.date || "") >= todayIso())
-    .sort((a, b) => `${a.date || "9999-12-31"}-${a.raw?.start_time || "99:99"}`.localeCompare(`${b.date || "9999-12-31"}-${b.raw?.start_time || "99:99"}`)), [assignments]);
+  const countByDay = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const assignment of assignments) {
+      if (!assignment.date) continue;
+      counts.set(assignment.date, (counts.get(assignment.date) || 0) + 1);
+    }
+    return counts;
+  }, [assignments]);
 
-  const selectedAssignments = futureAssignments.filter((assignment) => assignment.date === selectedDay);
-  const doneSelected = selectedAssignments.filter((assignment) => assignment.done).length;
-  const openSelected = selectedAssignments.length - doneSelected;
-  const plannedMinutes = selectedAssignments.reduce((sum, assignment) => sum + Number(assignment.raw?.planned_minutes || assignment.raw?.max_minutes || assignment.raw?.paid_minutes || assignment.raw?.wage_minutes || 0), 0);
-  const upcomingAssignments = futureAssignments.filter((assignment) => assignment.date !== selectedDay).slice(0, 6);
+  const dayAssignments = useMemo(() => assignments
+    .filter((assignment) => assignment.date === selectedDay)
+    .sort((a, b) => String(a.raw?.start_time || "99:99").localeCompare(String(b.raw?.start_time || "99:99"))), [assignments, selectedDay]);
+
+  const doneCount = dayAssignments.filter((assignment) => assignment.done).length;
+  const progress = dayAssignments.length ? Math.round((doneCount / dayAssignments.length) * 100) : 0;
+  const plannedMinutes = dayAssignments.reduce((sum, assignment) => sum + plannedMinutesOf(assignment.raw), 0);
+  const isToday = selectedDay === todayIso();
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black">Einsatzplan</h1>
-        <p className="text-xs text-ink-400">Nur heute und kommende Einsätze.</p>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">{monthTitle(selectedDay)}</h1>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setSelectedDay(addDaysIso(selectedDay, -7))} className="grid h-9 w-9 place-items-center rounded-full text-ink-600" aria-label="Woche zurück">
+            <UiIcon name="chevronLeft" className="h-5 w-5" />
+          </button>
+          <button onClick={() => setSelectedDay(todayIso())} className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-brand-700">Heute</button>
+          <button onClick={() => setSelectedDay(addDaysIso(selectedDay, 7))} className="grid h-9 w-9 place-items-center rounded-full text-ink-600" aria-label="Woche vor">
+            <UiIcon name="chevronRight" className="h-5 w-5" />
+          </button>
+        </div>
       </div>
-      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+
+      <div className="grid grid-cols-7 gap-1">
         {days.map((day) => {
           const selected = day === selectedDay;
-          const count = futureAssignments.filter((assignment) => assignment.date === day).length;
+          const hasTasks = (countByDay.get(day) || 0) > 0;
+          const today = day === todayIso();
           return (
-            <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-16 rounded-2xl border p-3 text-sm ${selected ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-              <span className="block text-[10px] uppercase text-ink-400">{dateLabel(day).split(" ")[0]}</span>
-              <span className="text-lg font-black">{dateLabel(day).split(" ")[1] || ""}</span>
-              <span className="mt-1 block text-[10px] text-ink-400">{count} Einsatz{count === 1 ? "" : "e"}</span>
+            <button key={day} onClick={() => setSelectedDay(day)} className="flex flex-col items-center gap-1.5 py-1">
+              <span className={cx("text-[13px]", selected ? "font-semibold text-ink-900" : "text-ink-400")}>{weekdayShort(day)}</span>
+              <span
+                className={cx(
+                  "grid h-10 w-10 place-items-center rounded-full text-[16px]",
+                  selected ? "bg-brand-600 font-semibold text-white" : today ? "border border-brand-600 font-semibold text-brand-700" : "border border-paper-200 text-ink-600"
+                )}
+              >
+                {dayNumber(day)}
+              </span>
+              <span className={cx("h-1.5 w-1.5 rounded-full", hasTasks ? (selected ? "bg-brand-600" : "bg-paper-300") : "bg-transparent")} />
             </button>
           );
         })}
       </div>
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="font-black">Tagesübersicht</h2>
-            <p className="text-xs text-ink-400">{dateLabel(selectedDay)}</p>
-          </div>
-          <span className="rounded-full bg-brand-100 px-3 py-1 text-[11px] font-black text-brand-700">{openSelected} offen</span>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[15px] text-ink-400">{isToday ? "Heutige Aufgaben" : `Aufgaben am ${formatDayMonthDE(selectedDay)}`}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[14px] text-ink-400">{doneCount}/{dayAssignments.length}</span>
+          <span className="block h-1.5 w-24 rounded-full bg-paper-200">
+            <span className="block h-1.5 rounded-full bg-success-500 transition-all" style={{ width: `${progress}%` }} />
+          </span>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Einsätze</p>
-            <p className="mt-1 text-xl font-black text-ink-900">{selectedAssignments.length}</p>
-          </div>
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Erledigt</p>
-            <p className="mt-1 text-xl font-black text-brand-700">{doneSelected}</p>
-          </div>
-          <div className="rounded-2xl bg-paper-100 p-3">
-            <p className="text-ink-400">Geplant</p>
-            <p className="mt-1 text-xl font-black text-brand-700">{plannedMinutes ? minutesToHours(plannedMinutes) : "—"}</p>
-          </div>
-        </div>
-      </section>
+      </div>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-bold">Einsätze an diesem Tag</h2>
-          <span className="text-xs text-ink-400">{selectedAssignments.length} gefunden</span>
+      {dayAssignments.length ? (
+        <div className="divide-y divide-paper-200">
+          {dayAssignments.map((assignment) => <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
         </div>
-        <div className="space-y-3">
-          {selectedAssignments.length ? selectedAssignments.map((assignment, index) => <AssignmentCard key={assignment.id} assignment={assignment} featured={index === 0} onOpenAssignment={onOpenAssignment} />) : <EmptyCard title="Keine Einsätze an diesem Tag" text="Wähle oben einen anderen Tag oder lege im Admin-Dashboard einen neuen Termin an." />}
-        </div>
-      </section>
+      ) : (
+        <EmptyState icon="calendar" title="Keine Einsätze an diesem Tag" text="Wähle oben einen anderen Tag." />
+      )}
 
-      <section>
-        <h2 className="mb-2 font-bold">Kommende Einsätze</h2>
-        <div className="space-y-3">
-          {upcomingAssignments.length ? upcomingAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />) : <p className="text-sm text-ink-400">Keine weiteren kommenden Einsätze.</p>}
-        </div>
-      </section>
+      {plannedMinutes ? (
+        <p className="pt-1 text-[14px] text-ink-400">Geplante Zeit an diesem Tag: <span className="font-semibold text-ink-800">{hhmm(plannedMinutes)} h</span></p>
+      ) : null}
     </div>
   );
 }
 
-function AssignmentCard({ assignment, featured, onOpenAssignment }: { assignment: Assignment; featured?: boolean; onOpenAssignment?: (assignment: Assignment) => void }) {
-  const priorityColor = assignment.priority === "urgent" ? "bg-amber-500" : assignment.priority === "overdue" ? "bg-rose-500" : "bg-brand-500";
+/** Einsatzzeile: Art farbig, Objekt fett, Zeitfenster grau, rechts Status und Dauer. */
+function TaskRow({ assignment, onOpenAssignment }: { assignment: Assignment; onOpenAssignment?: (assignment: Assignment) => void }) {
+  const minutes = plannedMinutesOf(assignment.raw);
+  const start = formatTime(assignment.raw?.start_time);
+  const end = formatTime(assignment.raw?.end_time);
+  const overdue = !assignment.done && assignment.priority === "overdue";
+
   return (
-    <article className={`rounded-3xl border border-paper-300 ${featured ? "bg-paper-200" : "bg-white"} p-4`}>
-      <button onClick={() => onOpenAssignment?.(assignment)} className="flex w-full items-start justify-between gap-3 text-left">
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-brand-700">{dateLabel(assignment.date)} · {assignment.time}</p>
-          <h3 className="mt-2 font-black text-ink-900">{assignment.title}</h3>
-          <p className="mt-1 text-xs text-ink-400">{assignment.address}</p>
-        </div>
-        <span className="rounded-full bg-paper-300 px-3 py-1 text-[11px] font-semibold text-ink-600">{assignment.duration}</span>
-      </button>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <span className="rounded-lg bg-brand-100 px-2 py-1 text-[11px] font-semibold text-brand-700">{assignment.tag}</span>
-        <span className="rounded-lg bg-paper-200 px-2 py-1 text-[11px] text-ink-600">{assignment.customer}</span>
+    <button onClick={() => onOpenAssignment?.(assignment)} className="flex w-full items-start gap-3 py-4 text-left">
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2 text-[14px] font-medium text-amber-700">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+          <span className="truncate">{assignment.tag}</span>
+        </p>
+        <p className="mt-1.5 text-[17px] font-bold text-ink-900">{assignment.title}</p>
+        <p className="mt-1 text-[14px] text-ink-400">
+          {formatDayMonthDE(assignment.date)}
+          {start !== "—" ? `  ${start}${end !== "—" ? ` → ${end}` : ""} Uhr` : "  Zeit offen"}
+        </p>
+        {overdue ? <p className="mt-1 text-[13px] font-medium text-danger-600">Überfällig</p> : null}
       </div>
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs text-ink-400"><span className={`h-2 w-2 rounded-full ${priorityColor}`} />{assignment.done ? "Erledigt" : assignment.priority === "normal" ? "Normal" : assignment.priority === "urgent" ? "Dringend" : "Überfällig"}</div>
-        <div className="flex gap-2">
-          <a href={mapSearchUrl(assignment.raw || null)} target="_blank" rel="noreferrer" className="rounded-xl border border-paper-300 px-3 py-2 text-sm font-bold text-brand-700">Route</a>
-          <button onClick={() => onOpenAssignment?.(assignment)} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white">Termin</button>
-        </div>
+      <div className="flex shrink-0 flex-col items-end gap-2">
+        <StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>
+        <span className="text-[16px] font-bold text-ink-900">{minutes ? `${hhmm(minutes)} h` : "—"}</span>
       </div>
-    </article>
+    </button>
   );
 }
 
@@ -1039,6 +1082,7 @@ function taskEntriesForTask(entries: RawTimeEntry[], task: RawTask | null) {
 function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQuality, onReload }: { data: AppData | null; authToken: string; taskId: string | null; onBack: () => void; onOpenClock: (task: RawTask) => void; onOpenQuality: (task: RawTask) => void; onReload: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<"task" | "log">("task");
   const task = useMemo(() => (data?.tasks || []).find((row) => row.id === taskId) || null, [data?.tasks, taskId]);
   const site = useMemo(() => task?.work_site_id ? (data?.workSites || []).find((row) => row.id === task.work_site_id) || null : null, [data?.workSites, task?.work_site_id]);
   const planItems = useMemo(() => planItemsForTask(data, task), [data, task]);
@@ -1077,92 +1121,95 @@ function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQualit
     );
   }
 
+  const priority = normalizePriority(task);
+  const priorityLabel = priority === "urgent" ? "Hoch" : priority === "overdue" ? "Überfällig" : "Mittel";
+  const planned = plannedMinutesOf(task);
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <BackButton onBack={onBack} />
-        <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${task.done ? "bg-brand-100 text-brand-700" : "bg-brand-100 text-brand-700"}`}>{task.done ? "Erledigt" : "Offen"}</span>
+    <div className="-mx-4 -mt-4">
+      <div className="flex items-start gap-2 px-2 pt-2">
+        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+          <UiIcon name="chevronLeft" className="h-6 w-6" />
+        </button>
+        <div className="min-w-0 flex-1 pt-1">
+          <h1 className="truncate text-[22px] font-bold text-ink-900">{task.title || task.site || "Einsatz"}</h1>
+          <p className="truncate text-[14px] text-ink-400">{task.site || task.customer_name || "Ohne Objekt"} · {formatDateDE(task.task_date)}</p>
+        </div>
+        <div className="pr-2 pt-2">
+          <StatusPill tone={task.done ? "success" : "neutral"}>{task.done ? "Erledigt" : "Offen"}</StatusPill>
+        </div>
       </div>
 
-      <section className="overflow-hidden rounded-3xl border border-brand-500/25 bg-white">
-        <div className="p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-brand-700">Termin</p>
-          <h1 className="mt-2 text-2xl font-black text-ink-900">{task.title || "Einsatz"}</h1>
-          <p className="mt-2 text-sm text-ink-600">{task.site || task.customer_name || "Ohne Objekt"}</p>
-          <p className="mt-1 text-xs text-ink-400">{task.customer_name || "Kunde offen"}</p>
-        </div>
-        <div className="grid grid-cols-3 border-t border-paper-300 text-center text-xs">
-          <div className="p-3">
-            <p className="text-ink-400">Datum</p>
-            <p className="mt-1 font-black text-ink-900">{dateLabel(task.task_date)}</p>
-          </div>
-          <div className="border-x border-paper-300 p-3">
-            <p className="text-ink-400">Uhrzeit</p>
-            <p className="mt-1 font-black text-ink-900">{taskTime(task)}</p>
-          </div>
-          <div className="p-3">
-            <p className="text-ink-400">Dauer</p>
-            <p className="mt-1 font-black text-ink-900">{taskDuration(task)}</p>
-          </div>
-        </div>
-      </section>
+      <div className="mt-3">
+        <SegmentedTabs
+          tabs={[{ key: "task", label: "Aufgabe" }, { key: "log", label: "Logbuch" }]}
+          value={detailTab}
+          onChange={setDetailTab}
+        />
+      </div>
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <h2 className="font-black">Arbeitsablauf</h2>
-        <div className="mt-3 space-y-2 text-sm">
-          <div className="flex items-center justify-between rounded-2xl bg-paper-100 px-3 py-3">
-            <span>1. Am Objekt einchecken</span>
-            <span className={hasClockIn ? "font-black text-brand-600" : "font-black text-ink-400"}>{hasClockIn ? "OK" : "offen"}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-2xl bg-paper-100 px-3 py-3">
-            <span>2. Reinigung / Aufgabe erledigen</span>
-            <span className={task.done ? "font-black text-brand-600" : "font-black text-ink-400"}>{task.done ? "OK" : "offen"}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-2xl bg-paper-100 px-3 py-3">
-            <span>3. Ausstempeln</span>
-            <span className={hasClockOut ? "font-black text-brand-600" : "font-black text-ink-400"}>{hasClockOut ? "OK" : "offen"}</span>
-          </div>
-        </div>
-      </section>
+      {detailTab === "task" ? (
+        <>
+          <DetailRow icon="flag" label="Aufgabentyp" value={task.task_category || task.task_type || "Reinigung"} />
+          <DetailRow icon="priority" label="Priorität" value={priorityLabel} tone={priority === "overdue" ? "danger" : "default"} />
+          <DetailRow icon="pin" label="Objekt" value={task.site || "Ohne Objekt"} hint={task.customer_name || undefined} />
+          <DetailRow icon="calendar" label="Datum" value={formatDateDE(task.task_date)} />
+          <DetailRow icon="clock" label="Zeitraum" value={taskTime(task)} />
+          <DetailRow icon="target" label="Soll-Zeit" value={planned ? `${hhmm(planned)} h` : "Keine Vorgabe"} />
+          {task.notes ? <DetailRow icon="note" label="Hinweis vom Büro" value={task.notes} /> : null}
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <h2 className="font-black">Aktionen</h2>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <a href={mapSearchUrl(task)} target="_blank" rel="noreferrer" className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-center text-sm font-black text-brand-700">Route öffnen</a>
-          <button onClick={() => onOpenClock(task)} className="rounded-2xl bg-brand-600 px-3 py-3 text-sm font-black text-white shadow-glow">Stempeln</button>
-          <button onClick={() => onOpenQuality(task)} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-black text-brand-700">Qualität</button>
-          <button disabled={saving} onClick={() => toggleDone(!task.done)} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-3 text-sm font-black text-brand-700 disabled:opacity-60">{task.done ? "Wieder öffnen" : "Erledigt"}</button>
-        </div>
-        {message ? <p className="mt-3 rounded-2xl bg-paper-100 px-3 py-2 text-xs text-brand-700">{message}</p> : null}
-      </section>
+          <SectionHeading>Checkliste</SectionHeading>
+          {planItems.length ? planItems.slice(0, 12).map((item) => (
+            <DetailRow
+              key={item.id}
+              icon="check"
+              label={item.area || "Bereich"}
+              value={item.task_title || "Aufgabe"}
+              hint={item.task_description || undefined}
+            />
+          )) : (
+            <p className="px-4 py-3 text-[14px] text-ink-400">Für dieses Objekt ist noch kein Reinigungsplan hinterlegt.</p>
+          )}
 
-      <section className={`rounded-3xl border p-4 ${siteHasGps ? "border-brand-500/30 bg-brand-50" : "border-amber-500/30 bg-amber-100"}`}>
-        <p className={`font-black ${siteHasGps ? "text-brand-700" : "text-amber-700"}`}>{siteHasGps ? "GPS-Prüfung bereit" : "GPS am Objekt fehlt"}</p>
-        <p className={`mt-1 text-xs ${siteHasGps ? "text-brand-700/80" : "text-amber-700/80"}`}>
-          {siteHasGps ? `Erlaubter Radius: ${getSiteRadius(site)} m.` : "Der Mitarbeiter-Standort wird gespeichert. Für eine harte Radius-Prüfung müssen im Admin-Dashboard die Objekt-Koordinaten gespeichert sein."}
-        </p>
-      </section>
+          <div className="space-y-3 px-4 pb-2 pt-5">
+            {!siteHasGps ? (
+              <Banner tone="warn">Für dieses Objekt fehlen die GPS-Koordinaten. Bis sie im Admin-Bereich hinterlegt sind, ist das Stempeln gesperrt.</Banner>
+            ) : (
+              <Banner tone="info">GPS-Prüfung aktiv. Erlaubter Abstand zum Objekt: {getSiteRadius(site)} m.</Banner>
+            )}
+            {message ? <Banner tone="success">{message}</Banner> : null}
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <h2 className="font-black">Checkliste</h2>
-        <div className="mt-3 space-y-2">
-          {planItems.length ? planItems.slice(0, 8).map((item) => (
-            <div key={item.id} className="rounded-2xl bg-paper-100 px-3 py-3 text-sm">
-              <p className="font-bold text-ink-800">{item.task_title || item.area || "Aufgabe"}</p>
-              {item.task_description ? <p className="mt-1 text-xs text-ink-400">{item.task_description}</p> : null}
+            <div className="grid grid-cols-2 gap-3">
+              <Button variant="primary" onClick={() => onOpenClock(task)}>Stempeln</Button>
+              <Button variant="neutral" onClick={() => onOpenQuality(task)}>Qualitätsnachweis</Button>
             </div>
-          )) : <p className="text-sm text-ink-400">Für diesen Einsatz ist noch keine Reinigungsplan-Checkliste hinterlegt.</p>}
-        </div>
-      </section>
+            <div className="grid grid-cols-2 gap-3">
+              <a href={mapSearchUrl(task)} target="_blank" rel="noreferrer" className="rounded-xl border border-paper-300 bg-paper-100 px-4 py-3.5 text-center text-[16px] font-semibold text-ink-800">Route öffnen</a>
+              <Button variant={task.done ? "neutral" : "success"} disabled={saving} onClick={() => toggleDone(!task.done)}>
+                {task.done ? "Wieder öffnen" : "Aufgabe erledigen"}
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionHeading>Ablauf</SectionHeading>
+          <DetailRow icon={hasClockIn ? "check" : "clock"} label="1. Am Objekt einchecken" value={hasClockIn ? "Erledigt" : "Offen"} />
+          <DetailRow icon={task.done ? "check" : "clock"} label="2. Reinigung erledigen" value={task.done ? "Erledigt" : "Offen"} />
+          <DetailRow icon={hasClockOut ? "check" : "clock"} label="3. Ausstempeln" value={hasClockOut ? "Erledigt" : "Offen"} />
 
-      <section className="rounded-3xl border border-paper-300 bg-white p-4">
-        <h2 className="font-black">Zeitbuchungen zu diesem Termin</h2>
-        <div className="mt-3 space-y-2">
+          <SectionHeading>Zeitbuchungen</SectionHeading>
           {entries.length ? entries.map((entry) => (
-            <Timeline key={entry.id} label={actionLabel(entry.action)} details={`${entry.work_site_name || task.site || "Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m` : ""}`} time={entry.created_at ? formatTime(entry.created_at) : "—"} />
-          )) : <p className="text-sm text-ink-400">Noch keine Buchung für diesen Termin.</p>}
-        </div>
-      </section>
+            <DetailRow
+              key={entry.id}
+              icon={entry.action === "clock_out" ? "logout" : entry.action === "clock_in" ? "login" : "coffee"}
+              label={actionLabel(entry.action)}
+              value={entry.created_at ? formatTime(entry.created_at) : "—"}
+              hint={`${entry.work_site_name || task.site || "Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m vom Objekt` : ""}`}
+            />
+          )) : <p className="px-4 py-3 text-[14px] text-ink-400">Für diesen Einsatz wurde noch nicht gestempelt.</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -1638,16 +1685,6 @@ function SheetRow({ icon, children, showChevron }: { icon: string; children: Rea
   );
 }
 
-function Stepper({ value, onChange }: { value: number; onChange: (next: number) => void }) {
-  return (
-    <div className="flex items-center gap-3 rounded-full border border-paper-300 px-1.5 py-1">
-      <button type="button" onClick={() => onChange(Math.max(0, value - 1))} className="grid h-7 w-7 place-items-center rounded-full text-lg font-bold text-brand-600">−</button>
-      <span className="w-5 text-center text-sm font-bold text-ink-900">{value}</span>
-      <button type="button" onClick={() => onChange(value + 1)} className="grid h-7 w-7 place-items-center rounded-full text-lg font-bold text-brand-600">+</button>
-    </div>
-  );
-}
-
 function ListEmptyState({ emoji, title, text }: { emoji: string; title: string; text: string }) {
   return (
     <div className="py-16 text-center">
@@ -1855,60 +1892,109 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
   );
 }
 
+function productImage(product: MaterialProduct) {
+  return product.image_url || product.photo_url || product.image || null;
+}
+
+/** "0 / 1 Stk." — aktueller Bestand gegen Mindestbestand, wie in der Vorlage. */
+function stockLabel(product: MaterialProduct) {
+  const unit = product.unit || "Stk.";
+  const current = Number(product.current_stock ?? 0);
+  const minimum = Number(product.min_stock ?? product.minimum_stock ?? 0);
+  if (!current && !minimum) return unit;
+  return `${current} / ${minimum} ${unit}`;
+}
+
+function materialStatus(status?: string | null): { label: string; tone: "success" | "info" | "danger" | "neutral" } {
+  const value = String(status || "open").toLowerCase();
+  if (["done", "erledigt", "resolved", "closed"].includes(value)) return { label: "Erledigt", tone: "success" };
+  if (["approved", "freigegeben"].includes(value)) return { label: "Freigegeben", tone: "info" };
+  if (["rejected", "abgelehnt"].includes(value)) return { label: "Abgelehnt", tone: "danger" };
+  return { label: "Offen", tone: "neutral" };
+}
+
+/** Materialbestellung: mehrere Artikel in einem Vorgang, gruppiert und durchsuchbar. */
 function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
   const sites = useMemo(() => menuSites(data, data?.tasks || []), [data]);
-  const products = data?.materialProducts || [];
+  const products = useMemo(() => data?.materialProducts || [], [data?.materialProducts]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [productSearch, setProductSearch] = useState("");
   const [siteIndex, setSiteIndex] = useState(0);
-  const [productId, setProductId] = useState(products[0]?.id || "");
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [closedGroups, setClosedGroups] = useState<Record<string, boolean>>({});
   const [customMaterial, setCustomMaterial] = useState("");
-  const [quantity, setQuantity] = useState(1);
+  const [customQuantity, setCustomQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoInputKey, setPhotoInputKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!productId && products[0]?.id) setProductId(products[0].id);
-  }, [productId, products]);
-
   const reports = data?.materialReports || [];
   const filteredReports = search.trim()
     ? reports.filter((report) => `${report.material_name || report.product_name || ""} ${report.object_name || report.site || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
     : reports;
 
+  const groups = useMemo(() => {
+    const needle = productSearch.trim().toLowerCase();
+    const matching = needle
+      ? products.filter((product) => `${product.name || ""} ${product.category || ""}`.toLowerCase().includes(needle))
+      : products;
+    const map = new Map<string, MaterialProduct[]>();
+    for (const product of matching) {
+      const group = product.category?.trim() || "Artikel ohne Gruppe";
+      map.set(group, [...(map.get(group) || []), product]);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [productSearch, products]);
+
+  const selectedCount = Object.values(quantities).filter((value) => value > 0).length + (customMaterial.trim() ? 1 : 0);
+
+  function resetForm() {
+    setQuantities({});
+    setCustomMaterial("");
+    setCustomQuantity(1);
+    setNotes("");
+    setPhotos([]);
+    setProductSearch("");
+    setPhotoInputKey((key) => key + 1);
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedCount) {
+      setMessage("Bitte mindestens einen Artikel auswählen.");
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
       const site = sites[siteIndex] || null;
+      const items = products
+        .filter((product) => (quantities[product.id] || 0) > 0)
+        .map((product) => ({ productId: product.id, name: product.name || "Material", quantity: quantities[product.id] }));
+      if (customMaterial.trim()) items.push({ productId: "", name: customMaterial.trim(), quantity: customQuantity });
+
       const formData = new FormData();
       formData.set("workSiteId", site?.workSiteId || "");
       formData.set("workSiteName", site?.siteName || "");
-      formData.set("materialProductId", productId || "");
-      formData.set("materialName", customMaterial || "");
-      formData.set("quantity", String(quantity));
+      formData.set("items", JSON.stringify(items));
       formData.set("notes", notes);
       photos.forEach((photo) => formData.append("photos", photo));
+
       const response = await fetch("/api/mobile/material/report", {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData
       });
       const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Materialmeldung konnte nicht gesendet werden.");
-      setNotes("");
-      setCustomMaterial("");
-      setQuantity(1);
-      setPhotos([]);
-      setPhotoInputKey((key) => key + 1);
+      if (!response.ok || !result.ok) throw new Error(result.error || "Materialbestellung konnte nicht gesendet werden.");
+      resetForm();
       setSheetOpen(false);
       await onReload();
     } catch (submitError) {
-      setMessage(submitError instanceof Error ? submitError.message : "Materialmeldung konnte nicht gesendet werden.");
+      setMessage(submitError instanceof Error ? submitError.message : "Materialbestellung konnte nicht gesendet werden.");
     } finally {
       setSaving(false);
     }
@@ -1917,40 +2003,59 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-black text-ink-900">Materialbestellung</h1>
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Material</h1>
         <BackButton onBack={onBack} />
       </div>
 
       <SheetRow icon="search">
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Suchen…" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Bestellung suchen…" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
       </SheetRow>
 
       {filteredReports.length ? (
-        <div className="space-y-2">
-          {filteredReports.map((report) => (
-            <article key={report.id} className="rounded-2xl border border-paper-300 bg-white p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-black text-ink-900">{report.material_name || report.product_name || "Material"}</p>
-                  <p className="text-xs text-ink-400">{report.object_name || report.site || "Objekt"} · {report.status || "angefragt"}</p>
+        <div className="divide-y divide-paper-200">
+          {filteredReports.map((report) => {
+            const status = materialStatus(report.status);
+            const photoCount = report.photo_count || report.photo_urls?.length || 0;
+            return (
+              <article key={report.id} className="py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[17px] font-bold text-ink-900">{report.material_name || report.product_name || "Material"}</p>
+                    <p className="mt-1 text-[14px] text-ink-400">
+                      {report.object_name || report.site || "Objekt"} · Menge {report.quantity_requested || report.quantity || 1}
+                      {photoCount ? ` · ${photoCount} Foto${photoCount === 1 ? "" : "s"}` : ""}
+                    </p>
+                  </div>
+                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
                 </div>
-                {(report.photo_count || report.photo_urls?.length) ? <span className="rounded-full bg-brand-100 px-2 py-1 text-[11px] font-black text-brand-700">📷 {report.photo_count || report.photo_urls?.length}</span> : null}
-              </div>
-              {report.photo_urls?.length ? <div className="mt-3 grid grid-cols-3 gap-2">{report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Materialfoto" className="h-20 w-full rounded-2xl object-cover" />)}</div> : null}
-            </article>
-          ))}
+                {report.photo_urls?.length ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Materialfoto" className="h-20 w-full rounded-xl object-cover" />)}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
       ) : (
-        <ListEmptyState emoji="📦" title="Keine Materialbestellungen" text="Sobald du etwas bestellst, erscheint es hier." />
+        <EmptyState icon="box" title="Keine Materialbestellungen" text="Sobald du etwas bestellst, erscheint es hier." />
       )}
 
-      <button onClick={() => { setMessage(null); setSheetOpen(true); }} className="fixed inset-x-4 bottom-24 z-20 rounded-2xl bg-brand-600 py-4 text-center font-black text-white shadow-glow md:absolute">Material bestellen</button>
+      <button onClick={() => { setMessage(null); setSheetOpen(true); }} className="fixed inset-x-4 bottom-24 z-20 rounded-xl bg-brand-600 py-4 text-center text-[16px] font-semibold text-white shadow-glow md:absolute">Material bestellen</button>
 
       {sheetOpen && (
         <BottomSheet
           title="Material bestellen"
           onClose={() => setSheetOpen(false)}
-          footer={<button form="material-order-form" disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-black text-white disabled:opacity-60">{saving ? "Sende…" : "Material bestellen"}</button>}
+          footer={
+            <button
+              form="material-order-form"
+              disabled={saving || !selectedCount}
+              className="w-full rounded-xl bg-brand-600 py-4 text-[16px] font-semibold text-white disabled:bg-paper-200 disabled:text-ink-200"
+            >
+              {saving ? "Sende…" : selectedCount ? `Material bestellen (${selectedCount})` : "Material bestellen"}
+            </button>
+          }
         >
           <form id="material-order-form" onSubmit={submit} className="space-y-3">
             <SheetRow icon="building" showChevron>
@@ -1963,45 +2068,85 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
               <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Bemerkung" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
             </SheetRow>
 
-            <p className="pt-1 text-sm font-bold text-ink-900">Artikel</p>
+            <p className="pt-1 text-[15px] font-bold text-ink-900">Artikel</p>
 
-            {products.length ? (
-              <div className="space-y-2">
-                {products.map((product) => (
-                  <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-paper-300 p-3">
-                    <div className="h-11 w-11 shrink-0 rounded-xl bg-paper-100" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-ink-900">{product.name || "Material"}</p>
-                      <p className="text-xs text-ink-400">{product.unit ? `Einheit: ${product.unit}` : "Stück"}</p>
+            <SheetRow icon="search">
+              <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Suche" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+            </SheetRow>
+
+            {groups.map(([group, items]) => {
+              const closed = Boolean(closedGroups[group]);
+              return (
+                <div key={group}>
+                  <button
+                    type="button"
+                    onClick={() => setClosedGroups((current) => ({ ...current, [group]: !closed }))}
+                    className="flex w-full items-center gap-2 py-2 text-left"
+                  >
+                    <span className="text-[15px] text-ink-600">{group}</span>
+                    <UiIcon name={closed ? "chevronRight" : "chevronDown"} className="h-4 w-4 text-ink-400" />
+                    <span className="ml-auto rounded-full bg-paper-100 px-2 py-0.5 text-[12px] text-ink-600">{items.length}</span>
+                  </button>
+
+                  {!closed ? (
+                    <div className="space-y-2">
+                      {items.map((product) => {
+                        const image = productImage(product);
+                        return (
+                          <div key={product.id} className="flex items-center gap-3 rounded-xl border border-paper-200 p-3">
+                            {image ? (
+                              <img src={image} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                            ) : (
+                              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-paper-100 text-ink-200"><UiIcon name="box" className="h-5 w-5" /></span>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] text-ink-400">{stockLabel(product)}</p>
+                              <p className="truncate text-[15px] font-medium text-ink-900">{product.name || "Material"}</p>
+                            </div>
+                            <Stepper
+                              value={quantities[product.id] || 0}
+                              onChange={(next) => setQuantities((current) => ({ ...current, [product.id]: next }))}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
-                    <Stepper value={productId === product.id ? quantity : 0} onChange={(next) => { setProductId(product.id); setQuantity(next); }} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <SheetRow icon="box">
-                <input value={customMaterial} onChange={(event) => setCustomMaterial(event.target.value)} required placeholder="z.B. Müllbeutel, Reiniger, Papier" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
-              </SheetRow>
-            )}
+                  ) : null}
+                </div>
+              );
+            })}
 
-            <label className="block rounded-2xl border border-dashed border-paper-300 p-4">
-              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Foto optional</span>
+            <div className="rounded-xl border border-paper-200 p-3">
+              <p className="text-[13px] text-ink-400">Nicht in der Liste?</p>
+              <div className="mt-2 flex items-center gap-3">
+                <input
+                  value={customMaterial}
+                  onChange={(event) => setCustomMaterial(event.target.value)}
+                  placeholder="z. B. Müllbeutel, Reiniger, Papier"
+                  className="w-full min-w-0 border-0 bg-transparent p-0 text-[15px] text-ink-900 outline-none placeholder:text-ink-200"
+                />
+                <Stepper value={customQuantity} onChange={setCustomQuantity} min={1} />
+              </div>
+            </div>
+
+            <label className="block rounded-xl border border-dashed border-paper-300 p-4">
+              <span className="text-[13px] text-ink-400">Foto optional</span>
               <input
                 key={photoInputKey}
                 type="file"
                 accept="image/*"
                 multiple
                 onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
-                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-xl file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white"
+                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
               />
               {photos.length ? (
                 <div className="mt-3 space-y-1">
-                  {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-xl bg-paper-100 px-3 py-2 text-xs text-brand-700">📷 {photo.name}</p>)}
+                  {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-lg bg-paper-100 px-3 py-2 text-xs text-brand-700">{photo.name}</p>)}
                 </div>
               ) : null}
             </label>
 
-            {message && <p className="rounded-2xl bg-rose-100 px-4 py-3 text-sm text-rose-700">{message}</p>}
+            {message && <Banner tone="danger">{message}</Banner>}
           </form>
         </BottomSheet>
       )}
@@ -3341,3 +3486,4 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
     </AppShell>
   );
 }
+

@@ -41,6 +41,31 @@ async function ensureMaterialBucket(supabase: AnyRow) {
   }
 }
 
+type OrderItem = { productId: string | null; name: string; quantity: number };
+
+/** Nimmt sowohl eine einzelne Meldung als auch eine Bestellung mit mehreren Artikeln entgegen. */
+function parseItems(raw: unknown): OrderItem[] {
+  let list: AnyRow[] = [];
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) list = parsed;
+    } catch {
+      list = [];
+    }
+  } else if (Array.isArray(raw)) {
+    list = raw as AnyRow[];
+  }
+
+  return list
+    .map((item) => ({
+      productId: nullableUuid(item.productId || item.material_product_id || item.id),
+      name: text(item.name || item.material_name || item.product_name),
+      quantity: numberOrOne(item.quantity)
+    }))
+    .filter((item) => item.productId || item.name);
+}
+
 async function parseBody(request: Request) {
   const contentType = request.headers.get("content-type") || "";
   if (contentType.includes("multipart/form-data")) {
@@ -52,6 +77,7 @@ async function parseBody(request: Request) {
       materialName: form.get("materialName") || form.get("material_name") || form.get("product_name"),
       quantity: form.get("quantity") || form.get("quantity_requested"),
       notes: form.get("notes") || form.get("comment") || form.get("message"),
+      items: parseItems(form.get("items")),
       files: form.getAll("photos").filter((item): item is File => item instanceof File && item.size > 0).slice(0, 6)
     };
   }
@@ -64,6 +90,7 @@ async function parseBody(request: Request) {
     materialName: body.materialName || body.material_name || body.product_name,
     quantity: body.quantity || body.quantity_requested,
     notes: body.notes || body.comment || body.message,
+    items: parseItems(body.items),
     files: [] as File[]
   };
 }
@@ -76,26 +103,40 @@ export async function POST(request: Request) {
     }
 
     const body = await parseBody(request);
-    const materialProductId = nullableUuid(body.materialProductId);
     const workSiteId = nullableUuid(body.workSiteId);
     const workSiteName = text(body.workSiteName) || null;
-    const quantity = numberOrOne(body.quantity);
     const notes = text(body.notes) || null;
 
-    let materialName = text(body.materialName);
-    let product: AnyRow | null = null;
+    const requestedItems: OrderItem[] = body.items.length
+      ? body.items
+      : [{ productId: nullableUuid(body.materialProductId), name: text(body.materialName), quantity: numberOrOne(body.quantity) }];
 
-    if (materialProductId) {
-      const productResult = await auth.supabase.from("material_products").select("*").eq("id", materialProductId).maybeSingle();
-      if (!productResult.error && productResult.data) product = productResult.data;
-      materialName = materialName || product?.name || product?.product_name || "Material";
+    const usableItems = requestedItems.filter((item) => item.productId || item.name);
+    if (!usableItems.length) {
+      return NextResponse.json({ ok: false, error: "Bitte mindestens einen Artikel auswählen oder eintragen." }, { status: 400 });
     }
 
-    if (!materialName) {
-      return NextResponse.json({ ok: false, error: "Bitte Material auswählen oder eintragen." }, { status: 400 });
+    const productIds = usableItems.map((item) => item.productId).filter(Boolean) as string[];
+    const productsById = new Map<string, AnyRow>();
+    if (productIds.length) {
+      const productResult = await auth.supabase.from("material_products").select("*").in("id", productIds);
+      if (!productResult.error) {
+        for (const product of productResult.data || []) productsById.set(product.id, product);
+      }
     }
 
-    const objectName = workSiteName || product?.object_name || product?.site || "Ohne Objekt";
+    const lines = usableItems.map((item) => {
+      const product = item.productId ? productsById.get(item.productId) || null : null;
+      return {
+        productId: item.productId,
+        quantity: item.quantity,
+        product,
+        name: item.name || product?.name || product?.product_name || "Material"
+      };
+    });
+
+    const firstProduct = lines.find((line) => line.product)?.product || null;
+    const objectName = workSiteName || firstProduct?.object_name || firstProduct?.site || "Ohne Objekt";
     const photoUrls: string[] = [];
 
     if (body.files.length) {
@@ -108,7 +149,7 @@ export async function POST(request: Request) {
         const path = [
           auth.profile.id,
           new Date().toISOString().slice(0, 10),
-          materialProductId || "freies-material",
+          lines[0].productId || "freies-material",
           safeFileName(file.name)
         ].join("/");
         const buffer = Buffer.from(await file.arrayBuffer());
@@ -121,69 +162,76 @@ export async function POST(request: Request) {
       }
     }
 
+    const summary = lines.map((line) => `${line.quantity} x ${line.name}`).join(", ");
     const adminMessage = [
-      `${auth.profile.name} meldet Materialbedarf: ${quantity} x ${materialName} bei ${objectName}.`,
+      `${auth.profile.name} meldet Materialbedarf bei ${objectName}: ${summary}.`,
       notes ? `Notiz: ${notes}` : "",
       photoUrls.length ? `Fotos: ${photoUrls.length}` : ""
     ].filter(Boolean).join("\n");
 
-    const fullPayload = {
-      employee_name: auth.profile.name,
-      employee_profile_id: auth.profile.id,
-      material_id: materialProductId,
-      material_product_id: materialProductId,
-      material_name: materialName,
-      product_name: materialName,
-      work_site_id: workSiteId || product?.work_site_id || null,
-      object_name: objectName,
-      site: objectName,
-      quantity,
-      quantity_requested: quantity,
-      message: adminMessage,
-      comment: notes,
-      notes,
-      status: "open",
-      photo_urls: photoUrls,
-      photo_count: photoUrls.length,
-      created_at: new Date().toISOString()
-    };
+    const createdAt = new Date().toISOString();
+    const reports: AnyRow[] = [];
 
-    let insert = await auth.supabase.from("material_reports").insert(fullPayload).select("*").maybeSingle();
-
-    if (insert.error) {
-      const fallbackPayload = {
+    for (const line of lines) {
+      const fullPayload = {
         employee_name: auth.profile.name,
-        material_id: materialProductId,
-        material_name: materialName,
-        product_name: materialName,
-        work_site_id: workSiteId || product?.work_site_id || null,
+        employee_profile_id: auth.profile.id,
+        material_id: line.productId,
+        material_product_id: line.productId,
+        material_name: line.name,
+        product_name: line.name,
+        work_site_id: workSiteId || line.product?.work_site_id || null,
         object_name: objectName,
         site: objectName,
-        quantity,
+        quantity: line.quantity,
+        quantity_requested: line.quantity,
         message: adminMessage,
         comment: notes,
+        notes,
         status: "open",
-        created_at: new Date().toISOString()
+        photo_urls: photoUrls,
+        photo_count: photoUrls.length,
+        created_at: createdAt
       };
-      insert = await auth.supabase.from("material_reports").insert(fallbackPayload).select("*").maybeSingle();
-    }
 
-    if (insert.error) throw new Error(insert.error.message);
+      let insert = await auth.supabase.from("material_reports").insert(fullPayload).select("*").maybeSingle();
+
+      if (insert.error) {
+        const fallbackPayload = {
+          employee_name: auth.profile.name,
+          material_id: line.productId,
+          material_name: line.name,
+          product_name: line.name,
+          work_site_id: workSiteId || line.product?.work_site_id || null,
+          object_name: objectName,
+          site: objectName,
+          quantity: line.quantity,
+          message: adminMessage,
+          comment: notes,
+          status: "open",
+          created_at: createdAt
+        };
+        insert = await auth.supabase.from("material_reports").insert(fallbackPayload).select("*").maybeSingle();
+      }
+
+      if (insert.error) throw new Error(insert.error.message);
+      reports.push(insert.data);
+    }
 
     await auth.supabase.from("admin_notifications").insert({
       employee_name: auth.profile.name,
-      title: photoUrls.length ? "Materialmeldung mit Foto" : "Materialmeldung",
+      title: photoUrls.length ? "Materialbestellung mit Foto" : "Materialbestellung",
       message: adminMessage,
       notification_type: "material_report",
       status: "open",
-      work_site_id: workSiteId || product?.work_site_id || null,
+      work_site_id: workSiteId || firstProduct?.work_site_id || null,
       object_name: objectName,
-      material_product_id: materialProductId,
-      material_name: materialName,
-      created_at: new Date().toISOString()
+      material_product_id: lines[0].productId,
+      material_name: lines.length > 1 ? summary : lines[0].name,
+      created_at: createdAt
     });
 
-    return NextResponse.json({ ok: true, report: insert.data, photoUrls });
+    return NextResponse.json({ ok: true, report: reports[0], reports, photoUrls });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Materialmeldung konnte nicht gespeichert werden.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

@@ -41,6 +41,21 @@ const config: Config = {
           100: "#FBE4E4",
           500: "#C24444",
           700: "#93302F"
+        },
+        // Freigabe-Aktionen: kräftiges Rot/Grün wie in der Vorlage, klar unterscheidbar auf Weiß.
+        danger: {
+          50: "#FEF1F1",
+          100: "#FCDCDC",
+          500: "#F0413F",
+          600: "#DC2F2D",
+          700: "#B01F1F"
+        },
+        success: {
+          50: "#EDFAF2",
+          100: "#D5F4E1",
+          500: "#2FBF5F",
+          600: "#22A34D",
+          700: "#17803B"
         }
       },
       boxShadow: {

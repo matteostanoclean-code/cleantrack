@@ -466,6 +466,7 @@ export default function AdminDashboardPage() {
               <p className="font-black">Schnellzugriff</p>
               <div className="mt-3 grid gap-2">
                 <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-brand-600 px-4 py-3 font-black text-white">Tageszentrale öffnen</Link>
+                <Link href="/mitarbeiter/admin/zeiten" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-black text-brand-700">Zeitenfreigabe öffnen</Link>
                 <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-black text-brand-700">Planungszentrale öffnen</Link>
                 <Link href="/mitarbeiter/admin/urlaub" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700">Urlaubsplanung öffnen</Link>
                 <Link href="/mitarbeiter/admin/kapazitaet" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-black text-brand-700">Kapazitätsplanung öffnen</Link>
