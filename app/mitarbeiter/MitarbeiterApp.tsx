@@ -1205,6 +1205,8 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
   const [locating, setLocating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [lastGps, setLastGps] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
+  const [reasonPrompt, setReasonPrompt] = useState<{ action: "clock_in" | "break_start" | "break_end" | "clock_out"; message: string } | null>(null);
+  const [reasonText, setReasonText] = useState("");
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
   const selectedTask = useMemo(() => (data?.tasks || []).find((task) => task.id === selectedTaskId) || null, [data?.tasks, selectedTaskId]);
   const selectedAssignment = useMemo(() => selectedTask ? assignmentFromTask(selectedTask) : null, [selectedTask]);
@@ -1238,7 +1240,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
     return () => window.clearInterval(timer);
   }, [startedAt, status, data?.timeEntries]);
 
-  async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out") {
+  async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out", reason?: string) {
     if (!data?.employee) return;
     if (!selectedTask) {
       setMessage("Bitte zuerst im Einsatzplan einen Termin öffnen. Manuelles Buchen ohne Termin ist gesperrt.");
@@ -1282,11 +1284,22 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
           latitude: gps?.latitude ?? null,
           longitude: gps?.longitude ?? null,
           accuracyM: gps?.accuracy ?? null,
+          reason: reason || "",
           expectedStartTime: expectedStartIso(selectedTask)
         })
       });
       const result = await response.json();
+
+      // Das Büro braucht eine Begründung: erst nachfragen, dann noch einmal senden.
+      if (!response.ok && result?.reasonRequired) {
+        setReasonPrompt({ action, message: result.error || "Bitte kurz begründen." });
+        setReasonText("");
+        setMessage(null);
+        return;
+      }
+
       if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen");
+      setReasonPrompt(null);
       const distanceText = typeof result.distanceM === "number" ? ` · Entfernung ${result.distanceM} m` : "";
       setMessage(result.hasSiteGps ? `Gespeichert. GPS geprüft${distanceText}.` : "Gespeichert. GPS wurde gespeichert, am Objekt fehlen noch GPS-Koordinaten für die Radius-Prüfung.");
       await onReload();
@@ -1381,6 +1394,48 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
           hint={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m vom Objekt` : ""}`}
         />
       )) : <p className="px-4 py-3 text-[14px] text-ink-400">Heute wurde noch nicht gestempelt.</p>}
+
+      {reasonPrompt ? (
+        <BottomSheet
+          title="Kurz begründen"
+          onClose={() => setReasonPrompt(null)}
+          footer={
+            <Button
+              variant="primary"
+              full
+              disabled={saving || locating || reasonText.trim().length < 3}
+              onClick={() => stamp(reasonPrompt.action, reasonText.trim())}
+            >
+              {saving ? "Sende…" : "Begründung senden und ausstempeln"}
+            </Button>
+          }
+        >
+          <Banner tone="warn">{reasonPrompt.message}</Banner>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {["Zusatzarbeit angefallen", "Objekt war stärker verschmutzt", "Ausstempeln vergessen", "Warten auf Zugang", "Material geholt"].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setReasonText(preset)}
+                className={cx(
+                  "rounded-full border px-3.5 py-2 text-[13px]",
+                  reasonText === preset ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 text-ink-600"
+                )}
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={reasonText}
+            onChange={(event) => setReasonText(event.target.value)}
+            rows={3}
+            className="w-full rounded-xl border border-paper-200 px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
+            placeholder="Eigene Begründung schreiben…"
+          />
+          <p className="text-[13px] text-ink-400">Das Büro entscheidet danach, welche Zeit gebucht wird.</p>
+        </BottomSheet>
+      ) : null}
     </div>
   );
 }
@@ -3196,7 +3251,6 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { href: "/mitarbeiter/admin/planung", label: "Planungszentrale" },
     { href: "/mitarbeiter/admin/urlaub", label: "Urlaubsplanung" },
     { href: "/mitarbeiter/admin/kapazitaet", label: "Kapazitätsplanung" },
-    { href: "/mitarbeiter/admin/abrechnung", label: "Kundenabrechnung" },
     { href: "/mitarbeiter/admin/auswertung", label: "Monatsauswertung" },
     { href: "/mitarbeiter/admin/push", label: "Push-Zentrale" },
     { href: "/mitarbeiter/admin", label: "Admin-Dashboard" },

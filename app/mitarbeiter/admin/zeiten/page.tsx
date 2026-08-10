@@ -80,6 +80,7 @@ type TimeRecord = {
   state: "open" | "approved" | "rejected";
   approvalStatus: string;
   adminResponse: string | null;
+  employeeReason: string | null;
   locationIssue: boolean;
   incomplete: boolean;
   log: LogRow[];
@@ -451,6 +452,10 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
               </span>
               <span className="rounded-md bg-paper-100 px-2 py-1 text-[13px] text-ink-600">{deviationLabel(record.deviationMinutes)}</span>
             </div>
+          ) : null}
+
+          {record.employeeReason ? (
+            <DetailRow icon="chat" label="Begründung vom Mitarbeiter" value={record.employeeReason} />
           ) : null}
 
           {record.incomplete ? (

@@ -5,6 +5,9 @@ export const dynamic = "force-dynamic";
 
 const allowedActions = new Set(["clock_in", "break_start", "break_end", "clock_out"]);
 
+/** Bis zu dieser Abweichung gilt die Zeit als planmäßig und braucht keine Freigabe. */
+const TOLERANCE_MINUTES = 5;
+
 function clean(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -257,6 +260,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const action = clean(body.action);
+    const reason = clean(body.reason).slice(0, 500);
 
     if (!allowedActions.has(action)) {
       return NextResponse.json({ ok: false, error: "Ungültige Stempel-Aktion." }, { status: 400 });
@@ -389,13 +393,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 400 });
     }
 
-    if (gpsStatus === "outside_radius") {
-      const errorMessage = `Du bist ca. ${distance} m vom Objekt entfernt. Erlaubt sind ${allowedRadius} m.`;
+    // Einstempeln und Pausen sind an das Objekt gebunden. Ausstempeln nicht:
+    // wer erst zu Hause merkt, dass er vergessen hat, muss es trotzdem können.
+    // Der Eintrag wird dann markiert und geht zur Prüfung ins Büro.
+    if (gpsStatus === "outside_radius" && action !== "clock_out") {
+      const errorMessage = `Du bist ca. ${distance} m vom Objekt entfernt. Erlaubt sind ${allowedRadius} m. Bitte erst zum Objekt gehen.`;
       return NextResponse.json({ ok: false, error: errorMessage, gpsStatus, distanceM: distance, allowedRadiusM: allowedRadius }, { status: 403 });
     }
 
     let approvalPayload: Record<string, any> = {};
     let approvalInfo: Record<string, any> | null = null;
+    const outsideRadius = gpsStatus === "outside_radius";
 
     if (action === "clock_out") {
       const plannedMinutes = plannedMinutesFromTask(task);
@@ -417,8 +425,31 @@ export async function POST(request: Request) {
         { ...basePayload, success: true }
       ]);
       const overtimeMinutes = plannedMinutes > 0 ? Math.max(0, actualMinutes - plannedMinutes) : 0;
-      const approvalStatus = overtimeMinutes > 0 ? "pending" : "not_required";
-      const approvedMinutes = overtimeMinutes > 0 ? plannedMinutes : actualMinutes;
+      const overTime = overtimeMinutes > TOLERANCE_MINUTES;
+
+      // Grund abfragen, sobald etwas vom Plan abweicht: zu lange gearbeitet
+      // oder nicht am Objekt ausgestempelt.
+      if ((overTime || outsideRadius) && !reason) {
+        return NextResponse.json({
+          ok: false,
+          reasonRequired: true,
+          error: overTime && outsideRadius
+            ? `Du bist ${overtimeMinutes} Minuten über der geplanten Zeit und ${distance} m vom Objekt entfernt. Bitte kurz angeben, warum.`
+            : overTime
+              ? `Du bist ${overtimeMinutes} Minuten über der geplanten Zeit. Bitte kurz angeben, warum.`
+              : `Du bist ${distance} m vom Objekt entfernt. Bitte kurz angeben, warum du hier ausstempelst.`,
+          overtimeMinutes,
+          plannedMinutes,
+          actualMinutes,
+          distanceM: distance,
+          allowedRadiusM: allowedRadius,
+          outsideRadius
+        }, { status: 400 });
+      }
+
+      const needsApproval = overTime || outsideRadius;
+      const approvalStatus = needsApproval ? "pending" : "not_required";
+      const approvedMinutes = overTime ? plannedMinutes : actualMinutes;
 
       approvalPayload = {
         planned_minutes: plannedMinutes || null,
@@ -426,25 +457,39 @@ export async function POST(request: Request) {
         overtime_minutes: overtimeMinutes,
         approved_minutes: approvedMinutes || null,
         approval_status: approvalStatus,
-        admin_response: null
+        admin_response: null,
+        reason: reason || null,
+        note: reason || null
       };
-      approvalInfo = { plannedMinutes, actualMinutes, overtimeMinutes, approvedMinutes, approvalStatus };
+      approvalInfo = { plannedMinutes, actualMinutes, overtimeMinutes, approvedMinutes, approvalStatus, outsideRadius, needsApproval };
     }
 
     const entry = await insertTimeEntry(auth, {
       ...basePayload,
       ...approvalPayload,
       success: true,
-      error_message: `GPS geprüft: ${distance} m von ${allowedRadius} m Radius.`
+      error_message: outsideRadius
+        ? `Standort ausserhalb des Objekts: ${distance} m statt erlaubter ${allowedRadius} m.`
+        : `Standort geprüft: ${distance} m von ${allowedRadius} m Radius.`
     });
 
     if (action === "clock_out") {
       await auth.supabase.from("tasks").update({ status: "done", done: true }).eq("id", task.id);
 
-      if (approvalInfo && approvalInfo.overtimeMinutes > 0) {
+      if (approvalInfo?.needsApproval) {
+        const lines = [`${employeeName} · ${siteName || "Objekt"}`];
+        if (approvalInfo.overtimeMinutes > TOLERANCE_MINUTES) {
+          lines.push(`Gebucht ${approvalInfo.actualMinutes} Min., geplant ${approvalInfo.plannedMinutes} Min. — ${approvalInfo.overtimeMinutes} Min. darüber.`);
+        }
+        if (outsideRadius) {
+          lines.push(`Ausgestempelt ${distance} m vom Objekt entfernt (erlaubt ${allowedRadius} m). Wahrscheinlich erst später daran gedacht.`);
+        }
+        if (reason) lines.push(`Begründung: ${reason}`);
+        lines.push("Bitte in der Zeitenfreigabe entscheiden.");
+
         await auth.supabase.from("admin_notifications").insert({
-          title: "Überzeit-Freigabe nötig",
-          message: `${employeeName} hat ${approvalInfo.actualMinutes} Minuten gebucht. Geplant waren ${approvalInfo.plannedMinutes} Minuten. Bitte ${approvalInfo.overtimeMinutes} Minuten Überzeit freigeben oder ablehnen.`,
+          title: outsideRadius ? "Ausstempeln ausserhalb des Objekts" : "Überzeit-Freigabe nötig",
+          message: lines.join("\n"),
           employee_name: employeeName,
           work_site_name: siteName,
           object_name: siteName,

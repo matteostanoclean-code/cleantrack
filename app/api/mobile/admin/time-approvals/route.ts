@@ -167,6 +167,7 @@ function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>) {
       state,
       approvalStatus: rawStatus || (incomplete ? "incomplete" : "not_required"),
       adminResponse: clockOut?.admin_response || null,
+      employeeReason: clockOut?.reason || clockOut?.note || null,
       locationIssue,
       incomplete,
       log: sorted.map((row) => ({
