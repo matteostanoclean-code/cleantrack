@@ -427,17 +427,13 @@ export async function POST(request: Request) {
       const overtimeMinutes = plannedMinutes > 0 ? Math.max(0, actualMinutes - plannedMinutes) : 0;
       const overTime = overtimeMinutes > TOLERANCE_MINUTES;
 
-      // Grund abfragen, sobald etwas vom Plan abweicht: zu lange gearbeitet
-      // oder nicht am Objekt ausgestempelt.
-      if ((overTime || outsideRadius) && !reason) {
+      // Begründung nur bei Überschreitung der geplanten Zeit. Ausstempeln weit
+      // weg vom Objekt wird ohne Nachfrage gebucht, aber markiert und geprüft.
+      if (overTime && !reason) {
         return NextResponse.json({
           ok: false,
           reasonRequired: true,
-          error: overTime && outsideRadius
-            ? `Du bist ${overtimeMinutes} Minuten über der geplanten Zeit und ${distance} m vom Objekt entfernt. Bitte kurz angeben, warum.`
-            : overTime
-              ? `Du bist ${overtimeMinutes} Minuten über der geplanten Zeit. Bitte kurz angeben, warum.`
-              : `Du bist ${distance} m vom Objekt entfernt. Bitte kurz angeben, warum du hier ausstempelst.`,
+          error: `Du bist ${overtimeMinutes} Minuten über der geplanten Zeit. Bitte kurz angeben, warum.`,
           overtimeMinutes,
           plannedMinutes,
           actualMinutes,
