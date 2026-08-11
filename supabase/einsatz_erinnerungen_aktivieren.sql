@@ -25,8 +25,9 @@
 --    Irgendein langes zufaelliges Wort. Danach einmal neu deployen.
 --    Ohne dieses Geheimnis koennte jeder den Endpunkt aufrufen.
 --
--- 3. Unten die beiden Platzhalter ersetzen:
---    HIER_DEINE_APP_ADRESSE   und   HIER_DEIN_CRON_SECRET
+-- 3. Unten HIER_DEIN_CRON_SECRET durch dasselbe Geheimnis ersetzen,
+--    das in Vercel unter CRON_SECRET steht.
+--    Die Adresse cleantrack-xi.vercel.app ist bereits eingetragen.
 -- ------------------------------------------------------------
 
 
@@ -43,7 +44,7 @@ select cron.schedule(
   '*/15 * * * *',
   $$
   select net.http_post(
-    url := 'https://HIER_DEINE_APP_ADRESSE/api/cron/task-reminders',
+    url := 'https://cleantrack-xi.vercel.app/api/cron/task-reminders',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer HIER_DEIN_CRON_SECRET'
