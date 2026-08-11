@@ -230,7 +230,13 @@ export default function AdminDashboardPage() {
   const [token, setToken] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [data, setData] = useState<AdminData | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  // Erlaubt Direktlinks wie /mitarbeiter/admin?tab=employees aus anderen Seiten.
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "overview";
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    const allowed: Tab[] = ["overview", "tasks", "employees", "customers", "sites", "times"];
+    return allowed.includes(wanted as Tab) ? (wanted as Tab) : "overview";
+  });
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -472,7 +478,8 @@ export default function AdminDashboardPage() {
                 <button onClick={() => setTab("customers")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Kunde anlegen</button>
                 <button onClick={() => setTab("sites")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Objekt anlegen</button>
                 <Link href="/mitarbeiter/freigaben" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Freigaben bearbeiten</Link>
-                <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Mitarbeiter aktivieren</Link>
+                <button onClick={() => setTab("employees")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Mitarbeiter anlegen</button>
+                <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Mitarbeiter-Login vergeben</Link>
                 <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-ink-600">Zur Mitarbeiter-App</Link>
               </div>
             </section>

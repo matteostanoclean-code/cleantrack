@@ -199,9 +199,18 @@ export default function ActivateEmployeesPage() {
 
           {!loading && (
             <>
-              <section className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
-                <p className="font-bold text-brand-700">So nutzt du es</p>
-                <p className="mt-2 text-sm leading-6 text-ink-600">Ich aktiviere einen Mitarbeiter, kopiere E-Mail und Startpasswort und gebe es der Person. Danach kann sie sich in der App anmelden.</p>
+              <section className="rounded-2xl border border-paper-200 bg-white p-4">
+                <p className="font-bold text-ink-900">Zwei Schritte bis zum Zugang</p>
+                <ol className="mt-2 space-y-1 text-sm leading-6 text-ink-600">
+                  <li><span className="font-semibold text-ink-900">1.</span> Mitarbeiter anlegen — Name, E-Mail, Stundensatz. Passiert im Admin-Dashboard.</li>
+                  <li><span className="font-semibold text-ink-900">2.</span> Hier den Login vergeben. E-Mail und Startpasswort weitergeben, fertig.</li>
+                </ol>
+                <Link
+                  href="/mitarbeiter/admin?tab=employees"
+                  className="mt-4 block rounded-xl bg-brand-600 px-4 py-3.5 text-center text-[16px] font-semibold text-white"
+                >
+                  Neuen Mitarbeiter anlegen
+                </Link>
               </section>
 
               <section className="space-y-3">
@@ -242,14 +251,27 @@ export default function ActivateEmployeesPage() {
                         <p className="break-all">Passwort: {createdLogins[employee.id].password}</p>
                         <button
                           onClick={() => copyToClipboard(`E-Mail: ${createdLogins[employee.id].email}\nPasswort: ${createdLogins[employee.id].password}`)}
-                          className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-ink-900"
+                          className="mt-3 rounded-xl bg-success-500 px-4 py-2 text-xs font-bold text-white"
                         >
                           Kopieren
                         </button>
                       </div>
                     )}
                   </article>
-                )) : <p className="rounded-2xl border border-paper-200 bg-white p-4 text-sm text-ink-400">Alle Mitarbeiter haben bereits einen aktiven Login.</p>}
+                )) : employees.filter((employee) => employee.role !== "admin").length === 0 ? (
+                  <div className="rounded-2xl border border-paper-200 bg-white p-5 text-center">
+                    <p className="font-bold text-ink-900">Noch keine Mitarbeiter angelegt</p>
+                    <p className="mx-auto mt-1 max-w-[34ch] text-sm text-ink-400">
+                      Hier stehen später alle, die noch keinen Login haben. Zuerst muss das Profil im Admin-Dashboard angelegt werden.
+                    </p>
+                    <Link
+                      href="/mitarbeiter/admin?tab=employees"
+                      className="mt-4 inline-block rounded-xl bg-brand-600 px-5 py-3 text-[15px] font-semibold text-white"
+                    >
+                      Zum Anlegen
+                    </Link>
+                  </div>
+                ) : <p className="rounded-2xl border border-paper-200 bg-white p-4 text-sm text-ink-400">Alle Mitarbeiter haben bereits einen aktiven Login.</p>}
               </section>
 
               <section className="space-y-3">
