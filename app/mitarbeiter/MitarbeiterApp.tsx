@@ -475,6 +475,16 @@ function getBrowserPosition(): Promise<{ latitude: number; longitude: number; ac
   });
 }
 
+/** Luftlinie zwischen zwei Punkten in Metern. */
+function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const earthRadius = 6371000;
+  const toRad = (degree: number) => (degree * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+}
+
 function actionLabel(action?: string | null) {
   const labels: Record<string, string> = {
     clock_in: "Eingestempelt",
@@ -1207,6 +1217,9 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
   const [lastGps, setLastGps] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
   const [reasonPrompt, setReasonPrompt] = useState<{ action: "clock_in" | "break_start" | "break_end" | "clock_out"; message: string } | null>(null);
   const [reasonText, setReasonText] = useState("");
+  const [geoCheck, setGeoCheck] = useState<{ distance: number; allowed: number; ok: boolean; accuracy: number | null } | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
+  const [checkingGeo, setCheckingGeo] = useState(false);
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
   const selectedTask = useMemo(() => (data?.tasks || []).find((task) => task.id === selectedTaskId) || null, [data?.tasks, selectedTaskId]);
   const selectedAssignment = useMemo(() => selectedTask ? assignmentFromTask(selectedTask) : null, [selectedTask]);
@@ -1239,6 +1252,33 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
     }, 1000);
     return () => window.clearInterval(timer);
   }, [startedAt, status, data?.timeEntries]);
+
+  /** Standort messen und mit dem Objekt vergleichen, damit vor dem Tippen klar ist, ob es geht. */
+  const checkPosition = useCallback(async () => {
+    const siteLat = selectedClockSite?.latitude ?? null;
+    const siteLng = selectedClockSite?.longitude ?? null;
+    if (siteLat === null || siteLng === null) return;
+    setCheckingGeo(true);
+    setGeoError(null);
+    try {
+      const position = await getBrowserPosition();
+      const distance = distanceMeters(position.latitude, position.longitude, siteLat, siteLng);
+      const allowed = selectedClockSite?.allowedRadiusM || 150;
+      setGeoCheck({ distance, allowed, ok: distance <= allowed, accuracy: position.accuracy });
+    } catch (error) {
+      setGeoCheck(null);
+      setGeoError(error instanceof Error ? error.message : "Standort konnte nicht gelesen werden.");
+    } finally {
+      setCheckingGeo(false);
+    }
+  }, [selectedClockSite?.latitude, selectedClockSite?.longitude, selectedClockSite?.allowedRadiusM]);
+
+  useEffect(() => {
+    setGeoCheck(null);
+    setGeoError(null);
+    if (selectedTask?.id && selectedSiteHasGps) checkPosition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTask?.id, selectedSiteHasGps]);
 
   async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out", reason?: string) {
     if (!data?.employee) return;
@@ -1365,6 +1405,52 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
 
       {message ? <div className="px-4 pt-3"><Banner tone={message.startsWith("Gespeichert") ? "success" : "danger"}>{message}</Banner></div> : null}
       {blockReason ? <div className="px-4 pt-3"><Banner tone="warn">{blockReason}</Banner></div> : null}
+
+      {/* Standortlage vor dem Tippen zeigen, damit niemand raten muss, warum es klemmt. */}
+      {selectedTask && selectedSiteHasGps ? (
+        <div className="px-4 pt-3">
+          <div className={cx(
+            "flex items-start gap-3 rounded-xl px-4 py-3",
+            checkingGeo ? "bg-paper-100" : geoError ? "bg-amber-100" : geoCheck ? (geoCheck.ok ? "bg-success-50" : "bg-danger-50") : "bg-paper-100"
+          )}>
+            <span className={cx(
+              "mt-0.5 shrink-0",
+              geoError ? "text-amber-700" : geoCheck ? (geoCheck.ok ? "text-success-600" : "text-danger-500") : "text-ink-400"
+            )}>
+              <UiIcon name={geoCheck && !geoCheck.ok ? "warning" : "pin"} className="h-[22px] w-[22px]" />
+            </span>
+            <div className="min-w-0 flex-1">
+              {checkingGeo ? (
+                <p className="text-[15px] text-ink-600">Standort wird geprüft…</p>
+              ) : geoError ? (
+                <>
+                  <p className="text-[15px] font-semibold text-amber-700">Standort nicht verfügbar</p>
+                  <p className="mt-0.5 text-[13px] text-amber-700">{geoError}</p>
+                </>
+              ) : geoCheck ? (
+                <>
+                  <p className={cx("text-[15px] font-semibold", geoCheck.ok ? "text-success-700" : "text-danger-600")}>
+                    {geoCheck.ok
+                      ? `Du bist am Objekt · ${geoCheck.distance} m entfernt`
+                      : `Zu weit weg · ${geoCheck.distance} m entfernt`}
+                  </p>
+                  <p className="mt-0.5 text-[13px] text-ink-600">
+                    {geoCheck.ok
+                      ? `Erlaubt sind ${geoCheck.allowed} m. Einstempeln ist möglich.`
+                      : `Erlaubt sind ${geoCheck.allowed} m. Geh näher ans Objekt, dann geht es.`}
+                    {geoCheck.accuracy ? ` Messgenauigkeit ca. ${geoCheck.accuracy} m.` : ""}
+                  </p>
+                </>
+              ) : (
+                <p className="text-[15px] text-ink-600">Standort noch nicht geprüft</p>
+              )}
+            </div>
+            <button onClick={checkPosition} disabled={checkingGeo} className="shrink-0 text-[14px] font-semibold text-brand-700 disabled:opacity-50">
+              {checkingGeo ? "…" : "Prüfen"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {selectedAssignment ? (
         <>
