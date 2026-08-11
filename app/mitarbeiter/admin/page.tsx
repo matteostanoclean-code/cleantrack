@@ -304,7 +304,7 @@ export default function AdminDashboardPage() {
         body: JSON.stringify({ ...form, type })
       });
       const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen.");
+      if (!response.ok || !result.ok) throw new Error(result.error || `Speichern fehlgeschlagen (HTTP ${response.status}).`);
       const savedCount = Number(result.count || 0);
       setMessage(form.id ? "Änderung gespeichert." : savedCount > 1 ? `${savedCount} Einsätze gespeichert.` : "Neuer Datensatz gespeichert.");
       setQuery("");
@@ -450,9 +450,19 @@ export default function AdminDashboardPage() {
           <TabButton active={tab === "times"} label="Zeiten" count={data?.timeEntries?.length || 0} onClick={() => setTab("times")} />
         </div>
 
-        {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
-        {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
         {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Daten…</p>}
+
+        {/* Rueckmeldung fest am unteren Rand. Vorher stand sie oben auf der Seite,
+            waehrend die Speichern-Knoepfe weit unten sitzen - am Handy war sie
+            damit unsichtbar und Speichern sah aus, als passiere nichts. */}
+        {(error || message) && (
+          <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
+            <div className={`mx-auto flex max-w-[520px] items-start gap-3 rounded-xl px-4 py-3.5 text-[15px] text-white shadow-lg ${error ? "bg-danger-500" : "bg-success-500"}`}>
+              <span className="min-w-0 flex-1">{error || message}</span>
+              <button onClick={() => { setError(null); setMessage(null); }} className="shrink-0 text-[14px] font-semibold opacity-90">Schließen</button>
+            </div>
+          </div>
+        )}
 
         {tab !== "overview" && (
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Suchen…" className={inputClass} />
