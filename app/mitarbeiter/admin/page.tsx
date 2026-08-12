@@ -197,6 +197,25 @@ function StatCard({ title, value, caption }: { title: string; value: string | nu
   );
 }
 
+/** Eine Zeile im Adminmenü: Titel, optionaler Hinweis, optionale Zahl, Pfeil. */
+function NavRow({ label, hint, count, href, onClick }: { label: string; hint?: string; count?: number; href?: string; onClick?: () => void }) {
+  const inner = (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[16px] font-semibold text-ink-900">{label}</span>
+        {hint ? <span className="mt-0.5 block truncate text-[13px] text-ink-400">{hint}</span> : null}
+      </span>
+      {typeof count === "number" && count > 0 ? (
+        <span className="shrink-0 rounded-md bg-paper-200 px-2 py-0.5 text-[13px] font-semibold text-ink-600">{count}</span>
+      ) : null}
+      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-ink-200" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 5 7 7-7 7" /></svg>
+    </>
+  );
+  const className = "flex w-full items-center gap-3 border-b border-paper-200 py-3.5 text-left";
+  if (href) return <Link href={href} className={className}>{inner}</Link>;
+  return <button onClick={onClick} className={className}>{inner}</button>;
+}
+
 function TabButton({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
   return (
     <button onClick={onClick} className={`w-full rounded-2xl border px-3 py-3 text-center text-xs ${active ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
@@ -397,7 +416,8 @@ export default function AdminDashboardPage() {
     const openRequests = (data?.absences || []).filter((item) => !["approved", "rejected", "done", "resolved"].includes(clean(item.status || "open").toLowerCase())).length
       + (data?.materialReports || []).filter((item) => !["approved", "rejected", "done", "resolved"].includes(clean(item.status || "open").toLowerCase())).length
       + (data?.notifications || []).filter((item) => !["approved", "rejected", "done", "resolved"].includes(clean(item.status || "open").toLowerCase())).length;
-    return { todayTasks, openTasks, monthMinutes, openRequests };
+    const unassignedTasks = tasks.filter((task) => String(task.task_date || "") >= today && !clean(task.employee_name)).length;
+    return { todayTasks, openTasks, monthMinutes, openRequests, unassignedTasks };
   }, [data]);
 
   const upcomingBirthdays = useMemo(() => (data?.employees || [])
@@ -469,49 +489,65 @@ export default function AdminDashboardPage() {
         )}
 
         {tab === "overview" && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <div className="grid grid-cols-3 gap-3 pb-2">
               <StatCard title="Heute" value={stats.todayTasks} caption="Einsätze" />
               <StatCard title="Offen" value={stats.openTasks} caption="nicht erledigt" />
-              <StatCard title="Planzeit" value={hoursLabel(stats.monthMinutes)} caption="sichtbarer Zeitraum" />
-              <StatCard title="Freigaben" value={stats.openRequests} caption="offene Meldungen" />
+              <StatCard title="Planzeit" value={hoursLabel(stats.monthMinutes)} caption="Zeitraum" />
             </div>
-            <section className="rounded-2xl border border-paper-200 bg-white p-4">
-              <p className="font-bold">Schnellzugriff</p>
-              <div className="mt-3 grid gap-2">
-                <Link href="/mitarbeiter/admin/tageszentrale" className="rounded-2xl bg-brand-600 px-4 py-3 font-bold text-white">Tageszentrale öffnen</Link>
-                <Link href="/mitarbeiter/admin/zeiten" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-bold text-brand-700">Zeitenfreigabe öffnen</Link>
-                <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-brand-500/50 bg-brand-50 px-4 py-3 font-bold text-brand-700">Planungszentrale öffnen</Link>
-                <Link href="/mitarbeiter/admin/urlaub" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Urlaubsplanung öffnen</Link>
-                <Link href="/mitarbeiter/admin/kapazitaet" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Kapazitätsplanung öffnen</Link>
-                <button onClick={() => setTab("tasks")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Einsatz erstellen</button>
-                <button onClick={() => setTab("customers")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Kunde anlegen</button>
-                <button onClick={() => setTab("sites")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Objekt anlegen</button>
-                <Link href="/mitarbeiter/freigaben" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Freigaben bearbeiten</Link>
-                <button onClick={() => setTab("employees")} className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-left font-bold text-brand-700">Mitarbeiter anlegen</button>
-                <Link href="/mitarbeiter/aktivieren" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-brand-700">Mitarbeiter-Login vergeben</Link>
-                <Link href="/mitarbeiter" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 font-bold text-ink-600">Zur Mitarbeiter-App</Link>
-              </div>
+
+            {/* Nur zeigen, was gerade wirklich Arbeit macht. Ist nichts offen, verschwindet der Block. */}
+            {stats.openRequests > 0 || stats.unassignedTasks > 0 ? (
+              <section className="pt-3">
+                <h2 className="pb-1 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
+                {stats.openRequests > 0 ? (
+                  <NavRow href="/mitarbeiter/freigaben" label="Freigaben und Meldungen" hint="Urlaub, Material, Qualität" count={stats.openRequests} />
+                ) : null}
+                <NavRow href="/mitarbeiter/admin/zeiten" label="Zeiten prüfen" hint="Abweichungen und Standortfehler" />
+                {stats.unassignedTasks > 0 ? (
+                  <NavRow href="/mitarbeiter/admin/planung" label="Einsätze ohne Mitarbeiter" hint="Zuweisen in der Planungszentrale" count={stats.unassignedTasks} />
+                ) : null}
+              </section>
+            ) : null}
+
+            <section className="pt-3">
+              <h2 className="pb-1 text-[17px] font-bold text-ink-900">Planen</h2>
+              <NavRow href="/mitarbeiter/admin/tageszentrale" label="Tageszentrale" hint="Was heute läuft" />
+              <NavRow href="/mitarbeiter/admin/planung" label="Planungszentrale" hint="Wochenplan und Serien" />
+              <NavRow href="/mitarbeiter/admin/urlaub" label="Urlaub und Abwesenheit" />
+              <NavRow href="/mitarbeiter/admin/kapazitaet" label="Kapazität" hint="Soll gegen Ist je Mitarbeiter" />
+              <NavRow onClick={() => setTab("tasks")} label="Einsatz erstellen" />
             </section>
-            <section className="rounded-2xl border border-paper-200 bg-white p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="font-bold">Geburtstage</p>
-                <span className="text-xs text-ink-400">nächste 30 Tage</span>
-              </div>
-              <div className="space-y-2">
-                {upcomingBirthdays.length ? upcomingBirthdays.map(({ employee, info }) => (
-                  <div key={employee.id} className={`rounded-2xl border p-3 ${info?.isToday ? "border-rose-500/30 bg-rose-100" : "border-paper-300 bg-paper-100"}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-bold">{labelEmployee(employee)}</p>
-                        <p className="text-xs text-ink-400">{info?.date || "—"}</p>
-                      </div>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${info?.isToday ? "bg-rose-100 text-rose-600" : "bg-brand-100 text-brand-700"}`}>{info?.label}</span>
+
+            <section className="pt-3">
+              <h2 className="pb-1 text-[17px] font-bold text-ink-900">Stammdaten</h2>
+              <NavRow onClick={() => setTab("customers")} label="Kunden" count={data?.customers?.length || 0} />
+              <NavRow onClick={() => setTab("sites")} label="Objekte" count={data?.workSites?.length || 0} />
+              <NavRow onClick={() => setTab("employees")} label="Mitarbeiter" count={data?.employees?.length || 0} />
+              <NavRow href="/mitarbeiter/aktivieren" label="Mitarbeiter-Login vergeben" hint="Zugang für neue Leute" />
+            </section>
+
+            <section className="pt-3">
+              <h2 className="pb-1 text-[17px] font-bold text-ink-900">Auswerten</h2>
+              <NavRow href="/mitarbeiter/admin/auswertung" label="Monatsauswertung" />
+              <NavRow href="/mitarbeiter/admin/push" label="Push-Zentrale" hint="Nachricht ans Team" />
+              <NavRow href="/mitarbeiter" label="Zur Mitarbeiter-App" />
+            </section>
+
+            {upcomingBirthdays.length ? (
+              <section className="pt-3">
+                <h2 className="pb-1 text-[17px] font-bold text-ink-900">Geburtstage</h2>
+                {upcomingBirthdays.map(({ employee, info }) => (
+                  <div key={employee.id} className="flex items-center justify-between gap-3 border-b border-paper-200 py-3">
+                    <div className="min-w-0">
+                      <p className="text-[16px] font-semibold text-ink-900">{labelEmployee(employee)}</p>
+                      <p className="text-[13px] text-ink-400">{info?.date || "—"}</p>
                     </div>
+                    <span className={`shrink-0 rounded-md px-2.5 py-1 text-[12px] font-semibold ${info?.isToday ? "bg-brand-600 text-white" : "bg-paper-200 text-ink-600"}`}>{info?.label}</span>
                   </div>
-                )) : <EmptyCard title="Keine Geburtstage" text="In den nächsten 30 Tagen ist kein Geburtstag gepflegt." />}
-              </div>
-            </section>
+                ))}
+              </section>
+            ) : null}
 
             <section className="rounded-2xl border border-paper-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
