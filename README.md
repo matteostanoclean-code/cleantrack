@@ -1,15 +1,103 @@
-# CleanTrack Pro Mobile-App
+# Schichtklar
 
-Next.js/Vercel App für Mitarbeiter, Einsatzplan, Stempeluhr, Qualitätsnachweise, Materialmeldungen, Admin-Freigaben und Auswertungen.
+Next.js/Vercel-App für Matteo Stano Clean: Einsatzplan, Stempeluhr mit
+Standortprüfung, Zeitenfreigabe, Qualitätsnachweise, Material, Abwesenheiten,
+Chat und Adminbereich.
 
-## Neu in dieser Version
+**Live:** https://cleantrack-xi.vercel.app
 
-- Meldungszentrale in der Mitarbeiter-App
-- Glocke oben rechts ist klickbar
-- Badge für ungelesene Meldungen
-- Chat-Antworten vom Büro werden gesammelt angezeigt
-- Abwesenheitsentscheidungen werden sichtbar angezeigt
-- Meldungen können als gelesen markiert werden
+---
+
+## Stand 11.08.2026
+
+### Reparaturen
+
+- **Vercel-Build ging seit dem 02.08. nicht mehr durch.** Ursache: alle 162
+  Einträge in `package-lock.json` verwiesen auf einen internen Zwischenserver
+  (`packages.applied-caas-gateway1.internal.api.openai.org`), der von Vercel
+  nicht erreichbar ist. Jeder Download lief in das 5-Minuten-Timeout aus der
+  `.npmrc`, danach in die Wiederholungen, am Ende stürzte npm ab. Lokal fiel es
+  nie auf, weil die Pakete im Zwischenspeicher lagen. Lockfile in einem leeren
+  Verzeichnis neu erzeugt, dazu Node 24 statt des abgekündigten Node 20 und
+  `installCommand: npm ci`.
+- **Stempeluhr sperrte Mitarbeiter aus.** Eine Uhr, die von einem früheren Tag
+  offen stand, ließ kein neues Einstempeln zu. Sie wird jetzt automatisch
+  beendet, gebucht bis zum geplanten Feierabend, und geht zur Prüfung ins Büro.
+- **Chat kam nie an.** Nachrichten des Büros wurden im eigenen Verlauf
+  gespeichert statt im Verlauf des Mitarbeiters. Admins wählen jetzt den
+  Empfänger über die Mitarbeiterauswahl.
+- **Mitarbeiter anlegen war nicht auffindbar** — nur im Dashboard-Tab, während
+  das Menü lediglich „aktivieren" anbot, was ohne Profile leer bleibt.
+- **Rückmeldungen beim Speichern** standen oben auf der Seite, die Knöpfe unten.
+  Am Handy sah Speichern deshalb wirkungslos aus. Meldung klebt jetzt unten.
+- Fahrzeit wurde nie geladen (`travel_minutes` fehlte in der Abfrage).
+- Unlesbare Knöpfe (dunkelgrau auf dunkelgrün) und englische Statuswörter
+  (`open`, `done`) in den Freigaben korrigiert.
+
+### Neue Funktionen
+
+- **Zeitenfreigabe** (`/mitarbeiter/admin/zeiten`): prüft jede erfasste Zeit,
+  nicht nur Überzeit. Zeigt Soll gegen Ist, Unterschreitung, Standortfehler mit
+  Kartenlink, erlaubt Korrektur von Von/Bis/Pause/Fahrzeit vor der Freigabe und
+  das Nachtragen vergessener Ausstempelungen. Filter nach Zeitraum, Status,
+  Mitarbeiter, Objekt.
+- **Zeit nachtragen** für Mitarbeiter: vergangene Einsätze ohne Stempelung
+  erscheinen im Stundenzettel als „Nicht erfasst" und können mit Von, Bis,
+  Pause und Pflicht-Grund nachgereicht werden. Geht als ausstehend ins Büro.
+- **Stempelregeln:** Einstempeln und Pausen nur innerhalb 150 m vom Objekt.
+  Ausstempeln ist überall möglich, wird aber mit Abstand festgehalten und
+  geprüft — wer erst zu Hause merkt, dass er vergessen hat, muss es buchen
+  können. Begründungspflicht bei mehr als 5 Minuten über der geplanten Zeit.
+- **Standortanzeige vor dem Stempeln** mit Entfernung, erlaubtem Radius und
+  Messgenauigkeit, dazu eine Karte mit dem Objekt.
+- **Material:** mehrere Artikel in einer Bestellung, Objektauswahl mit „In der
+  Nähe" nach Entfernung, Bestell-Detail mit Artikelliste und „als erhalten
+  melden".
+- **Qualitätskontrolle** mit Sternebewertung zusätzlich zur Checkliste.
+
+### Umgestellt
+
+- Komplettes neues Design für alle 18 Mitarbeiter-Bildschirme und alle
+  Admin-Seiten: ruhige Listen mit Detailzeilen statt Kartenstapel, gemeinsame
+  Bausteine in `components/ui.tsx`, Formate in `lib/format.ts`.
+- Admin-Startseite gruppiert (Zu erledigen, Planen, Stammdaten, Auswerten)
+  statt zwölf gleich aussehender Knöpfe.
+- Tageszentrale mit farbigen Statusboxen inklusive „Nicht zugewiesen".
+- Der nachgebaute Handy-Rahmen um die Admin-Seiten ist entfernt.
+- **Modul Kundenabrechnung entfernt** (Seite und Schnittstelle).
+- Startseite ohne Entwicklertexte, `/dashboard` und `/rechner` leiten weiter.
+- Sechs Bootstrap-Abfragen laufen gleichzeitig statt nacheinander.
+
+### Bewusste Entscheidungen
+
+- **Kein freies Stempeln ohne geplanten Einsatz.** Jede Minute hat damit ein
+  Objekt, ein Soll und einen Ansprechpartner.
+- **Einsatz-Erinnerungen laufen über Supabase `pg_cron`**, nicht über Vercel:
+  der Hobby-Tarif erlaubt nur einen täglichen Lauf, Erinnerungen brauchen alle
+  15 Minuten einen.
+
+### SQL-Skripte in `supabase/`
+
+Alle sind einzeln ausführbar und zeigen vor dem Ändern, was passiert.
+
+| Datei | Zweck | Pflicht? |
+|---|---|---|
+| `zeitenfreigabe_und_material.sql` | 3 Spalten für Fahrzeit und korrigierte Zeiten | optional |
+| `qualitaet_sterne.sql` | Spalte `rating` für die Sternebewertung | nötig, sonst gehen Sterne verloren |
+| `einsatz_erinnerungen_aktivieren.sql` | Push-Erinnerungen per pg_cron | für Erinnerungen |
+| `daten_zuruecksetzen.sql` | Einsätze, Zeiten, Mitarbeiter löschen | erledigt |
+| `kunden_aus_csv.sql` | Kunden und Objekte aus Kontakte.csv | erledigt |
+| `test_einladungen_loeschen.sql` | alte Test-Einladungen entfernen | optional |
+
+### Offen
+
+- Geräte- und Inventarverwaltung mit QR-Codes
+- QR- oder NFC-Scan am Objekt als Alternative zur Standortprüfung
+- Nach kleinen Aktionen lädt die App noch alle Daten neu
+
+---
+
+## Ältere Notizen
 
 ## Upload
 
@@ -79,9 +167,13 @@ VAPID_SUBJECT=mailto:kontakt@matteostano-clean.de
 
 ## Update: Automatische Einsatz-Erinnerungen
 
+> Überholt: Der Vercel-Cron dafür wurde am 24.05.2026 wieder entfernt, weil der
+> Hobby-Tarif nur einen täglichen Lauf erlaubt. Auslöser ist heute Supabase
+> `pg_cron`, siehe `supabase/einsatz_erinnerungen_aktivieren.sql`.
+
 Neue Funktion:
 
-- Vercel Cron ruft alle 15 Minuten `/api/cron/task-reminders` auf
+- Cron ruft alle 15 Minuten `/api/cron/task-reminders` auf
 - Mitarbeiter bekommen Push-Erinnerungen ca. 60 Minuten und ca. 15 Minuten vor Einsatzbeginn
 - Erinnerung wird nur einmal pro Einsatz und Stufe gesendet
 - Alte/stale Push-Geräte werden automatisch deaktiviert
@@ -151,6 +243,11 @@ git add .
 git commit -m "Add employee master data and birthday reminders"
 git push
 ```
+
+## Update: Kundenabrechnung
+
+> Entfernt am 11.08.2026. Seite und Schnittstelle sind gelöscht, der Code liegt
+> in der Versionsgeschichte.
 
 ## Update: Kunden-Jahresplanung und Objekte
 
