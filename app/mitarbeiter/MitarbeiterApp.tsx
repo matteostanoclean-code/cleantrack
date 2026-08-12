@@ -2939,25 +2939,61 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const messages = [...(data?.chatMessages || [])].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+  // Gerade abgeschickte Nachrichten, bis sie vom Server zurückkommen.
+  const [pending, setPending] = useState<ChatMessage[]>([]);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  const serverMessages = data?.chatMessages || [];
+  const messages = useMemo(() => {
+    const known = new Set(serverMessages.map((item) => item.id));
+    const stillPending = pending.filter((item) => !known.has(item.id));
+    return [...serverMessages, ...stillPending].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+  }, [pending, serverMessages]);
+
+  // Sobald der Server die Nachricht kennt, fliegt die Zwischenkopie raus.
+  useEffect(() => {
+    const known = new Set(serverMessages.map((item) => item.id));
+    setPending((current) => (current.some((item) => known.has(item.id)) ? current.filter((item) => !known.has(item.id)) : current));
+  }, [serverMessages]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length]);
 
   async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!text.trim()) return;
+    const body = text.trim();
+    if (!body) return;
+
+    // Sofort anzeigen und Eingabe leeren. Das Senden läuft im Hintergrund.
+    const draft: ChatMessage = {
+      id: `pending-${Date.now()}`,
+      employee_name: data?.employee?.name || "",
+      sender_name: data?.viewer?.name || data?.employee?.name || "",
+      sender_role: data?.isAdmin ? "admin" : "employee",
+      message: body,
+      created_at: new Date().toISOString()
+    };
+    setPending((current) => [...current, draft]);
+    setText("");
     setSaving(true);
     setMessage(null);
+
     try {
       const response = await fetch("/api/mobile/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         // Als Admin schreibt man in den Verlauf des gerade gewählten Mitarbeiters.
-        body: JSON.stringify({ message: text, employeeName: data?.isAdmin ? data?.employee?.name || "" : "" })
+        body: JSON.stringify({ message: body, employeeName: data?.isAdmin ? data?.employee?.name || "" : "" })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Nachricht konnte nicht gesendet werden.");
-      setText("");
       await onReload();
     } catch (sendError) {
+      // Fehlgeschlagene Nachricht wieder entfernen und Text zurückgeben,
+      // damit nichts verloren geht.
+      setPending((current) => current.filter((item) => item.id !== draft.id));
+      setText(body);
       setMessage(sendError instanceof Error ? sendError.message : "Nachricht konnte nicht gesendet werden.");
     } finally {
       setSaving(false);
@@ -2989,6 +3025,7 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
             </article>
           );
         }) : <EmptyState icon="chat" title="Noch keine Nachrichten" text="Schreib dem Büro direkt aus der App." />}
+        <div ref={endRef} />
       </section>
 
       {message && <Banner tone="danger">{message}</Banner>}
@@ -3000,7 +3037,7 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
           className="w-full rounded-xl border border-paper-200 px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
           placeholder="Nachricht schreiben…"
         />
-        <Button variant="primary" full type="submit" disabled={saving || !text.trim()}>{saving ? "Sende…" : "Nachricht senden"}</Button>
+        <Button variant="primary" full type="submit" disabled={!text.trim()}>Nachricht senden</Button>
       </form>
     </div>
   );
@@ -4155,14 +4192,19 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   const [authToken, setAuthToken] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
-  const loadData = useCallback(async (name?: string, tokenOverride?: string) => {
+  /**
+   * Daten holen. Mit silent bleibt der Bildschirm stehen und wird im
+   * Hintergrund aktualisiert. Ohne silent erscheint die Ladeanzeige, das ist
+   * nur beim ersten Aufbau und nach einem Fehler sinnvoll.
+   */
+  const loadData = useCallback(async (name?: string, tokenOverride?: string, silent = false) => {
     const token = tokenOverride || authToken;
     if (!token) {
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const storedName = typeof window !== "undefined" ? window.localStorage.getItem("cleantrack-employee-name") || "" : "";
@@ -4184,6 +4226,11 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
       setLoading(false);
     }
   }, [authToken, employeeName]);
+
+  /** Aktualisieren, ohne den Bildschirm auszublenden. */
+  const refreshData = useCallback(async (name?: string) => {
+    await loadData(name || employeeName, undefined, true);
+  }, [employeeName, loadData]);
 
   useEffect(() => {
     let mounted = true;
@@ -4286,8 +4333,8 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
         <>
           {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onOpenAssignment={openAssignment} onStartAssignment={(assignment) => { setSelectedTaskId(assignment.id); setActive("clock"); }} />}
           {active === "schedule" && <Schedule assignments={assignments} onOpenAssignment={openAssignment} />}
-          {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => loadData(employeeName)} />}
-          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
+          {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => refreshData()} />}
+          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => refreshData()} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
           {active === "timesheet" && (
             <Timesheet
               entries={timeEntries}
@@ -4296,21 +4343,21 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
               rawEntries={data?.timeEntries || []}
               employee={data?.employee}
               authToken={authToken}
-              onReload={() => loadData(employeeName)}
+              onReload={() => refreshData()}
             />
           )}
-          {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
+          {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => refreshData()} />}
           {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}
-          {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "quality" && <QualityScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => selectedTaskId ? setActive("taskdetail") : setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "notifications" && <NotificationsScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "dayclose" && <DayCloseScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
+          {active === "quality" && <QualityScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => selectedTaskId ? setActive("taskdetail") : setActive("menu")} onReload={() => refreshData()} />}
+          {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
+          {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
+          {active === "notifications" && <NotificationsScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
+          {active === "dayclose" && <DayCloseScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
           {active === "route" && <RoutePlanScreen assignments={assignments} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
           {active === "objects" && <ObjectsScreen data={data} onBack={() => setActive("menu")} onOpenAssignment={openAssignment} />}
-          {active === "issue" && <IssueScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
-          {active === "service" && <ServiceReportScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
+          {active === "issue" && <IssueScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
+          {active === "service" && <ServiceReportScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
           {active === "push" && <PushSettingsScreen authToken={authToken} onBack={() => setActive("menu")} />}
           {active === "search" && <SearchScreen data={data} onOpenAssignment={openAssignment} setActive={setActive} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
