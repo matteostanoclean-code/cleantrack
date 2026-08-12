@@ -9,6 +9,7 @@ import {
   ChipRow,
   DetailRow,
   EmptyState,
+  SearchInput,
   SectionHeading,
   SegmentedTabs,
   StatusPill,
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui";
 import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, minutesBetweenHm, startOfWeekIso } from "@/lib/format";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push" | "search" | "admin";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -364,8 +365,8 @@ const starterEntries: TimeEntry[] = [
 ];
 
 const tabFromProp = (value?: string): Tab => {
-  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue" || value === "service" || value === "push") return value;
-  if (value === "search" || value === "admin") return "menu";
+  if (value === "schedule" || value === "taskdetail" || value === "clock" || value === "timesheet" || value === "tasks" || value === "material" || value === "absence" || value === "chat" || value === "profile" || value === "quality" || value === "notifications" || value === "dayclose" || value === "route" || value === "objects" || value === "issue" || value === "service" || value === "push" || value === "search") return value;
+  if (value === "admin") return "menu";
   return "home";
 };
 
@@ -732,12 +733,16 @@ function Icon({ name }: { name: string }) {
   );
 }
 
-function AppShell({ children, active, setActive, unreadCount = 0, employee, onOpenMenu }: { children: React.ReactNode; active: Tab; setActive: (tab: Tab) => void; unreadCount?: number; employee?: Employee | null; onOpenMenu: () => void }) {
-  const nav: Array<{ key: Tab; label: string; icon: string }> = [
+function AppShell({ children, active, setActive, unreadCount = 0, employee, onOpenMenu, isAdmin }: { children: React.ReactNode; active: Tab; setActive: (tab: Tab) => void; unreadCount?: number; employee?: Employee | null; onOpenMenu: () => void; isAdmin?: boolean }) {
+  // Fünf feste Reiter wie in der Vorlage. Beim Admin steht an zweiter Stelle
+  // der Adminbereich statt der Inbox, beim Mitarbeiter die Inbox.
+  const nav: Array<{ key: Tab; label: string; icon: string; badge?: number }> = [
     { key: "home", label: "Home", icon: "home" },
-    { key: "notifications", label: "Inbox", icon: "inbox" },
+    isAdmin
+      ? { key: "admin", label: "Admin", icon: "shield" }
+      : { key: "notifications", label: "Inbox", icon: "inbox", badge: unreadCount },
     { key: "schedule", label: "Kalender", icon: "calendar" },
-    { key: "timesheet", label: "Zeiten", icon: "clock" },
+    { key: "search", label: "Suche", icon: "search" },
     { key: "chat", label: "Chat", icon: "chat" }
   ];
 
@@ -756,10 +761,15 @@ function AppShell({ children, active, setActive, unreadCount = 0, employee, onOp
               <button
                 key={item.key}
                 onClick={() => setActive(item.key)}
-                className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium transition ${selected ? "text-brand-600" : "text-ink-400 hover:text-ink-800"}`}
+                className={`relative flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium transition ${selected ? "text-brand-600" : "text-ink-400 hover:text-ink-800"}`}
               >
                 <Icon name={item.icon} />
                 {item.label}
+                {item.badge ? (
+                  <span className="absolute right-2 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-danger-500 px-1 text-[9px] font-bold text-white">
+                    {item.badge > 9 ? "9+" : item.badge}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -3903,6 +3913,81 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
   );
 }
 
+/** Suche über Einsätze, Objekte, Material und Nachweise. */
+function SearchScreen({ data, onOpenAssignment, setActive }: { data: AppData | null; onOpenAssignment: (assignment: Assignment) => void; setActive: (tab: Tab) => void }) {
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+
+  const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
+  const hits = useMemo(() => {
+    if (needle.length < 2) return { tasks: [], sites: [], materials: [] };
+    return {
+      tasks: assignments.filter((assignment) =>
+        `${assignment.title} ${assignment.address} ${assignment.customer} ${assignment.tag}`.toLowerCase().includes(needle)
+      ).slice(0, 12),
+      sites: (data?.workSites || []).filter((site) =>
+        `${workSiteName(site)} ${site.address || ""} ${site.customer_name || ""}`.toLowerCase().includes(needle)
+      ).slice(0, 8),
+      materials: (data?.materialProducts || []).filter((product) =>
+        `${product.name || ""} ${product.category || ""}`.toLowerCase().includes(needle)
+      ).slice(0, 8)
+    };
+  }, [assignments, data?.materialProducts, data?.workSites, needle]);
+
+  const total = hits.tasks.length + hits.sites.length + hits.materials.length;
+
+  return (
+    <div className="-mx-4 -mt-4">
+      <div className="px-4 pt-2">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Suche</h1>
+      </div>
+      <div className="px-4 pt-3">
+        <SearchInput value={query} onChange={setQuery} placeholder="Einsatz, Objekt oder Material" />
+      </div>
+
+      {needle.length < 2 ? (
+        <EmptyState icon="search" title="Wonach suchst du?" text="Tippe mindestens zwei Buchstaben. Gesucht wird in Einsätzen, Objekten und Material." />
+      ) : !total ? (
+        <EmptyState icon="search" title="Nichts gefunden" text={`Zu „${query}“ gibt es keinen Treffer.`} />
+      ) : null}
+
+      {hits.tasks.length ? (
+        <>
+          <SectionHeading>Einsätze</SectionHeading>
+          {hits.tasks.map((assignment) => (
+            <DetailRow
+              key={assignment.id}
+              icon="calendar"
+              label={`${formatDateDE(assignment.date)} · ${assignment.time}`}
+              value={assignment.title}
+              hint={assignment.address}
+              onClick={() => onOpenAssignment(assignment)}
+            />
+          ))}
+        </>
+      ) : null}
+
+      {hits.sites.length ? (
+        <>
+          <SectionHeading>Objekte</SectionHeading>
+          {hits.sites.map((site) => (
+            <DetailRow key={site.id} icon="building" label={site.customer_name || "Objekt"} value={workSiteName(site)} hint={site.address || undefined} onClick={() => setActive("objects")} />
+          ))}
+        </>
+      ) : null}
+
+      {hits.materials.length ? (
+        <>
+          <SectionHeading>Material</SectionHeading>
+          {hits.materials.map((product) => (
+            <DetailRow key={product.id} icon="box" label={product.category || "Artikel"} value={product.name || "Material"} onClick={() => setActive("material")} />
+          ))}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** Alte Icon-Namen des Menüs auf den gemeinsamen Icon-Satz abbilden. */
 function menuIcon(name: string) {
   const map: Record<string, string> = { shield: "check", sheet: "note", map: "pin" };
@@ -4121,7 +4206,18 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
   }
 
   return (
-    <AppShell active={active} setActive={setActive} unreadCount={unreadCountFromData(data)} employee={data?.employee} onOpenMenu={() => setActive("menu")}>
+    <AppShell
+      active={active}
+      setActive={(tab) => {
+        // Der Admin-Reiter führt in den Adminbereich, das ist eine eigene Seite.
+        if (tab === "admin") { window.location.href = "/mitarbeiter/admin"; return; }
+        setActive(tab);
+      }}
+      unreadCount={unreadCountFromData(data)}
+      employee={data?.employee}
+      isAdmin={Boolean(data?.isAdmin)}
+      onOpenMenu={() => setActive("menu")}
+    >
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && (
@@ -4154,6 +4250,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "issue" && <IssueScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "service" && <ServiceReportScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
           {active === "push" && <PushSettingsScreen authToken={authToken} onBack={() => setActive("menu")} />}
+          {active === "search" && <SearchScreen data={data} onOpenAssignment={openAssignment} setActive={setActive} />}
           {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
