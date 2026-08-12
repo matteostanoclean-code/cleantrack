@@ -191,6 +191,21 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
   );
 }
 
+/** Farbige Statusbox mit Zahl, gleichzeitig Filter. */
+function StatusBox({ tone, label, count, onClick, active }: { tone: "danger" | "warn" | "success"; label: string; count: number; onClick: () => void; active: boolean }) {
+  const styles = {
+    danger: "border-danger-500 bg-danger-50 text-danger-700",
+    warn: "border-amber-500 bg-amber-100 text-amber-700",
+    success: "border-success-500 bg-success-50 text-success-700"
+  }[tone];
+  return (
+    <button onClick={onClick} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left ${styles} ${active ? "ring-2 ring-ink-900/10" : ""}`}>
+      <span className="text-[16px] font-semibold">{label}</span>
+      <span className="grid h-7 min-w-7 place-items-center rounded-full bg-white px-2 text-[14px] font-bold">{count}</span>
+    </button>
+  );
+}
+
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
     <div className="rounded-2xl border border-paper-200 bg-white p-4">
@@ -218,7 +233,7 @@ export default function TageszentralePage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | TaskState>("all");
+  const [filter, setFilter] = useState<"all" | "unassigned" | TaskState>("all");
   const today = localToday();
 
   const load = useCallback(async (overrideToken?: string) => {
@@ -280,10 +295,18 @@ export default function TageszentralePage() {
     });
   }, [todayTasks, data?.timeEntries]);
 
-  const shown = useMemo(() => filter === "all" ? enriched : enriched.filter((item) => item.state === filter), [enriched, filter]);
+  const shown = useMemo(() => {
+    if (filter === "all") return enriched;
+    if (filter === "unassigned") return enriched.filter((item) => !clean(item.task.employee_name));
+    if (filter === "working") return enriched.filter((item) => item.state === "working" || item.state === "break");
+    return enriched.filter((item) => item.state === filter);
+  }, [enriched, filter]);
   const counts = useMemo(() => {
     const result: Record<string, number> = { all: enriched.length, done: 0, working: 0, break: 0, late: 0, upcoming: 0, open: 0 };
     enriched.forEach((item) => { result[item.state] = (result[item.state] || 0) + 1; });
+    // Einsätze ohne Mitarbeiter fallen sonst durch: sie stecken in "offen" und
+    // niemand sieht, dass gar keiner zugewiesen ist.
+    result.unassigned = enriched.filter((item) => !clean(item.task.employee_name)).length;
     return result;
   }, [enriched]);
   const plannedMinutes = useMemo(() => todayTasks.reduce((sum, task) => sum + minutesFromTimes(task.start_time, task.end_time, task.planned_minutes || task.max_minutes), 0), [todayTasks]);
@@ -328,41 +351,48 @@ export default function TageszentralePage() {
           <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-bold text-ink-600">Logout</button>
         </header>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* Die drei Zustaende, die sofort Handlung verlangen. Antippen filtert. */}
+        <div className="space-y-2">
+          <StatusBox tone="danger" label="Nicht zugewiesen" count={counts.unassigned} onClick={() => setFilter(filter === "unassigned" ? "all" : "unassigned")} active={filter === "unassigned"} />
+          <StatusBox tone="warn" label="Überfällig" count={counts.late} onClick={() => setFilter(filter === "late" ? "all" : "late")} active={filter === "late"} />
+          <StatusBox tone="success" label="Aktiv" count={counts.working + counts.break} onClick={() => setFilter(filter === "working" ? "all" : "working")} active={filter === "working"} />
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
           <StatCard title="Heute" value={counts.all} caption="Einsätze" />
-          <StatCard title="Planzeit" value={hoursLabel(plannedMinutes)} caption="geplante Zeit" />
-          <StatCard title="Aktiv" value={counts.working + counts.break} caption="in Arbeit / Pause" />
-          <StatCard title="Problem" value={counts.late} caption="überfällig" />
+          <StatCard title="Planzeit" value={hoursLabel(plannedMinutes)} caption="geplant" />
+          <StatCard title="Erledigt" value={counts.done} caption="fertig" />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => load()} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-glow">{loading ? "Lade…" : "Neu laden"}</button>
-          <Link href="/mitarbeiter/admin/auswertung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Auswertung</Link>
-          <Link href="/mitarbeiter/admin" className="col-span-2 rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Admin-Dashboard</Link>
+          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Adminbereich</Link>
         </div>
 
         {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
         {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
         {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Live-Status…</p>}
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {([
             ["all", "Alle", counts.all],
-            ["late", "Überfällig", counts.late],
-            ["working", "In Arbeit", counts.working],
-            ["break", "Pause", counts.break],
             ["open", "Offen", counts.open],
             ["upcoming", "Geplant", counts.upcoming],
+            ["break", "Pause", counts.break],
             ["done", "Erledigt", counts.done]
           ] as Array<["all" | TaskState, string, number]>).map(([key, label, count]) => (
-            <button key={key} onClick={() => setFilter(key)} className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${filter === key ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-              <span className="block font-bold">{label}</span>
-              <span className="opacity-80">{count}</span>
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-[13px] ${filter === key ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 bg-white text-ink-600"}`}
+            >
+              {label}
+              {count > 0 ? <span className={`rounded-full px-1.5 text-[11px] font-bold ${filter === key ? "bg-white/25" : "bg-paper-200"}`}>{count}</span> : null}
             </button>
           ))}
         </div>
 
-        <section className="space-y-3">
+        <section className="grid gap-3 sm:grid-cols-2">
           {shown.length ? shown.map(({ task, entries, state, last }) => (
             <article key={task.id} className={`rounded-3xl border p-4 ${state === "late" ? "border-red-500/40 bg-rose-100" : "border-paper-300 bg-white"}`}>
               <div className="flex items-start justify-between gap-3">
