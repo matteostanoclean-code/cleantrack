@@ -479,6 +479,24 @@ function getBrowserPosition(): Promise<{ latitude: number; longitude: number; ac
   });
 }
 
+/**
+ * Kartenausschnitt von OpenStreetMap, der Objekt und eigenen Standort zeigt.
+ * Absichtlich ohne Zusatzbibliothek: eingebettete Karte, kein Schlüssel nötig,
+ * keine zusätzlichen Pakete im Projekt.
+ */
+function osmEmbedUrl(siteLat: number, siteLng: number, meLat?: number | null, meLng?: number | null) {
+  const lats = [siteLat, ...(typeof meLat === "number" ? [meLat] : [])];
+  const lngs = [siteLng, ...(typeof meLng === "number" ? [meLng] : [])];
+  const pad = 0.0035;
+  const bbox = [
+    (Math.min(...lngs) - pad).toFixed(5),
+    (Math.min(...lats) - pad).toFixed(5),
+    (Math.max(...lngs) + pad).toFixed(5),
+    (Math.max(...lats) + pad).toFixed(5)
+  ].join(",");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${siteLat},${siteLng}`;
+}
+
 /** Luftlinie zwischen zwei Punkten in Metern. */
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
   const earthRadius = 6371000;
@@ -1305,7 +1323,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
   const [lastGps, setLastGps] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
   const [reasonPrompt, setReasonPrompt] = useState<{ action: "clock_in" | "break_start" | "break_end" | "clock_out"; message: string } | null>(null);
   const [reasonText, setReasonText] = useState("");
-  const [geoCheck, setGeoCheck] = useState<{ distance: number; allowed: number; ok: boolean; accuracy: number | null } | null>(null);
+  const [geoCheck, setGeoCheck] = useState<{ distance: number; allowed: number; ok: boolean; accuracy: number | null; latitude: number; longitude: number } | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [checkingGeo, setCheckingGeo] = useState(false);
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
@@ -1352,7 +1370,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
       const position = await getBrowserPosition();
       const distance = distanceMeters(position.latitude, position.longitude, siteLat, siteLng);
       const allowed = selectedClockSite?.allowedRadiusM || 150;
-      setGeoCheck({ distance, allowed, ok: distance <= allowed, accuracy: position.accuracy });
+      setGeoCheck({ distance, allowed, ok: distance <= allowed, accuracy: position.accuracy, latitude: position.latitude, longitude: position.longitude });
     } catch (error) {
       setGeoCheck(null);
       setGeoError(error instanceof Error ? error.message : "Standort konnte nicht gelesen werden.");
@@ -1459,6 +1477,25 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
         <div className="space-y-3 px-4 pt-4">
           <Banner tone="warn">Stempeln geht nur aus einem Einsatz heraus. Öffne im Kalender den Einsatz und tippe dort auf „Stempeln“.</Banner>
           <Button variant="primary" full onClick={onOpenSchedule}>Zum Kalender</Button>
+        </div>
+      ) : null}
+
+      {/* Karte: Objekt als Markierung, Ausschnitt umfasst auch den eigenen Standort. */}
+      {selectedTask && selectedSiteHasGps && selectedClockSite?.latitude !== null && selectedClockSite?.longitude !== null ? (
+        <div className="px-4 pt-4">
+          <div className="overflow-hidden rounded-xl border border-paper-200">
+            <iframe
+              key={`${selectedClockSite?.latitude}-${selectedClockSite?.longitude}-${geoCheck?.latitude || ""}`}
+              title="Karte zum Objekt"
+              src={osmEmbedUrl(selectedClockSite!.latitude!, selectedClockSite!.longitude!, geoCheck?.latitude, geoCheck?.longitude)}
+              className="h-44 w-full border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          <p className="mt-1.5 text-[13px] text-ink-400">
+            Markierung ist das Objekt{geoCheck ? ` · du bist ${geoCheck.distance} m entfernt` : ""}. Erlaubt sind {selectedClockSite?.allowedRadiusM || 150} m.
+          </p>
         </div>
       ) : null}
 
