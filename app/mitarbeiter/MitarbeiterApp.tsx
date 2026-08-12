@@ -5,17 +5,20 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import {
   Banner,
   Button,
+  Chip,
+  ChipRow,
   DetailRow,
   EmptyState,
   SectionHeading,
   SegmentedTabs,
   StatusPill,
   Stepper,
+  TileInput,
   UiIcon,
   ValueTile,
   cx
 } from "@/components/ui";
-import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, startOfWeekIso } from "@/lib/format";
+import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, minutesBetweenHm, startOfWeekIso } from "@/lib/format";
 
 type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push";
 type ClockStatus = "idle" | "working" | "break";
@@ -1526,10 +1529,148 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
   );
 }
 
-function Timesheet({ entries, absences }: { entries: TimeEntry[]; absences: Absence[] }) {
+/** Einsatz, der gelaufen ist, aber nie gestempelt wurde. */
+type MissingShift = {
+  task: RawTask;
+  day: string;
+  plannedMinutes: number;
+};
+
+const NACHTRAG_REASONS = ["Stempeln vergessen", "Kein Empfang am Objekt", "Handy war leer", "Kurzfristig eingesprungen", "Sonstiges"];
+
+/** Vergangene Einsätze ohne erfasste Zeit finden. */
+function missingShiftsFrom(tasks: RawTask[], rawEntries: RawTimeEntry[]): MissingShift[] {
+  const bookedTaskIds = new Set(
+    rawEntries.filter((entry) => entry.action === "clock_out" && isSuccessfulTimeEntry(entry) && entry.task_id).map((entry) => String(entry.task_id))
+  );
+  const today = todayIso();
+  return tasks
+    .filter((task) => {
+      const day = String(task.task_date || "").slice(0, 10);
+      if (!day || day > today) return false;
+      return !bookedTaskIds.has(task.id);
+    })
+    .map((task) => ({ task, day: String(task.task_date).slice(0, 10), plannedMinutes: plannedMinutesOf(task) }))
+    .sort((a, b) => b.day.localeCompare(a.day));
+}
+
+function dayGroupLabel(day: string) {
+  const today = todayIso();
+  if (day === today) return "Heute";
+  if (day === addDaysIso(today, -1)) return "Gestern";
+  return formatDateDE(day);
+}
+
+function NachtragSheet({ shift, authToken, onClose, onDone }: { shift: MissingShift; authToken: string; onClose: () => void; onDone: () => Promise<void> }) {
+  const [startTime, setStartTime] = useState(formatTime(shift.task.start_time) === "—" ? "" : formatTime(shift.task.start_time));
+  const [endTime, setEndTime] = useState(formatTime(shift.task.end_time) === "—" ? "" : formatTime(shift.task.end_time));
+  const [breakMinutes, setBreakMinutes] = useState("0");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const gross = minutesBetweenHm(startTime, endTime);
+  const net = Math.max(0, gross - Number(breakMinutes || 0));
+
+  async function submit() {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/mobile/time-entry/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ taskId: shift.task.id, startTime, endTime, breakMinutes: Number(breakMinutes || 0), reason })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Zeit konnte nicht nachgetragen werden.");
+      await onDone();
+      onClose();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Zeit konnte nicht nachgetragen werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <BottomSheet
+      title="Zeit nachtragen"
+      onClose={onClose}
+      footer={
+        <Button variant="primary" full disabled={saving || !reason || net <= 0} onClick={submit}>
+          {saving ? "Sende…" : "Zeit nachtragen"}
+        </Button>
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[17px] font-bold text-ink-900">{shift.task.site || shift.task.customer_name || "Einsatz"}</p>
+          <p className="text-[14px] text-ink-400">{shift.task.task_category || shift.task.task_type || "Reinigung"}</p>
+        </div>
+        <StatusPill tone="pending">Nicht erfasst</StatusPill>
+      </div>
+
+      <DetailRow icon="calendar" label="Erledigt am" value={formatDateDE(shift.day)} />
+
+      <div className="grid grid-cols-2 gap-3 pt-1">
+        <TileInput icon="login" label="Von" value={startTime} onChange={setStartTime} placeholder="17:00" />
+        <TileInput icon="logout" label="Bis" value={endTime} onChange={setEndTime} placeholder="18:00" />
+      </div>
+
+      <TileInput icon="coffee" label="Pausenzeit" value={breakMinutes} onChange={setBreakMinutes} inputMode="numeric" suffix="min" />
+
+      <div>
+        <p className="pb-2 text-[13px] text-ink-400">Nachtragegrund</p>
+        <div className="flex flex-wrap gap-2">
+          {NACHTRAG_REASONS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setReason(preset)}
+              className={cx(
+                "rounded-full border px-3.5 py-2 text-[13px]",
+                reason === preset ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 text-ink-600"
+              )}
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between rounded-xl bg-paper-100 px-3.5 py-3">
+        <span className="text-[14px] text-ink-600">Wird gemeldet</span>
+        <span className="text-[17px] font-semibold text-ink-900">{hhmm(net)} h</span>
+      </div>
+
+      {error ? <Banner tone="danger">{error}</Banner> : null}
+      <p className="text-[13px] text-ink-400">Der Nachtrag geht ans Büro und wird dort freigegeben.</p>
+    </BottomSheet>
+  );
+}
+
+function Timesheet({ entries, absences, tasks, rawEntries, employee, authToken, onReload }: {
+  entries: TimeEntry[];
+  absences: Absence[];
+  tasks: RawTask[];
+  rawEntries: RawTimeEntry[];
+  employee?: Employee | null;
+  authToken: string;
+  onReload: () => Promise<void>;
+}) {
+  const [filter, setFilter] = useState<"all" | "missing">("all");
+  const [nachtrag, setNachtrag] = useState<MissingShift | null>(null);
   const total = useMemo(() => entries.reduce((sum, entry) => sum + entry.minutes, 0), [entries]);
+  const missing = useMemo(() => missingShiftsFrom(tasks, rawEntries), [tasks, rawEntries]);
+  const targetHours = Number(employee?.monthly_hour_limit || 0);
+  const percent = targetHours ? Math.min(100, Math.round((total / 60 / targetHours) * 100)) : 0;
   const vacationCount = absences.filter((absence) => `${absence.request_type || absence.absence_type || ""}`.toLowerCase().includes("urlaub")).length;
   const sickCount = absences.filter((absence) => `${absence.request_type || absence.absence_type || ""}`.toLowerCase().includes("krank")).length;
+  const missingByDay = useMemo(() => {
+    const map = new Map<string, MissingShift[]>();
+    for (const shift of missing) map.set(shift.day, [...(map.get(shift.day) || []), shift]);
+    return Array.from(map.entries());
+  }, [missing]);
   return (
     <div className="-mx-4 -mt-4">
       <div className="px-4 pt-2">
@@ -1538,10 +1679,55 @@ function Timesheet({ entries, absences }: { entries: TimeEntry[]; absences: Abse
       </div>
 
       <div className="px-4 pt-5">
-        <p className="text-[40px] font-bold leading-none tracking-tight text-ink-900">{hhmm(total)}<span className="text-[20px] font-semibold text-ink-400"> h</span></p>
-        <p className="mt-1 text-[14px] text-ink-400">erfasste Arbeitszeit in diesem Monat</p>
+        <p className="text-[13px] text-ink-400">Erfasste Stunden</p>
+        <p className="mt-1 text-[36px] font-bold leading-none tracking-tight text-ink-900">
+          {hhmm(total)} h
+          {targetHours ? <span className="text-[20px] font-semibold text-ink-200"> / {targetHours}:00 h</span> : null}
+        </p>
+        {targetHours ? (
+          <span className="mt-3 block h-2 rounded-full bg-paper-200">
+            <span className="block h-2 rounded-full bg-brand-600 transition-all" style={{ width: `${percent}%` }} />
+          </span>
+        ) : null}
       </div>
 
+      <ChipRow>
+        <Chip label="Alle" count={entries.length + missing.length} active={filter === "all"} onClick={() => setFilter("all")} />
+        <Chip label="Nicht erfasst" count={missing.length} active={filter === "missing"} onClick={() => setFilter("missing")} />
+      </ChipRow>
+
+      {missing.length ? (
+        <>
+          {filter === "all" ? <SectionHeading>Nicht erfasst</SectionHeading> : null}
+          {missingByDay.map(([day, shifts]) => (
+            <div key={day}>
+              <p className="px-4 pb-1 pt-3 text-[13px] text-ink-400">{dayGroupLabel(day)}</p>
+              {shifts.map((shift) => (
+                <button key={shift.task.id} onClick={() => setNachtrag(shift)} className="flex w-full items-start gap-3 border-b border-paper-200 px-4 py-3.5 text-left">
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 text-[14px] font-medium text-amber-700">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                      <span className="truncate">{shift.task.task_category || shift.task.task_type || "Reinigung"}</span>
+                    </span>
+                    <span className="mt-1 block text-[16px] font-semibold text-ink-900">{shift.task.site || shift.task.customer_name || "Einsatz"}</span>
+                    <span className="mt-0.5 block text-[13px] text-ink-400">{taskTime(shift.task)}{shift.plannedMinutes ? ` · geplant ${hhmm(shift.plannedMinutes)} h` : ""}</span>
+                  </span>
+                  <StatusPill tone="pending">Nicht erfasst</StatusPill>
+                </button>
+              ))}
+            </div>
+          ))}
+        </>
+      ) : null}
+
+      {filter === "missing" && !missing.length ? (
+        <EmptyState icon="check" title="Alles erfasst" text="Für vergangene Einsätze liegt überall eine Zeit vor." />
+      ) : null}
+
+      {nachtrag ? <NachtragSheet shift={nachtrag} authToken={authToken} onClose={() => setNachtrag(null)} onDone={onReload} /> : null}
+
+      {filter !== "all" ? null : (
+      <>
       {vacationCount || sickCount ? (
         <div className="grid grid-cols-2 gap-3 px-4 pt-4">
           <ValueTile icon="calendar" label="Urlaub" value={`${vacationCount} Anträge`} />
@@ -1549,9 +1735,11 @@ function Timesheet({ entries, absences }: { entries: TimeEntry[]; absences: Abse
         </div>
       ) : null}
 
-      <SectionHeading>Tage</SectionHeading>
+      <SectionHeading>Erfasste Tage</SectionHeading>
       {entries.length ? entries.map((entry) => <TimeRow key={entry.id} entry={entry} />) : (
-        <EmptyState icon="clock" title="Noch keine Zeiten" text="Sobald gestempelt wird, erscheinen die Tage hier." />
+        <p className="px-4 py-3 text-[14px] text-ink-400">In diesem Monat wurde noch nichts gestempelt.</p>
+      )}
+      </>
       )}
     </div>
   );
@@ -3615,7 +3803,17 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
           {active === "schedule" && <Schedule assignments={assignments} onOpenAssignment={openAssignment} />}
           {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => loadData(employeeName)} />}
           {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
-          {active === "timesheet" && <Timesheet entries={timeEntries} absences={data?.absences || []} />}
+          {active === "timesheet" && (
+            <Timesheet
+              entries={timeEntries}
+              absences={data?.absences || []}
+              tasks={data?.tasks || []}
+              rawEntries={data?.timeEntries || []}
+              employee={data?.employee}
+              authToken={authToken}
+              onReload={() => loadData(employeeName)}
+            />
+          )}
           {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => loadData(employeeName)} />}
           {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}
           {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => loadData(employeeName)} />}
