@@ -799,7 +799,7 @@ function EmployeeSelect({ employees, employeeName, onChange }: { employees: Empl
   );
 }
 
-function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange, onOpenAssignment }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void; onOpenAssignment: (assignment: Assignment) => void }) {
+function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChange, onOpenAssignment, onStartAssignment }: { data: AppData | null; assignments: Assignment[]; setActive: (tab: Tab) => void; employeeName: string; onEmployeeChange: (name: string) => void; onOpenAssignment: (assignment: Assignment) => void; onStartAssignment: (assignment: Assignment) => void }) {
   const employee = data?.employee;
   const todayTasks = assignments.filter((assignment) => assignment.date === todayIso());
   const doneToday = todayTasks.filter((assignment) => assignment.done).length;
@@ -810,14 +810,14 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
   const monthlyPercent = monthlyLimitHours ? Math.min(100, Math.round((monthlySeconds / 3600 / monthlyLimitHours) * 100)) : 0;
   const birthday = birthdayInfo(employee);
 
-  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tab: Tab }> = [
-    { title: "Stempeluhr", subtitle: "Ein- und ausstempeln", icon: "stopwatch", tab: "clock" },
-    { title: "Aufgaben", subtitle: `${openToday} offen heute`, icon: "check", tab: "tasks" },
-    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} Anträge`, icon: "calendar", tab: "absence" },
-    { title: "Material", subtitle: `${data?.materialReports?.length || 0} Bestellungen`, icon: "box", tab: "material" },
-    { title: "Qualitätsnachweis", subtitle: "Einsehen und erledigen", icon: "note", tab: "quality" },
-    { title: "Chat mit dem Büro", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat" },
-    { title: "Mehr", subtitle: "Objekte, Route, Profil", icon: "list", tab: "menu" }
+  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tab: Tab; tile: string }> = [
+    { title: "Stempeluhr", subtitle: "Ein- und ausstempeln", icon: "stopwatch", tab: "clock", tile: "bg-brand-50 text-brand-600" },
+    { title: "Aufgaben", subtitle: `${openToday} offen heute`, icon: "check", tab: "tasks", tile: "bg-violet-50 text-violet-600" },
+    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} Anträge`, icon: "calendar", tab: "absence", tile: "bg-emerald-50 text-emerald-600" },
+    { title: "Materialbestellung", subtitle: `${data?.materialReports?.length || 0} Bestellungen`, icon: "box", tab: "material", tile: "bg-amber-100 text-amber-700" },
+    { title: "Qualitätskontrolle", subtitle: "Bewerten und melden", icon: "note", tab: "quality", tile: "bg-sky-50 text-sky-600" },
+    { title: "Chat mit dem Büro", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat", tile: "bg-rose-100 text-rose-700" },
+    { title: "Mehr", subtitle: "Objekte, Route, Profil", icon: "list", tab: "menu", tile: "bg-paper-200 text-ink-600" }
   ];
 
   return (
@@ -859,7 +859,9 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
           <EmptyState icon="calendar" title="Heute nichts geplant" text="Für heute sind keine Einsätze eingetragen." />
         ) : (
           <div className="mt-1 divide-y divide-paper-200">
-            {todayTasks.map((assignment) => <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
+            {todayTasks.map((assignment) => (
+              <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} onStart={onStartAssignment} />
+            ))}
           </div>
         )}
       </section>
@@ -868,8 +870,10 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
         <h2 className="mb-1 text-[17px] font-bold text-ink-900">Weitere Funktionen</h2>
         <div className="divide-y divide-paper-200">
           {quickAccess.map((item) => (
-            <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-3 py-3.5 text-left">
-              <span className="shrink-0 text-ink-400"><UiIcon name={item.icon} className="h-[22px] w-[22px]" /></span>
+            <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-3 py-3 text-left">
+              <span className={cx("grid h-11 w-11 shrink-0 place-items-center rounded-xl", item.tile)}>
+                <UiIcon name={item.icon} className="h-[22px] w-[22px]" />
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[16px] font-semibold text-ink-900">{item.title}</span>
                 <span className="mt-0.5 block truncate text-[13px] text-ink-400">{item.subtitle}</span>
@@ -1012,15 +1016,15 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
 }
 
 /** Einsatzzeile: Art farbig, Objekt fett, Zeitfenster grau, rechts Status und Dauer. */
-function TaskRow({ assignment, onOpenAssignment }: { assignment: Assignment; onOpenAssignment?: (assignment: Assignment) => void }) {
+function TaskRow({ assignment, onOpenAssignment, onStart }: { assignment: Assignment; onOpenAssignment?: (assignment: Assignment) => void; onStart?: (assignment: Assignment) => void }) {
   const minutes = plannedMinutesOf(assignment.raw);
   const start = formatTime(assignment.raw?.start_time);
   const end = formatTime(assignment.raw?.end_time);
   const overdue = !assignment.done && assignment.priority === "overdue";
 
   return (
-    <button onClick={() => onOpenAssignment?.(assignment)} className="flex w-full items-start gap-3 py-4 text-left">
-      <div className="min-w-0 flex-1">
+    <div className="flex items-start gap-3 py-4">
+      <button onClick={() => onOpenAssignment?.(assignment)} className="min-w-0 flex-1 text-left">
         <p className="flex items-center gap-2 text-[14px] font-medium text-amber-700">
           <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
           <span className="truncate">{assignment.tag}</span>
@@ -1029,14 +1033,27 @@ function TaskRow({ assignment, onOpenAssignment }: { assignment: Assignment; onO
         <p className="mt-1 text-[14px] text-ink-400">
           {formatDayMonthDE(assignment.date)}
           {start !== "—" ? `  ${start}${end !== "—" ? ` → ${end}` : ""} Uhr` : "  Zeit offen"}
+          {minutes ? ` · ${hhmm(minutes)} h` : ""}
         </p>
         {overdue ? <p className="mt-1 text-[13px] font-medium text-danger-600">Überfällig</p> : null}
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-2">
-        <StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>
-        <span className="text-[16px] font-bold text-ink-900">{minutes ? `${hhmm(minutes)} h` : "—"}</span>
-      </div>
-    </button>
+      </button>
+
+      {/* Direkt starten, ohne Umweg über die Detailansicht. */}
+      {onStart && !assignment.done ? (
+        <button
+          onClick={() => onStart(assignment)}
+          className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-brand-600 text-white"
+          aria-label="Schicht starten"
+        >
+          <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+        </button>
+      ) : (
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>
+          {!onStart ? <span className="text-[16px] font-bold text-ink-900">{minutes ? `${hhmm(minutes)} h` : "—"}</span> : null}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2004,6 +2021,7 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
   }, [data?.tasks]);
   const [taskIndex, setTaskIndex] = useState(0);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [rating, setRating] = useState(0);
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoInputKey, setPhotoInputKey] = useState(0);
@@ -2024,6 +2042,7 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
 
   useEffect(() => {
     setChecked({});
+    setRating(0);
     setNotes("");
     setPhotos([]);
     setMessage(null);
@@ -2040,6 +2059,7 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
       formData.append("workSiteId", selectedTask.work_site_id || "");
       formData.append("workSiteName", selectedTask.site || selectedTask.customer_name || "Ohne Objekt");
       formData.append("checkedItems", JSON.stringify(checkedLabels));
+      formData.append("rating", String(rating));
       formData.append("notes", notes);
       photos.slice(0, 6).forEach((file) => formData.append("photos", file));
 
@@ -2087,6 +2107,28 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
           </div>
           <DetailRow icon="pin" label="Objekt" value={selectedTask?.site || "—"} hint={selectedTask?.customer_name || "Kunde offen"} />
           <DetailRow icon="note" label="Reinigungsplan" value={selectedPlan?.name || "Standard-Checkliste"} />
+
+          <SectionHeading>Bewertung</SectionHeading>
+          <div className="px-4 pb-1">
+            <div className="flex items-center justify-center gap-2 rounded-xl border border-paper-200 py-4">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star === rating ? 0 : star)}
+                  aria-label={`${star} von 5`}
+                  className={cx("transition", star <= rating ? "text-amber-500" : "text-paper-300")}
+                >
+                  <svg viewBox="0 0 24 24" className="h-9 w-9" fill="currentColor" aria-hidden="true">
+                    <path d="m12 3 2.6 5.9 6.4.6-4.9 4.3 1.5 6.3L12 16.9 6.4 20.1l1.5-6.3-4.9-4.3 6.4-.6L12 3Z" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-center text-[13px] text-ink-400">
+              {rating ? ["", "Mangelhaft", "Ausbaufähig", "In Ordnung", "Gut", "Sehr gut"][rating] : "Wie sauber ist das Objekt geworden?"}
+            </p>
+          </div>
 
           <SectionHeading
             right={
@@ -3799,7 +3841,7 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && (
         <>
-          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onOpenAssignment={openAssignment} />}
+          {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onOpenAssignment={openAssignment} onStartAssignment={(assignment) => { setSelectedTaskId(assignment.id); setActive("clock"); }} />}
           {active === "schedule" && <Schedule assignments={assignments} onOpenAssignment={openAssignment} />}
           {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => loadData(employeeName)} />}
           {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => loadData(employeeName)} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}

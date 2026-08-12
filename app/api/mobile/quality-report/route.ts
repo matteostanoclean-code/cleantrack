@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { safeInsert } from "@/lib/safeWrite";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,7 @@ async function parseBody(request: Request) {
       workSiteName: form.get("workSiteName") || form.get("siteName") || form.get("objectName"),
       checkedItems: normalizeList(form.get("checkedItems")),
       notes: form.get("notes"),
+      rating: form.get("rating") as unknown,
       files: form.getAll("photos").filter((item): item is File => item instanceof File && item.size > 0).slice(0, 6)
     };
   }
@@ -69,6 +71,7 @@ async function parseBody(request: Request) {
     workSiteName: body.workSiteName || body.siteName || body.objectName,
     checkedItems: normalizeList(body.checkedItems),
     notes: body.notes,
+    rating: body.rating as unknown,
     files: [] as File[]
   };
 }
@@ -85,6 +88,7 @@ export async function POST(request: Request) {
     const workSiteId = nullableUuid(body.workSiteId);
     const checkedItems = normalizeList(body.checkedItems);
     const notes = clean(body.notes);
+    const rating = Math.min(5, Math.max(0, Math.round(Number(body.rating) || 0)));
     const workSiteName = clean(body.workSiteName);
 
     if (!taskId && !workSiteId) {
@@ -143,18 +147,17 @@ export async function POST(request: Request) {
       status: "submitted",
       photo_urls: uploadedPhotos,
       photo_count: uploadedPhotos.length,
+      // Sternebewertung. Die Spalte gibt es evtl. noch nicht, safeInsert laesst sie dann weg.
+      rating: rating || null,
       created_at: new Date().toISOString()
     };
 
     let qualityReport: AnyRow | null = null;
-    const reportResult = await auth.supabase
-      .from("quality_reports")
-      .insert(reportPayload)
-      .select("*")
-      .single();
-
-    if (!reportResult.error) {
-      qualityReport = reportResult.data;
+    try {
+      const saved = await safeInsert(auth.supabase, "quality_reports", reportPayload);
+      qualityReport = saved.data;
+    } catch {
+      qualityReport = null;
     }
 
     const messageLines = [
@@ -187,7 +190,7 @@ export async function POST(request: Request) {
         .eq("id", taskId);
     }
 
-    return NextResponse.json({ ok: true, report: qualityReport, photoUrls: uploadedPhotos, usedFallback: Boolean(reportResult.error) });
+    return NextResponse.json({ ok: true, report: qualityReport, photoUrls: uploadedPhotos, usedFallback: !qualityReport });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Qualitätsnachweis konnte nicht gespeichert werden.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
