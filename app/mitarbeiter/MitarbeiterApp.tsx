@@ -3856,7 +3856,8 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { href: "/mitarbeiter/admin", label: "Admin-Dashboard" },
     { href: "/mitarbeiter/freigaben", label: "Freigaben" },
     { href: "/mitarbeiter/admin?tab=employees", label: "Mitarbeiter anlegen" },
-    { href: "/mitarbeiter/aktivieren", label: "Mitarbeiter-Login vergeben" }
+    { href: "/mitarbeiter/aktivieren", label: "Mitarbeiter-Login vergeben" },
+    { href: "/mitarbeiter/admin/geraete", label: "Geräte und Inventar" }
   ];
 
   return (

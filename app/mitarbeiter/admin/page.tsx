@@ -525,6 +525,7 @@ export default function AdminDashboardPage() {
               <NavRow onClick={() => setTab("sites")} label="Objekte" count={data?.workSites?.length || 0} />
               <NavRow onClick={() => setTab("employees")} label="Mitarbeiter" count={data?.employees?.length || 0} />
               <NavRow href="/mitarbeiter/aktivieren" label="Mitarbeiter-Login vergeben" hint="Zugang für neue Leute" />
+              <NavRow href="/mitarbeiter/admin/geraete" label="Geräte und Inventar" hint="Maschinen je Objekt, Wartung, QR-Code" />
             </section>
 
             <section className="pt-3">
