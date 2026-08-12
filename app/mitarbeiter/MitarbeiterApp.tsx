@@ -787,24 +787,20 @@ function Header({ unreadCount = 0, employee, onOpenNotifications, onOpenMenu }: 
       className="sticky top-0 z-30 bg-white px-4 pb-3"
       style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
     >
+      {/* Kopfzeile wie in der Vorlage: Bild, Begrüßung, Zahnrad. Die Glocke ist
+          weg, ungelesene Meldungen stehen jetzt am Inbox-Reiter unten. */}
       <div className="flex items-center justify-between">
-        <button onClick={onOpenMenu} className="flex items-center gap-3 text-left">
+        <button onClick={onOpenMenu} className="flex min-w-0 items-center gap-3 text-left">
           {employee?.avatar_url ? (
-            <img src={employee.avatar_url} alt="" className="h-11 w-11 rounded-full object-cover" />
+            <img src={employee.avatar_url} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
           ) : (
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">{initials}</div>
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-600 text-sm font-bold text-white">{initials}</div>
           )}
-          <p className="text-[20px] font-bold tracking-tight text-ink-900">Hallo, {firstName} 👋</p>
+          <p className="truncate text-[22px] font-bold tracking-tight text-ink-900">Hallo, {firstName} 👋</p>
         </button>
-        <div className="flex items-center gap-2">
-          <button onClick={onOpenNotifications} className="relative rounded-full p-2 text-ink-600" aria-label="Benachrichtigungen öffnen">
-            <Icon name="inbox" />
-            {unreadCount > 0 ? <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
-          </button>
-          <button onClick={onOpenMenu} className="rounded-full p-2 text-ink-600" aria-label="Menü öffnen">
-            <Icon name="settings" />
-          </button>
-        </div>
+        <button onClick={onOpenMenu} className="shrink-0 rounded-full p-2 text-ink-600" aria-label="Einstellungen öffnen">
+          <Icon name="settings" />
+        </button>
       </div>
     </header>
   );
@@ -845,15 +841,23 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
   const monthlyPercent = monthlyLimitHours ? Math.min(100, Math.round((monthlySeconds / 3600 / monthlyLimitHours) * 100)) : 0;
   const birthday = birthdayInfo(employee);
 
-  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tab: Tab; tile: string }> = [
-    { title: "Stempeluhr", subtitle: "Ein- und ausstempeln", icon: "stopwatch", tab: "clock", tile: "bg-brand-50 text-brand-600" },
-    { title: "Aufgaben", subtitle: `${openToday} offen heute`, icon: "check", tab: "tasks", tile: "bg-violet-50 text-violet-600" },
-    { title: "Abwesenheit", subtitle: `${data?.absences?.length || 0} Anträge`, icon: "calendar", tab: "absence", tile: "bg-emerald-50 text-emerald-600" },
-    { title: "Materialbestellung", subtitle: `${data?.materialReports?.length || 0} Bestellungen`, icon: "box", tab: "material", tile: "bg-amber-100 text-amber-700" },
-    { title: "Qualitätskontrolle", subtitle: "Bewerten und melden", icon: "note", tab: "quality", tile: "bg-sky-50 text-sky-600" },
-    { title: "Chat mit dem Büro", subtitle: `${data?.chatMessages?.length || 0} Nachrichten`, icon: "chat", tab: "chat", tile: "bg-rose-100 text-rose-700" },
-    { title: "Mehr", subtitle: "Objekte, Route, Profil", icon: "list", tab: "menu", tile: "bg-paper-200 text-ink-600" }
-  ];
+  // Schnellzugriffe wie in der Vorlage: Titel, erklärender Untertitel, farbige
+  // Kachel. Für Admins die Büro-Einstiege, für Mitarbeiter der Arbeitsalltag.
+  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tile: string; tab?: Tab; href?: string }> = data?.isAdmin
+    ? [
+        { title: "Einsatzübersicht", subtitle: "Übersicht aller Einsätze für heute", icon: "list", tile: "bg-sky-50 text-sky-600", href: "/mitarbeiter/admin/tageszentrale" },
+        { title: "Zeitenfreigabe", subtitle: "Zeitstempel prüfen und freigeben", icon: "stopwatch", tile: "bg-emerald-50 text-emerald-600", href: "/mitarbeiter/admin/zeiten" },
+        { title: "Abwesenheit", subtitle: "Abwesenheiten einreichen und einsehen", icon: "calendar", tile: "bg-emerald-50 text-emerald-600", tab: "absence" },
+        { title: "Materialbestellung", subtitle: "Bestellungen einreichen und einsehen", icon: "box", tile: "bg-amber-100 text-amber-700", tab: "material" },
+        { title: "Aufgaben", subtitle: "Aufgaben erstellen und verwalten", icon: "check", tile: "bg-violet-50 text-violet-600", tab: "tasks" }
+      ]
+    : [
+        { title: "Stempeluhr", subtitle: "Ein- und ausstempeln am Objekt", icon: "stopwatch", tile: "bg-brand-50 text-brand-600", tab: "clock" },
+        { title: "Stundenzettel", subtitle: "Zeiten sehen und nachtragen", icon: "clock", tile: "bg-sky-50 text-sky-600", tab: "timesheet" },
+        { title: "Abwesenheit", subtitle: "Abwesenheiten einreichen und einsehen", icon: "calendar", tile: "bg-emerald-50 text-emerald-600", tab: "absence" },
+        { title: "Materialbestellung", subtitle: "Bestellungen einreichen und einsehen", icon: "box", tile: "bg-amber-100 text-amber-700", tab: "material" },
+        { title: "Qualitätskontrolle", subtitle: "Bewerten und Nachweis senden", icon: "note", tile: "bg-violet-50 text-violet-600", tab: "quality" }
+      ];
 
   return (
     <div className="space-y-5">
@@ -881,42 +885,81 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
         </span>
       </button>
 
+      {/* Heutige Aufgaben als Karten zum Wischen, eine nach der anderen, mit
+          Startknopf. So steht in der Vorlage immer genau eine im Blick. */}
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-bold text-ink-900">Heutige Einsätze</h2>
-          <span className="text-sm text-ink-400">{doneToday}/{todayTasks.length || 0}</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-paper-200">
-          <div className="h-1.5 rounded-full bg-brand-600" style={{ width: `${progress}%` }} />
+          <h2 className="text-[15px] text-ink-400">Heutige Aufgaben</h2>
+          <span className="text-[14px] text-ink-400">{doneToday}/{todayTasks.length || 0}</span>
         </div>
 
         {todayTasks.length === 0 ? (
           <EmptyState icon="calendar" title="Heute nichts geplant" text="Für heute sind keine Einsätze eingetragen." />
         ) : (
-          <div className="mt-1 divide-y divide-paper-200">
-            {todayTasks.map((assignment) => (
-              <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} onStart={onStartAssignment} />
-            ))}
-          </div>
+          <>
+            <div className="no-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1">
+              {todayTasks.map((assignment) => (
+                <article key={assignment.id} className="w-[85%] shrink-0 snap-start rounded-2xl border border-paper-200 p-4">
+                  <button onClick={() => onOpenAssignment(assignment)} className="block w-full text-left">
+                    <p className="flex items-center gap-2 text-[14px] font-medium text-amber-700">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                      <span className="truncate">{assignment.tag}</span>
+                    </p>
+                    <p className="mt-1.5 text-[18px] font-bold text-ink-900">{assignment.title}</p>
+                    <p className="mt-1 text-[14px] text-ink-400">
+                      {assignment.time}
+                      {plannedMinutesOf(assignment.raw) ? ` · ${hhmm(plannedMinutesOf(assignment.raw))} h` : ""}
+                    </p>
+                  </button>
+                  <div className="mt-3 flex items-center justify-between">
+                    <StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>
+                    {!assignment.done ? (
+                      <button
+                        onClick={() => onStartAssignment(assignment)}
+                        className="grid h-12 w-12 place-items-center rounded-full bg-brand-600 text-white"
+                        aria-label="Schicht starten"
+                      >
+                        <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+            {todayTasks.length > 1 ? (
+              <div className="mt-2 flex justify-center gap-1.5">
+                {todayTasks.map((assignment) => <span key={assignment.id} className="h-1.5 w-1.5 rounded-full bg-paper-300" />)}
+              </div>
+            ) : null}
+          </>
         )}
       </section>
 
       <section>
-        <h2 className="mb-1 text-[17px] font-bold text-ink-900">Weitere Funktionen</h2>
+        <h2 className="mb-1 text-[15px] text-ink-400">Schnellzugriffe</h2>
         <div className="divide-y divide-paper-200">
-          {quickAccess.map((item) => (
-            <button key={item.title} onClick={() => setActive(item.tab)} className="flex w-full items-center gap-3 py-3 text-left">
-              <span className={cx("grid h-11 w-11 shrink-0 place-items-center rounded-xl", item.tile)}>
-                <UiIcon name={item.icon} className="h-[22px] w-[22px]" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[16px] font-semibold text-ink-900">{item.title}</span>
-                <span className="mt-0.5 block truncate text-[13px] text-ink-400">{item.subtitle}</span>
-              </span>
-              <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
-            </button>
-          ))}
+          {quickAccess.map((item) => {
+            const inner = (
+              <>
+                <span className={cx("grid h-11 w-11 shrink-0 place-items-center rounded-xl", item.tile)}>
+                  <UiIcon name={item.icon} className="h-[22px] w-[22px]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[16px] font-semibold text-ink-900">{item.title}</span>
+                  <span className="mt-0.5 block truncate text-[13px] text-ink-400">{item.subtitle}</span>
+                </span>
+                <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
+              </>
+            );
+            const className = "flex w-full items-center gap-3 py-3 text-left";
+            return item.href
+              ? <a key={item.title} href={item.href} className={className}>{inner}</a>
+              : <button key={item.title} onClick={() => item.tab && setActive(item.tab)} className={className}>{inner}</button>;
+          })}
         </div>
+        <button onClick={() => setActive("menu")} className="mt-3 w-full rounded-xl border border-paper-200 py-3 text-[15px] font-semibold text-brand-700">
+          Alle Funktionen
+        </button>
       </section>
     </div>
   );
