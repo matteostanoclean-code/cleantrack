@@ -13,6 +13,27 @@ function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/**
+ * Anmeldekonto zu einer E-Mail suchen.
+ *
+ * Supabase bietet dafür keine direkte Abfrage, deshalb wird die Nutzerliste
+ * seitenweise durchgegangen. Bei der Größe dieses Betriebs sind das ein bis
+ * zwei Seiten. Die Adresse wird ohne Rücksicht auf Groß- und Kleinschreibung
+ * verglichen, sonst findet "Matteo@" das Konto "matteo@" nicht.
+ */
+async function findAuthUserByEmail(supabase: any, email: string) {
+  const wanted = email.trim().toLowerCase();
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(error.message);
+    const users = data?.users || [];
+    const hit = users.find((user: any) => String(user.email || "").trim().toLowerCase() === wanted);
+    if (hit) return hit;
+    if (users.length < 200) return null;
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const auth = await getAuthenticatedMobileProfile(request);
@@ -73,13 +94,46 @@ export async function POST(request: Request) {
 
       if (createError) {
         const lowerMessage = createError.message.toLowerCase();
-        if (lowerMessage.includes("already") || lowerMessage.includes("registered") || lowerMessage.includes("exists")) {
-          return NextResponse.json({ ok: false, error: "Für diese E-Mail gibt es schon einen Auth-Login. Bitte verknüpfe zuerst auth_user_id oder nutze eine andere E-Mail." }, { status: 409 });
-        }
-        throw new Error(createError.message);
-      }
+        const alreadyExists = lowerMessage.includes("already") || lowerMessage.includes("registered") || lowerMessage.includes("exists");
+        if (!alreadyExists) throw new Error(createError.message);
 
-      authUserId = createdUser.user?.id || "";
+        // Es gibt bereits ein Anmeldekonto mit dieser Adresse, meist ein
+        // uebrig gebliebenes aus einer frueheren Testphase. Statt abzubrechen
+        // wird es uebernommen: neues Passwort setzen und mit dem Profil
+        // verknuepfen. Haengt es schon an einem anderen Profil, brechen wir ab.
+        const existing = await findAuthUserByEmail(auth.supabase, email);
+        if (!existing) {
+          return NextResponse.json({
+            ok: false,
+            error: "Für diese E-Mail gibt es bereits ein Anmeldekonto, das sich nicht finden lässt. Bitte eine andere E-Mail verwenden."
+          }, { status: 409 });
+        }
+
+        const inUse = await auth.supabase
+          .from("employee_profiles")
+          .select("id, name")
+          .eq("auth_user_id", existing.id)
+          .neq("id", employeeId)
+          .maybeSingle();
+
+        if (!inUse.error && inUse.data) {
+          return NextResponse.json({
+            ok: false,
+            error: `Dieses Anmeldekonto gehört bereits zu ${inUse.data.name}. Bitte eine andere E-Mail verwenden.`
+          }, { status: 409 });
+        }
+
+        const { error: takeoverError } = await auth.supabase.auth.admin.updateUserById(existing.id, {
+          password,
+          email_confirm: true,
+          user_metadata: { name, role }
+        });
+        if (takeoverError) throw new Error(takeoverError.message);
+
+        authUserId = existing.id;
+      } else {
+        authUserId = createdUser.user?.id || "";
+      }
     }
 
     if (!authUserId) {
