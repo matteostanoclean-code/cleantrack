@@ -43,6 +43,7 @@ type Employee = {
 type RawTask = {
   id: string;
   title?: string | null;
+  travel_minutes?: number | null;
   site?: string | null;
   employee_name?: string | null;
   task_date?: string | null;
@@ -949,6 +950,8 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
     .sort((a, b) => String(a.raw?.start_time || "99:99").localeCompare(String(b.raw?.start_time || "99:99"))), [assignments, selectedDay]);
 
   const doneCount = dayAssignments.filter((assignment) => assignment.done).length;
+  const overdueCount = dayAssignments.filter((assignment) => !assignment.done && String(assignment.date || "") < todayIso()).length;
+  const openCount = dayAssignments.length - doneCount - overdueCount;
   const progress = dayAssignments.length ? Math.round((doneCount / dayAssignments.length) * 100) : 0;
   const plannedMinutes = dayAssignments.reduce((sum, assignment) => sum + plannedMinutesOf(assignment.raw), 0);
   const isToday = selectedDay === todayIso();
@@ -990,6 +993,13 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
         })}
       </div>
 
+      {/* Statusboxen wie in der Vorlage: auf einen Blick, was der Tag bedeutet. */}
+      <div className="space-y-2">
+        <StatusBox tone="danger" label="Überfällig" count={overdueCount} />
+        <StatusBox tone="warn" label="Offen" count={openCount} />
+        <StatusBox tone="success" label="Erledigt" count={doneCount} />
+      </div>
+
       <div className="flex items-center justify-between gap-3">
         <p className="text-[15px] text-ink-400">{isToday ? "Heutige Aufgaben" : `Aufgaben am ${formatDayMonthDE(selectedDay)}`}</p>
         <div className="flex items-center gap-2">
@@ -1011,6 +1021,21 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
       {plannedMinutes ? (
         <p className="pt-1 text-[14px] text-ink-400">Geplante Zeit an diesem Tag: <span className="font-semibold text-ink-800">{hhmm(plannedMinutes)} h</span></p>
       ) : null}
+    </div>
+  );
+}
+
+/** Farbige Statusbox mit Zahl, wie in der Vorlage. */
+function StatusBox({ tone, label, count }: { tone: "danger" | "warn" | "success"; label: string; count: number }) {
+  const styles = {
+    danger: "border-danger-500 bg-danger-50 text-danger-700",
+    warn: "border-amber-500 bg-amber-100 text-amber-700",
+    success: "border-success-500 bg-success-50 text-success-700"
+  }[tone];
+  return (
+    <div className={cx("flex items-center justify-between rounded-xl border px-4 py-3", styles)}>
+      <span className="text-[16px] font-semibold">{label}</span>
+      <span className="grid h-7 min-w-7 place-items-center rounded-full bg-white px-2 text-[14px] font-bold">{count}</span>
     </div>
   );
 }
@@ -1156,13 +1181,50 @@ function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQualit
 
       {detailTab === "task" ? (
         <>
-          <DetailRow icon="flag" label="Aufgabentyp" value={task.task_category || task.task_type || "Reinigung"} />
-          <DetailRow icon="priority" label="Priorität" value={priorityLabel} tone={priority === "overdue" ? "danger" : "default"} />
           <DetailRow icon="pin" label="Objekt" value={task.site || "Ohne Objekt"} hint={task.customer_name || undefined} />
+          <DetailRow icon="list" label="Auftrag" value={task.task_category || task.task_type || "Reinigung"} />
+          <DetailRow icon="user" label="Mitarbeiter" value={task.employee_name || "Nicht zugewiesen"} />
+          <DetailRow icon="priority" label="Priorität" value={priorityLabel} tone={priority === "overdue" ? "danger" : "default"} />
+
+          <SectionHeading>Zeitangaben</SectionHeading>
           <DetailRow icon="calendar" label="Datum" value={formatDateDE(task.task_date)} />
-          <DetailRow icon="clock" label="Zeitraum" value={taskTime(task)} />
-          <DetailRow icon="target" label="Soll-Zeit" value={planned ? `${hhmm(planned)} h` : "Keine Vorgabe"} />
-          {task.notes ? <DetailRow icon="note" label="Hinweis vom Büro" value={task.notes} /> : null}
+          <div className="px-4 pb-1 pt-2">
+            <div className="grid grid-cols-3 divide-x divide-paper-200 rounded-xl bg-paper-100 py-3 text-center">
+              <div>
+                <p className="text-[13px] text-ink-400">Startzeit</p>
+                <p className="mt-0.5 text-[17px] font-semibold text-ink-900">{formatTime(task.start_time)}</p>
+              </div>
+              <div>
+                <p className="text-[13px] text-ink-400">Endzeit</p>
+                <p className="mt-0.5 text-[17px] font-semibold text-ink-900">{formatTime(task.end_time)}</p>
+              </div>
+              <div>
+                <p className="text-[13px] text-ink-400">Dauer</p>
+                <p className="mt-0.5 text-[17px] font-semibold text-brand-600">{planned ? `${hhmm(planned)} h` : "—"}</p>
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-paper-200 px-4">
+            <div className="flex items-center justify-between py-3">
+              <span className="text-[15px] text-ink-600">Pausenzeit</span>
+              <span className="text-[15px] font-semibold text-ink-900">{Number(task.break_minutes || 0)} min</span>
+            </div>
+            <div className="flex items-center justify-between py-3">
+              <span className="text-[15px] text-ink-600">Fahrzeit</span>
+              <span className="text-[15px] font-semibold text-ink-900">{Number(task.travel_minutes || 0)} min</span>
+            </div>
+            <div className="flex items-center justify-between py-3">
+              <span className="text-[15px] text-ink-600">Bezahlte Zeit</span>
+              <span className="text-[15px] font-semibold text-brand-600">{hhmm(Number(task.paid_minutes || task.wage_minutes || planned || 0))} h</span>
+            </div>
+          </div>
+
+          {task.notes ? (
+            <>
+              <SectionHeading>Kommentar</SectionHeading>
+              <p className="px-4 pb-1 text-[15px] text-ink-800">{task.notes}</p>
+            </>
+          ) : null}
 
           <SectionHeading>Checkliste</SectionHeading>
           {planItems.length ? planItems.slice(0, 12).map((item) => (

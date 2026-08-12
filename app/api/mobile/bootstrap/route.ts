@@ -58,7 +58,7 @@ export async function GET(request: Request) {
     const [tasksResult, timeEntriesResult, absencesResult, notificationsResult, chatMessagesResult, employeeWorkSitesResult] = await Promise.all([
       supabase
         .from("tasks")
-        .select("id, title, site, employee_name, task_date, done, created_at, start_time, end_time, max_minutes, work_site_id, planned_minutes, overtime_requested, notes, status, priority, identifier, due_date, customer_id, customer_name, task_type, schedule_type, break_minutes, approved_overtime_minutes, overtime_status, item_type, task_category, paid_minutes, wage_minutes, quality_required, quality_photo_required, quality_checklist")
+        .select("id, title, site, employee_name, task_date, done, created_at, start_time, end_time, max_minutes, work_site_id, planned_minutes, overtime_requested, notes, status, priority, identifier, due_date, customer_id, customer_name, task_type, schedule_type, break_minutes, travel_minutes, approved_overtime_minutes, overtime_status, item_type, task_category, paid_minutes, wage_minutes, quality_required, quality_photo_required, quality_checklist")
         .eq("employee_name", employeeName)
         .gte("task_date", fromDate)
         .lte("task_date", toDate)
