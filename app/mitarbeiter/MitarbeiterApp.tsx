@@ -281,6 +281,7 @@ type AppData = {
   ok: boolean;
   error?: string;
   isAdmin?: boolean;
+  viewer?: { name: string; role: string } | null;
   employees: Employee[];
   employee: Employee | null;
   tasks: RawTask[];
@@ -841,9 +842,14 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
   const monthlyPercent = monthlyLimitHours ? Math.min(100, Math.round((monthlySeconds / 3600 / monthlyLimitHours) * 100)) : 0;
   const birthday = birthdayInfo(employee);
 
+  // Sieht ein Admin gerade jemand anderen an, zeigen wir dessen Arbeitsalltag,
+  // nicht die Bueroeinstiege. Sonst steht bei "Matteo Stano" die Zeitenfreigabe.
+  const viewingOther = Boolean(data?.isAdmin && data?.viewer?.name && data.viewer.name !== employee?.name);
+  const showAdminShortcuts = Boolean(data?.isAdmin) && !viewingOther;
+
   // Schnellzugriffe wie in der Vorlage: Titel, erklärender Untertitel, farbige
   // Kachel. Für Admins die Büro-Einstiege, für Mitarbeiter der Arbeitsalltag.
-  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tile: string; tab?: Tab; href?: string }> = data?.isAdmin
+  const quickAccess: Array<{ title: string; subtitle: string; icon: string; tile: string; tab?: Tab; href?: string }> = showAdminShortcuts
     ? [
         { title: "Einsatzübersicht", subtitle: "Übersicht aller Einsätze für heute", icon: "list", tile: "bg-sky-50 text-sky-600", href: "/mitarbeiter/admin/tageszentrale" },
         { title: "Zeitenfreigabe", subtitle: "Zeitstempel prüfen und freigeben", icon: "stopwatch", tile: "bg-emerald-50 text-emerald-600", href: "/mitarbeiter/admin/zeiten" },
@@ -861,7 +867,20 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
 
   return (
     <div className="space-y-5">
-      {data?.isAdmin ? <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} /> : null}
+      {data?.isAdmin ? (
+        <div className="space-y-2">
+          <EmployeeSelect employees={data?.employees || []} employeeName={employeeName} onChange={onEmployeeChange} />
+          {viewingOther ? (
+            <div className="flex items-center gap-3 rounded-xl bg-amber-100 px-4 py-3">
+              <span className="shrink-0 text-amber-700"><UiIcon name="user" className="h-[20px] w-[20px]" /></span>
+              <p className="min-w-0 flex-1 text-[14px] text-amber-700">
+                Du siehst die Ansicht von <span className="font-semibold">{employee?.name}</span>. Angemeldet bist du als {data?.viewer?.name}.
+              </p>
+              <button onClick={() => onEmployeeChange(data?.viewer?.name || "")} className="shrink-0 text-[14px] font-semibold text-amber-700">Zurück</button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {birthday?.isToday ? (
         <div className="rounded-2xl bg-brand-50 p-4">

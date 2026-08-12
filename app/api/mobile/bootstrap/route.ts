@@ -177,6 +177,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       isAdmin,
+      // Wer angemeldet ist, unabhaengig davon, wessen Daten gerade angezeigt werden.
+      viewer: { name: profile.name, role: profile.role || "employee" },
       employees: isAdmin ? employees : [profile],
       employee: selectedEmployee,
       tasks: tasksResult.data || [],
