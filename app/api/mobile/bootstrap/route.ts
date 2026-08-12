@@ -112,17 +112,16 @@ export async function GET(request: Request) {
     let workSites: any[] = [];
 
     if (workSiteIds.length) {
-      const sitesResult = await supabase
-        .from("work_sites")
-        .select("*")
-        .in("id", workSiteIds);
+      // Objekte und Reinigungsplaene gleichzeitig holen, sie brauchen sich nicht.
+      const [sitesResult, plansResult] = await Promise.all([
+        supabase.from("work_sites").select("*").in("id", workSiteIds),
+        supabase
+          .from("cleaning_plans")
+          .select("id, name, customer_id, customer_name, work_site_id, site_name, description, comments, status, language, template_type, created_at, updated_at")
+          .in("work_site_id", workSiteIds)
+          .order("updated_at", { ascending: false })
+      ]);
       if (!sitesResult.error) workSites = sitesResult.data || [];
-
-      const plansResult = await supabase
-        .from("cleaning_plans")
-        .select("id, name, customer_id, customer_name, work_site_id, site_name, description, comments, status, language, template_type, created_at, updated_at")
-        .in("work_site_id", workSiteIds)
-        .order("updated_at", { ascending: false });
       if (!plansResult.error) {
         cleaningPlans = plansResult.data || [];
         const planIds = cleaningPlans.map((plan: any) => plan.id).filter(Boolean);
@@ -138,38 +137,41 @@ export async function GET(request: Request) {
       }
     }
 
-    const qualityResult = await supabase
-      .from("quality_reports")
-      .select("*")
-      .eq("employee_name", employeeName)
-      .order("created_at", { ascending: false })
-      .limit(30);
-    if (!qualityResult.error) qualityReports = qualityResult.data || [];
-
-    const serviceResult = await supabase
-      .from("service_reports")
-      .select("*")
-      .eq("employee_name", employeeName)
-      .order("created_at", { ascending: false })
-      .limit(30);
-    if (!serviceResult.error) serviceReports = serviceResult.data || [];
-
     let materialProducts: any[] = [];
     let materialReports: any[] = [];
 
-    const productResult = await supabase
-      .from("material_products")
-      .select("*")
-      .order("name", { ascending: true })
-      .limit(100);
-    if (!productResult.error) materialProducts = productResult.data || [];
+    // Diese vier haengen nicht voneinander ab und laufen deshalb gleichzeitig.
+    // Vorher waren es vier Wartezeiten hintereinander, das war auf dem Handy
+    // deutlich zu spueren.
+    const [qualityResult, serviceResult, productResult, reportResult] = await Promise.all([
+      supabase
+        .from("quality_reports")
+        .select("*")
+        .eq("employee_name", employeeName)
+        .order("created_at", { ascending: false })
+        .limit(30),
+      supabase
+        .from("service_reports")
+        .select("*")
+        .eq("employee_name", employeeName)
+        .order("created_at", { ascending: false })
+        .limit(30),
+      supabase
+        .from("material_products")
+        .select("*")
+        .order("name", { ascending: true })
+        .limit(100),
+      supabase
+        .from("material_reports")
+        .select("*")
+        .eq("employee_name", employeeName)
+        .order("created_at", { ascending: false })
+        .limit(20)
+    ]);
 
-    const reportResult = await supabase
-      .from("material_reports")
-      .select("*")
-      .eq("employee_name", employeeName)
-      .order("created_at", { ascending: false })
-      .limit(20);
+    if (!qualityResult.error) qualityReports = qualityResult.data || [];
+    if (!serviceResult.error) serviceReports = serviceResult.data || [];
+    if (!productResult.error) materialProducts = productResult.data || [];
     if (!reportResult.error) materialReports = reportResult.data || [];
 
     return NextResponse.json({

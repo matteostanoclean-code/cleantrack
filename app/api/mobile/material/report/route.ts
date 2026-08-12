@@ -95,6 +95,43 @@ async function parseBody(request: Request) {
   };
 }
 
+/**
+ * Eigene Bestellung abschließen.
+ *
+ * Der Mitarbeiter darf nur seine eigenen Meldungen schließen, Admins alle.
+ * Eine Bestellung besteht aus mehreren Zeilen (eine je Artikel), deshalb
+ * kommen mehrere IDs auf einmal.
+ */
+export async function PATCH(request: Request) {
+  try {
+    const auth = await getAuthenticatedMobileProfile(request);
+    if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+
+    const body = (await request.json()) as AnyRow;
+    const ids = (Array.isArray(body.ids) ? body.ids : [body.id]).map((value: unknown) => text(value)).filter(Boolean);
+    if (!ids.length) return NextResponse.json({ ok: false, error: "Keine Bestellung angegeben." }, { status: 400 });
+
+    const status = text(body.status).toLowerCase() === "open" ? "open" : "done";
+
+    const existing = await auth.supabase.from("material_reports").select("id, employee_name").in("id", ids);
+    if (existing.error) throw new Error(existing.error.message);
+    if (!existing.data?.length) return NextResponse.json({ ok: false, error: "Bestellung wurde nicht gefunden." }, { status: 404 });
+
+    if (!auth.isAdmin) {
+      const foreign = existing.data.some((row: AnyRow) => text(row.employee_name).toLowerCase() !== text(auth.profile.name).toLowerCase());
+      if (foreign) return NextResponse.json({ ok: false, error: "Das ist nicht deine Bestellung." }, { status: 403 });
+    }
+
+    const update = await auth.supabase.from("material_reports").update({ status }).in("id", ids).select("id");
+    if (update.error) throw new Error(update.error.message);
+
+    return NextResponse.json({ ok: true, updated: update.data?.length || 0, status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Bestellung konnte nicht geändert werden.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const auth = await getAuthenticatedMobileProfile(request);

@@ -506,7 +506,13 @@ function isSuccessfulTimeEntry(entry: RawTimeEntry) {
 function unreadCountFromData(data: AppData | null) {
   if (!data) return 0;
   const unreadNotifications = (data.notifications || []).filter((item) => item.read === false || String(item.status || "open").toLowerCase() === "open").length;
-  const unreadChats = (data.chatMessages || []).filter((item) => String(item.sender_role || "").toLowerCase() === "admin" && item.read_by_employee === false).length;
+  // Eigene Nachrichten zaehlen nicht als ungelesen. Sonst erzeugt sich ein Admin,
+  // der in seinem eigenen Verlauf schreibt, selbst eine Benachrichtigung.
+  const unreadChats = (data.chatMessages || []).filter((item) =>
+    String(item.sender_role || "").toLowerCase() === "admin"
+    && item.read_by_employee === false
+    && String(item.sender_name || "").trim() !== String(item.employee_name || "").trim()
+  ).length;
   const pendingAbsences = (data.absences || []).filter((item) => ["approved", "rejected"].includes(String(item.status || "").toLowerCase()) && item.admin_response).length;
   return unreadNotifications + unreadChats + pendingAbsences;
 }
@@ -2295,9 +2301,98 @@ function materialStatus(status?: string | null): { label: string; tone: "success
   return { label: "Offen", tone: "neutral" };
 }
 
+/** Eine Bestellung, aus mehreren Meldungszeilen zusammengesetzt. */
+type MaterialOrder = {
+  key: string;
+  createdAt: string;
+  objectName: string;
+  status: string;
+  note: string | null;
+  items: Array<{ id: string; name: string; quantity: number; photoUrls: string[] }>;
+};
+
+/** Objekte für die Auswahl: mit Adresse und, wenn Standort bekannt, mit Entfernung. */
+type PickableSite = {
+  workSiteId: string | null;
+  siteName: string;
+  address: string;
+  distance: number | null;
+};
+
+function pickableSites(data: AppData | null, position: { latitude: number; longitude: number } | null): PickableSite[] {
+  const byId = new Map((data?.workSites || []).map((site) => [site.id, site]));
+  return menuSites(data, data?.tasks || []).map((entry) => {
+    const site = entry.workSiteId ? byId.get(entry.workSiteId) : undefined;
+    const lat = getSiteLatitude(site);
+    const lng = getSiteLongitude(site);
+    const distance = position && lat !== null && lng !== null ? distanceMeters(position.latitude, position.longitude, lat, lng) : null;
+    return {
+      workSiteId: entry.workSiteId,
+      siteName: entry.siteName,
+      address: [site?.address, site?.customer_name].filter(Boolean).join(" · ") || "Keine Adresse hinterlegt",
+      distance
+    };
+  });
+}
+
+/** Auswahl-Sheet: erst was in der Nähe liegt, darunter alle Objekte. */
+function SitePickerSheet({ sites, onPick, onClose }: { sites: PickableSite[]; onPick: (index: number) => void; onClose: () => void }) {
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toLowerCase();
+  const withIndex = sites.map((site, index) => ({ site, index }));
+  const filtered = needle ? withIndex.filter((row) => `${row.site.siteName} ${row.site.address}`.toLowerCase().includes(needle)) : withIndex;
+  const near = filtered.filter((row) => row.site.distance !== null && row.site.distance <= 2000).sort((a, b) => (a.site.distance || 0) - (b.site.distance || 0));
+  const nearIds = new Set(near.map((row) => row.index));
+  const rest = filtered.filter((row) => !nearIds.has(row.index));
+
+  function row({ site, index }: { site: PickableSite; index: number }) {
+    return (
+      <button key={`${index}-${site.siteName}`} onClick={() => { onPick(index); onClose(); }} className="flex w-full items-center gap-3 rounded-xl border border-paper-200 p-3 text-left">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-paper-100 text-ink-400"><UiIcon name="building" className="h-5 w-5" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[16px] font-semibold text-ink-900">{site.siteName}</span>
+          <span className="mt-0.5 block truncate text-[13px] text-ink-400">
+            {site.address}{site.distance !== null ? ` · ${site.distance < 1000 ? `${site.distance} m` : `${(site.distance / 1000).toFixed(1)} km`}` : ""}
+          </span>
+        </span>
+        <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
+      </button>
+    );
+  }
+
+  return (
+    <BottomSheet title="Objekt wählen" onClose={onClose}>
+      <SheetRow icon="search">
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nach Objekt suchen" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
+      </SheetRow>
+      {near.length ? (
+        <>
+          <p className="pt-1 text-[13px] text-ink-400">In der Nähe</p>
+          <div className="space-y-2">{near.map(row)}</div>
+        </>
+      ) : null}
+      {rest.length ? (
+        <>
+          <p className="pt-2 text-[13px] text-ink-400">{near.length ? "Alle Objekte" : "Objekte"}</p>
+          <div className="space-y-2">{rest.map(row)}</div>
+        </>
+      ) : null}
+      {!filtered.length ? <p className="py-6 text-center text-[14px] text-ink-400">Kein Objekt gefunden.</p> : null}
+    </BottomSheet>
+  );
+}
+
 /** Materialbestellung: mehrere Artikel in einem Vorgang, gruppiert und durchsuchbar. */
 function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
-  const sites = useMemo(() => menuSites(data, data?.tasks || []), [data]);
+  const [position, setPosition] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [sitePickerOpen, setSitePickerOpen] = useState(false);
+  const [openOrder, setOpenOrder] = useState<MaterialOrder | null>(null);
+  const [closing, setClosing] = useState(false);
+  const sites = useMemo(() => pickableSites(data, position), [data, position]);
+
+  useEffect(() => {
+    getBrowserPosition().then((result) => setPosition({ latitude: result.latitude, longitude: result.longitude })).catch(() => setPosition(null));
+  }, []);
   const products = useMemo(() => data?.materialProducts || [], [data?.materialProducts]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -2317,6 +2412,31 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
   const filteredReports = search.trim()
     ? reports.filter((report) => `${report.material_name || report.product_name || ""} ${report.object_name || report.site || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
     : reports;
+
+  // Eine Bestellung entsteht als mehrere Zeilen, eine je Artikel. Fuer die
+  // Anzeige wieder zu einem Vorgang zusammensetzen: gleicher Zeitpunkt, gleiches Objekt.
+  const orders = useMemo(() => {
+    const map = new Map<string, MaterialOrder>();
+    for (const report of filteredReports) {
+      const createdAt = String(report.created_at || "");
+      const objectName = report.object_name || report.site || "Ohne Objekt";
+      const key = `${createdAt.slice(0, 16)}|${objectName}`;
+      const item = {
+        id: report.id,
+        name: report.material_name || report.product_name || "Material",
+        quantity: Number(report.quantity_requested || report.quantity || 1),
+        photoUrls: report.photo_urls || []
+      };
+      const existing = map.get(key);
+      if (existing) {
+        existing.items.push(item);
+        if (String(report.status || "open").toLowerCase() === "open") existing.status = "open";
+      } else {
+        map.set(key, { key, createdAt, objectName, status: String(report.status || "open").toLowerCase(), items: [item], note: report.notes || report.comment || null });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [filteredReports]);
 
   const groups = useMemo(() => {
     const needle = productSearch.trim().toLowerCase();
@@ -2393,29 +2513,23 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Bestellung suchen…" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
       </SheetRow>
 
-      {filteredReports.length ? (
+      {orders.length ? (
         <div className="divide-y divide-paper-200">
-          {filteredReports.map((report) => {
-            const status = materialStatus(report.status);
-            const photoCount = report.photo_count || report.photo_urls?.length || 0;
+          {orders.map((order, index) => {
+            const status = materialStatus(order.status);
             return (
-              <article key={report.id} className="py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[17px] font-bold text-ink-900">{report.material_name || report.product_name || "Material"}</p>
-                    <p className="mt-1 text-[14px] text-ink-400">
-                      {report.object_name || report.site || "Objekt"} · Menge {report.quantity_requested || report.quantity || 1}
-                      {photoCount ? ` · ${photoCount} Foto${photoCount === 1 ? "" : "s"}` : ""}
-                    </p>
-                  </div>
-                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
+              <button key={order.key} onClick={() => setOpenOrder(order)} className="flex w-full items-start gap-3 py-4 text-left">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] text-ink-400">#{orders.length - index} · {formatShortDateDE(order.createdAt)}</p>
+                  <p className="mt-0.5 text-[17px] font-bold text-ink-900">{order.objectName}</p>
+                  <p className="mt-0.5 truncate text-[14px] text-ink-400">
+                    {order.items.length === 1
+                      ? `${order.items[0].quantity} × ${order.items[0].name}`
+                      : `${order.items.length} Artikel`}
+                  </p>
                 </div>
-                {report.photo_urls?.length ? (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {report.photo_urls.slice(0, 3).map((url) => <img key={url} src={url} alt="Materialfoto" className="h-20 w-full rounded-xl object-cover" />)}
-                  </div>
-                ) : null}
-              </article>
+                <StatusPill tone={status.tone}>{status.label}</StatusPill>
+              </button>
             );
           })}
         </div>
@@ -2440,11 +2554,14 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
           }
         >
           <form id="material-order-form" onSubmit={submit} className="space-y-3">
-            <SheetRow icon="building" showChevron>
-              <select value={siteIndex} onChange={(event) => setSiteIndex(Number(event.target.value))} className="w-full appearance-none border-0 bg-transparent p-0 text-sm font-semibold text-ink-900 outline-none">
-                {sites.length ? sites.map((site, index) => <option key={`${site.workSiteId || "site"}-${site.siteName}`} value={index}>{site.siteName}</option>) : <option>Kein Objekt gefunden</option>}
-              </select>
-            </SheetRow>
+            <button type="button" onClick={() => setSitePickerOpen(true)} className="flex w-full items-center gap-3 rounded-2xl border border-paper-300 px-4 py-3 text-left">
+              <span className="shrink-0 text-ink-400"><UiIcon name="building" className="h-5 w-5" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] text-ink-400">Objekt</span>
+                <span className="block truncate text-[15px] font-semibold text-ink-900">{sites[siteIndex]?.siteName || "Objekt wählen"}</span>
+              </span>
+              <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
+            </button>
 
             <SheetRow icon="edit">
               <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Bemerkung" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
@@ -2530,6 +2647,71 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
 
             {message && <Banner tone="danger">{message}</Banner>}
           </form>
+        </BottomSheet>
+      )}
+
+      {sitePickerOpen && (
+        <SitePickerSheet sites={sites} onPick={setSiteIndex} onClose={() => setSitePickerOpen(false)} />
+      )}
+
+      {openOrder && (
+        <BottomSheet
+          title={`Bestellung · ${openOrder.objectName}`}
+          onClose={() => setOpenOrder(null)}
+          footer={
+            openOrder.status === "open" ? (
+              <Button
+                variant="success"
+                full
+                disabled={closing}
+                onClick={async () => {
+                  setClosing(true);
+                  try {
+                    const response = await fetch("/api/mobile/material/report", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+                      body: JSON.stringify({ ids: openOrder.items.map((item) => item.id), status: "done" })
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.ok) throw new Error(result.error || "Bestellung konnte nicht abgeschlossen werden.");
+                    setOpenOrder(null);
+                    await onReload();
+                  } catch (error) {
+                    setMessage(error instanceof Error ? error.message : "Bestellung konnte nicht abgeschlossen werden.");
+                  } finally {
+                    setClosing(false);
+                  }
+                }}
+              >
+                {closing ? "Speichere…" : "Als erhalten melden"}
+              </Button>
+            ) : undefined
+          }
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[14px] text-ink-400">{formatDateDE(openOrder.createdAt)}</p>
+              <p className="text-[17px] font-bold text-ink-900">{openOrder.objectName}</p>
+            </div>
+            <StatusPill tone={materialStatus(openOrder.status).tone}>{materialStatus(openOrder.status).label}</StatusPill>
+          </div>
+
+          {openOrder.items.map((item) => (
+            <div key={item.id} className="flex items-center gap-3 rounded-xl border border-paper-200 p-3">
+              {item.photoUrls[0] ? (
+                <img src={item.photoUrls[0]} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+              ) : (
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-paper-100 text-ink-200"><UiIcon name="box" className="h-5 w-5" /></span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink-900">{item.name}</span>
+              <span className="shrink-0 text-[15px] font-semibold text-ink-900">{item.quantity} Stück</span>
+            </div>
+          ))}
+
+          {openOrder.note ? <DetailRow icon="edit" label="Bemerkung" value={openOrder.note} /> : null}
+          {openOrder.status === "open" ? (
+            <p className="text-[13px] text-ink-400">Sobald das Material bei dir angekommen ist, melde die Bestellung hier als erhalten.</p>
+          ) : null}
         </BottomSheet>
       )}
     </div>
@@ -2659,7 +2841,8 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
       const response = await fetch("/api/mobile/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ message: text })
+        // Als Admin schreibt man in den Verlauf des gerade gewählten Mitarbeiters.
+        body: JSON.stringify({ message: text, employeeName: data?.isAdmin ? data?.employee?.name || "" : "" })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Nachricht konnte nicht gesendet werden.");
@@ -2677,7 +2860,9 @@ function ChatScreen({ data, authToken, onBack, onReload }: { data: AppData | nul
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Chat</h1>
-          <p className="mt-0.5 text-[14px] text-ink-400">Direkt ans Büro</p>
+          <p className="mt-0.5 text-[14px] text-ink-400">
+            {data?.isAdmin ? `Verlauf mit ${data?.employee?.name || "—"}` : "Direkt ans Büro"}
+          </p>
         </div>
         <BackButton onBack={onBack} />
       </div>
