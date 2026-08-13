@@ -2837,6 +2837,8 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
+  const [documents, setDocuments] = useState<File[]>([]);
+  const [documentKey, setDocumentKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -2849,16 +2851,25 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
     setSaving(true);
     setMessage(null);
     try {
+      const formData = new FormData();
+      formData.set("absenceType", absenceType);
+      formData.set("startDate", startDate);
+      formData.set("endDate", endDate);
+      formData.set("reason", reason);
+      documents.forEach((file) => formData.append("documents", file));
+
       const response = await fetch("/api/mobile/absence", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ absenceType, startDate, endDate, reason })
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Antrag konnte nicht gesendet werden.");
       setReason("");
       setStartDate("");
       setEndDate("");
+      setDocuments([]);
+      setDocumentKey((key) => key + 1);
       setSheetOpen(false);
       await onReload();
     } catch (submitError) {
@@ -2879,6 +2890,7 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
 
       {absences.length ? (
         <div className="divide-y divide-paper-200">
+          <p className="pb-1 pt-2 text-[13px] text-ink-400">Deine Anträge</p>
           {absences.map((absence) => {
             const state = String(absence.status || "").toLowerCase();
             const tone = state === "approved" ? "success" : state === "rejected" ? "danger" : "pending";
@@ -2931,7 +2943,28 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
               <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Bemerkung" className="w-full border-0 bg-transparent p-0 text-sm text-ink-900 outline-none placeholder:text-ink-400" />
             </SheetRow>
 
-            {message && <p className="rounded-2xl bg-rose-100 px-4 py-3 text-sm text-rose-700">{message}</p>}
+            {/* Krankmeldung fotografieren oder PDF anhängen. */}
+            <label className="block rounded-xl border border-dashed border-paper-300 p-4">
+              <span className="flex items-center gap-2 text-[13px] text-ink-400">
+                <UiIcon name="photo" className="h-[18px] w-[18px]" />
+                Dokument hochladen, z. B. Krankmeldung
+              </span>
+              <input
+                key={documentKey}
+                type="file"
+                accept="image/*,application/pdf"
+                capture="environment"
+                multiple
+                onChange={(event) => setDocuments(Array.from(event.target.files || []).slice(0, 3))}
+                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
+              />
+              {documents.length ? (
+                <p className="mt-3 text-[13px] text-ink-600">{documents.length} Datei{documents.length === 1 ? "" : "en"} ausgewählt</p>
+              ) : null}
+              <p className="mt-2 text-[12px] text-ink-400">Wird geschützt abgelegt, nur das Büro kann es öffnen.</p>
+            </label>
+
+            {message && <Banner tone="danger">{message}</Banner>}
           </form>
         </BottomSheet>
       )}
