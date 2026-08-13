@@ -1959,6 +1959,7 @@ function TimeRow({ entry }: { entry: TimeEntry }) {
 
 function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const notifications = data?.notifications || [];
   const chatReplies = (data?.chatMessages || []).filter((item) => String(item.sender_role || "").toLowerCase() === "admin");
@@ -1985,88 +1986,91 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
     }
   }
 
-  const nothingAtAll = !notifications.length && !chatReplies.length && !absenceUpdates.length;
+  // Alles in einem Verlauf, neueste zuerst — wie in der Vorlage. Herkunft
+  // steckt im Absender, nicht in drei getrennten Überschriften.
+  const feed = useMemo(() => {
+    const rows: Array<{ id: string; sender: string; title: string; body: string; at: string; unread: boolean }> = [];
+
+    for (const item of notifications) {
+      rows.push({
+        id: `n-${item.id}`,
+        sender: item.employee_name || "Büro",
+        title: item.title || "Meldung",
+        body: item.message || item.work_site_name || item.object_name || "",
+        at: item.created_at || "",
+        unread: item.read === false
+      });
+    }
+    for (const item of chatReplies) {
+      rows.push({
+        id: `c-${item.id}`,
+        sender: item.sender_name || "Büro",
+        title: "Nachricht vom Büro",
+        body: item.message || item.body || item.text || "",
+        at: item.created_at || "",
+        unread: item.read_by_employee === false
+      });
+    }
+    for (const item of absenceUpdates) {
+      const approved = String(item.status).toLowerCase() === "approved";
+      rows.push({
+        id: `a-${item.id}`,
+        sender: "Büro",
+        title: approved ? "Abwesenheit genehmigt" : "Abwesenheit abgelehnt",
+        body: `${item.absence_type || item.request_type || "Abwesenheit"} · ${formatShortDateDE(item.start_date)} bis ${formatShortDateDE(item.end_date)}${item.admin_response ? ` · ${item.admin_response}` : ""}`,
+        at: item.created_at || "",
+        unread: false
+      });
+    }
+
+    const needle = search.trim().toLowerCase();
+    return rows
+      .filter((row) => !needle || `${row.title} ${row.body} ${row.sender}`.toLowerCase().includes(needle))
+      .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+  }, [absenceUpdates, chatReplies, notifications, search]);
 
   return (
     <div className="-mx-4 -mt-4">
-      <div className="flex items-start gap-2 px-2 pt-2">
-        <button onClick={onBack} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-800" aria-label="Zurück">
-          <UiIcon name="chevronLeft" className="h-6 w-6" />
-        </button>
-        <div className="min-w-0 flex-1 pt-1">
-          <h1 className="text-[22px] font-bold text-ink-900">Meldungen</h1>
-          <p className="text-[14px] text-ink-400">{unread ? `${unread} ungelesen` : "Alles gelesen"}</p>
-        </div>
+      <div className="flex items-center justify-between gap-3 px-4 pt-2">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Inbox</h1>
         {unread ? (
-          <button disabled={saving} onClick={markAllRead} className="shrink-0 rounded-xl px-3 py-2 text-[15px] font-semibold text-brand-700 disabled:opacity-50">
+          <button disabled={saving} onClick={markAllRead} className="shrink-0 text-[15px] font-semibold text-brand-700 disabled:opacity-50">
             {saving ? "…" : "Alle gelesen"}
           </button>
         ) : null}
       </div>
 
+      <div className="px-4 pt-3">
+        <SearchInput value={search} onChange={setSearch} placeholder="Suche" />
+      </div>
+
       {message ? <div className="px-4 pt-3"><Banner tone="success">{message}</Banner></div> : null}
 
-      {nothingAtAll ? (
-        <EmptyState icon="bell" title="Keine Meldungen" text="Hinweise vom Büro, Antworten aus dem Chat und Entscheidungen zu deinen Anträgen erscheinen hier." />
+      {!feed.length ? (
+        <EmptyState
+          icon="bell"
+          title={search.trim() ? "Nichts gefunden" : "Keine Meldungen"}
+          text={search.trim() ? "Zu dieser Suche gibt es keinen Eintrag." : "Hinweise vom Büro, Antworten aus dem Chat und Entscheidungen zu deinen Anträgen erscheinen hier."}
+        />
       ) : null}
 
-      {notifications.length ? (
-        <>
-          <SectionHeading>Vom Büro</SectionHeading>
-          {notifications.map((item) => (
-            <DetailRow
-              key={item.id}
-              icon="bell"
-              label={item.created_at ? `${dateLabel(item.created_at.slice(0, 10))} · ${formatTime(item.created_at)}` : "Meldung"}
-              value={
-                <span className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1">{item.title || "Meldung"}</span>
-                  {item.read === false ? <StatusPill tone="pending">neu</StatusPill> : null}
-                </span>
-              }
-              hint={item.message || item.work_site_name || item.object_name || undefined}
-            />
-          ))}
-        </>
-      ) : null}
-
-      {chatReplies.length ? (
-        <>
-          <SectionHeading>Antworten aus dem Chat</SectionHeading>
-          {chatReplies.slice(0, 8).map((item) => (
-            <DetailRow
-              key={item.id}
-              icon="chat"
-              label={`${item.sender_name || "Büro"}${item.created_at ? ` · ${dateLabel(item.created_at.slice(0, 10))} ${formatTime(item.created_at)}` : ""}`}
-              value={
-                <span className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1">{item.message || item.body || item.text || "Neue Antwort"}</span>
-                  {item.read_by_employee === false ? <StatusPill tone="info">neu</StatusPill> : null}
-                </span>
-              }
-            />
-          ))}
-        </>
-      ) : null}
-
-      {absenceUpdates.length ? (
-        <>
-          <SectionHeading>Deine Anträge</SectionHeading>
-          {absenceUpdates.slice(0, 6).map((item) => {
-            const approved = String(item.status).toLowerCase() === "approved";
-            return (
-              <DetailRow
-                key={item.id}
-                icon={approved ? "check" : "warning"}
-                label={`${item.absence_type || item.request_type || "Abwesenheit"} · ${formatShortDateDE(item.start_date)} bis ${formatShortDateDE(item.end_date)}`}
-                value={approved ? "Genehmigt" : "Abgelehnt"}
-                hint={item.admin_response || undefined}
-                tone={approved ? "default" : "danger"}
-              />
-            );
-          })}
-        </>
-      ) : null}
+      <div className="pt-2">
+        {feed.map((row) => (
+          <div key={row.id} className="flex items-start gap-3 border-b border-paper-200 px-4 py-3.5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-paper-200 text-[13px] font-bold text-ink-600">
+              {(row.sender || "?").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?"}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start gap-2">
+                {row.unread ? <span className="mt-[7px] h-2 w-2 shrink-0 rounded-full bg-brand-600" /> : null}
+                <p className={cx("min-w-0 flex-1 text-[15px]", row.unread ? "font-bold text-ink-900" : "font-semibold text-ink-800")}>{row.title}</p>
+                <span className="shrink-0 text-[13px] text-ink-400">{row.at ? formatShortDateDE(row.at.slice(0, 10)) : ""}</span>
+              </div>
+              {row.body ? <p className="mt-0.5 line-clamp-2 text-[14px] text-ink-400">{row.body}</p> : null}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
