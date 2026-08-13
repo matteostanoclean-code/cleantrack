@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import {
+  ActionBar,
   Banner,
   Button,
   Chip,
   ChipRow,
   DetailRow,
+  DetailSheet,
   EmptyState,
   SearchInput,
   SectionHeading,
@@ -1028,8 +1030,51 @@ function monthTitle(iso: string) {
   return Number.isNaN(date.getTime()) ? "" : MONTH_LONG.format(date);
 }
 
+/** Kurzansicht als Blatt über der Liste, wie in der Vorlage. */
+function AssignmentSheet({ assignment, onClose, onOpenAssignment, onStart }: {
+  assignment: Assignment;
+  onClose: () => void;
+  onOpenAssignment: (assignment: Assignment) => void;
+  onStart: (assignment: Assignment) => void;
+}) {
+  const task = assignment.raw;
+  const planned = plannedMinutesOf(task);
+
+  return (
+    <DetailSheet
+      title={assignment.title}
+      subtitle={`${formatDateDE(assignment.date)} · ${assignment.time}`}
+      status={<StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>}
+      onClose={onClose}
+      footer={
+        <ActionBar>
+          <Button variant="neutral" onClick={() => { onClose(); onOpenAssignment(assignment); }}>Alle Details</Button>
+          <Button variant="primary" onClick={() => { onClose(); onStart(assignment); }}>Stempeln</Button>
+        </ActionBar>
+      }
+    >
+      <DetailRow icon="pin" label="Objekt" value={assignment.address} hint={assignment.customer} />
+      <DetailRow icon="list" label="Auftrag" value={assignment.tag} />
+      <DetailRow icon="clock" label="Zeitraum" value={assignment.time} />
+      <DetailRow icon="target" label="Eingeplante Zeit" value={planned ? `${hhmm(planned)} h` : "Keine Vorgabe"} />
+      {task?.notes ? <DetailRow icon="note" label="Hinweis vom Büro" value={task.notes} /> : null}
+      <div className="px-4 pt-4">
+        <a
+          href={mapSearchUrl(task || null)}
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-xl border border-paper-200 px-4 py-3 text-center text-[15px] font-semibold text-ink-800"
+        >
+          Route öffnen
+        </a>
+      </div>
+    </DetailSheet>
+  );
+}
+
 /** Wochenkalender: Tagesstreifen oben, darunter die Aufgaben des gewählten Tages. */
-function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]; onOpenAssignment: (assignment: Assignment) => void }) {
+function Schedule({ assignments, onOpenAssignment, onStartAssignment }: { assignments: Assignment[]; onOpenAssignment: (assignment: Assignment) => void; onStartAssignment: (assignment: Assignment) => void }) {
+  const [sheetAssignment, setSheetAssignment] = useState<Assignment | null>(null);
   const [selectedDay, setSelectedDay] = useState(todayIso());
   const weekStart = startOfWeekIso(selectedDay);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysIso(weekStart, index)), [weekStart]);
@@ -1110,11 +1155,20 @@ function Schedule({ assignments, onOpenAssignment }: { assignments: Assignment[]
 
       {dayAssignments.length ? (
         <div className="divide-y divide-paper-200">
-          {dayAssignments.map((assignment) => <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={onOpenAssignment} />)}
+          {dayAssignments.map((assignment) => <TaskRow key={assignment.id} assignment={assignment} onOpenAssignment={setSheetAssignment} />)}
         </div>
       ) : (
         <EmptyState icon="calendar" title="Keine Einsätze an diesem Tag" text="Wähle oben einen anderen Tag." />
       )}
+
+      {sheetAssignment ? (
+        <AssignmentSheet
+          assignment={sheetAssignment}
+          onClose={() => setSheetAssignment(null)}
+          onOpenAssignment={onOpenAssignment}
+          onStart={onStartAssignment}
+        />
+      ) : null}
 
       {plannedMinutes ? (
         <p className="pt-1 text-[14px] text-ink-400">Geplante Zeit an diesem Tag: <span className="font-semibold text-ink-800">{hhmm(plannedMinutes)} h</span></p>
@@ -4374,7 +4428,13 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
       {!loading && !error && (
         <>
           {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onOpenAssignment={openAssignment} onStartAssignment={(assignment) => { setSelectedTaskId(assignment.id); setActive("clock"); }} />}
-          {active === "schedule" && <Schedule assignments={assignments} onOpenAssignment={openAssignment} />}
+          {active === "schedule" && (
+            <Schedule
+              assignments={assignments}
+              onOpenAssignment={openAssignment}
+              onStartAssignment={(assignment) => { setSelectedTaskId(assignment.id); setActive("clock"); }}
+            />
+          )}
           {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => refreshData()} />}
           {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => refreshData()} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
           {active === "timesheet" && (
