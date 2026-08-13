@@ -41,6 +41,8 @@ type QualityRow = {
   employee_name?: string | null;
   work_site_id?: string | null;
   work_site_name?: string | null;
+  site?: string | null;
+  rating?: number | null;
   checked_items?: string[] | null;
   notes?: string | null;
   status?: string | null;
@@ -466,9 +468,12 @@ function AdminPage() {
               <article key={row.id} className="rounded-2xl border border-paper-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-bold">{row.work_site_name || "Objekt"}</p>
+                    <p className="font-bold">{row.work_site_name || row.site || "Objekt"}</p>
                     <p className="mt-1 text-sm text-ink-400">{row.employee_name || "Mitarbeiter"} · {formatDateTime(row.created_at)}</p>
-                    <p className="mt-1 text-xs text-ink-400">{row.photo_count || row.photo_urls?.length || 0} Foto(s) · {(row.checked_items || []).length} Punkte</p>
+                    <p className="mt-1 text-xs text-ink-400">
+                      {row.photo_count || row.photo_urls?.length || 0} Foto(s) · {(row.checked_items || []).length} Punkte
+                      {row.rating ? ` · ${"★".repeat(row.rating)}` : ""}
+                    </p>
                   </div>
                   <StatusBadge status={row.status} />
                 </div>

@@ -141,6 +141,9 @@ export async function POST(request: Request) {
       employee_profile_id: auth.profile.id,
       employee_name: auth.profile.name,
       work_site_id: workSiteId || nullableUuid(task?.work_site_id),
+      // Die Tabelle führt den Objektnamen als "site". "work_site_name" gibt es
+      // dort nicht und wurde bisher stillschweigend verworfen.
+      site: siteLabel,
       work_site_name: siteLabel,
       checked_items: checkedItems,
       notes: notes || null,

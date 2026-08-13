@@ -254,6 +254,8 @@ type QualityReport = {
   employee_name?: string | null;
   work_site_id?: string | null;
   work_site_name?: string | null;
+  site?: string | null;
+  rating?: number | null;
   checked_items?: string[] | null;
   notes?: string | null;
   status?: string | null;
@@ -2372,11 +2374,14 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
         <div key={report.id} className="border-b border-paper-200 px-4 py-3.5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[16px] font-semibold text-ink-900">{report.work_site_name || "Objekt"}</p>
+              <p className="text-[16px] font-semibold text-ink-900">{report.work_site_name || report.site || "Objekt"}</p>
               <p className="mt-0.5 text-[13px] text-ink-400">
                 {report.created_at ? new Date(report.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
                 {" · "}{report.photo_count || report.photo_urls?.length || 0} Foto(s)
               </p>
+              {report.rating ? (
+                <p className="mt-0.5 text-[13px] text-amber-700">{"★".repeat(report.rating)}{"☆".repeat(Math.max(0, 5 - report.rating))}</p>
+              ) : null}
             </div>
             <StatusPill tone={String(report.status || "").toLowerCase() === "approved" ? "success" : "neutral"}>
               {String(report.status || "").toLowerCase() === "approved" ? "Freigegeben" : "Gesendet"}
