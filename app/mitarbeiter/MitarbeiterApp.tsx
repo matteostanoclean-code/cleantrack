@@ -1443,7 +1443,7 @@ function expectedStartIso(task: RawTask | null) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { data: AppData | null; authToken: string; onReload: () => Promise<void>; selectedTaskId: string | null; onOpenSchedule: () => void }) {
+function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, autoStamp = false }: { data: AppData | null; authToken: string; onReload: () => Promise<void>; selectedTaskId: string | null; onOpenSchedule: () => void; autoStamp?: boolean }) {
   const [status, setStatus] = useState<ClockStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -1456,6 +1456,8 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
   const [geoCheck, setGeoCheck] = useState<{ distance: number; allowed: number; ok: boolean; accuracy: number | null; latitude: number; longitude: number } | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [checkingGeo, setCheckingGeo] = useState(false);
+  const [autoInfo, setAutoInfo] = useState<string | null>(null);
+  const autoDone = useRef(false);
   const assignments = useMemo(() => assignmentsFromTasks(data?.tasks || []), [data?.tasks]);
   const selectedTask = useMemo(() => (data?.tasks || []).find((task) => task.id === selectedTaskId) || null, [data?.tasks, selectedTaskId]);
   const selectedAssignment = useMemo(() => selectedTask ? assignmentFromTask(selectedTask) : null, [selectedTask]);
@@ -1589,6 +1591,38 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
   }
 
   const canStamp = Boolean(selectedTask && selectedTask.work_site_id && selectedSiteHasGps);
+
+  /**
+   * Kommt der Aufruf vom Aufkleber am Objekt, wird ohne weiteres Tippen
+   * eingestempelt. Ausgestempelt wird bewusst nicht automatisch: das Telefon
+   * kommt beim Weggehen noch einmal am Aufkleber vorbei, und eine versehentlich
+   * beendete Schicht kostet mehr als ein Fingertipp.
+   *
+   * Der Stand wird direkt aus den Buchungen gelesen, nicht aus dem Status im
+   * Bildschirm. Der hinkt beim ersten Aufbau einen Durchlauf hinterher, sonst
+   * würde bei einer laufenden Schicht ein zweites Mal eingestempelt.
+   */
+  useEffect(() => {
+    if (!autoStamp || autoDone.current) return;
+    if (!data?.employee || !selectedTask || !canStamp) return;
+
+    autoDone.current = true;
+    const laufend = latestClock(selectedTaskEntries).status;
+
+    if (laufend === "working") {
+      setAutoInfo("Du bist an diesem Objekt schon eingestempelt. Zum Beenden unten auf Ausstempeln tippen.");
+      return;
+    }
+    if (laufend === "break") {
+      setAutoInfo("Deine Pause läuft noch. Tippe auf Pause beenden, um weiterzuarbeiten.");
+      return;
+    }
+
+    setAutoInfo("Aufkleber erkannt. Du wirst eingestempelt…");
+    stamp("clock_in").then(() => setAutoInfo(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStamp, data?.employee, selectedTask?.id, canStamp]);
+
   const blockReason = !selectedTask
     ? null
     : !selectedTask.work_site_id
@@ -1602,6 +1636,12 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule }: { 
       <div className="px-4 pt-2">
         <h1 className="text-[28px] font-bold tracking-tight text-ink-900">Stempeluhr</h1>
       </div>
+
+      {autoInfo ? (
+        <div className="px-4 pt-3">
+          <Banner tone="info">{autoInfo}</Banner>
+        </div>
+      ) : null}
 
       {!selectedTask ? (
         <div className="space-y-3 px-4 pt-4">
@@ -4284,6 +4324,7 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
   const [siteHinweis, setSiteHinweis] = useState("");
   const [siteErledigt, setSiteErledigt] = useState(false);
+  const [autoStempeln, setAutoStempeln] = useState(false);
   const [data, setData] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
@@ -4389,6 +4430,9 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       setSelectedTaskId(treffer.id);
       setActive("clock");
       setSiteHinweis("");
+      // Nur bei einem eindeutigen Einsatz von allein stempeln. Stehen an einem
+      // Tag mehrere an, entscheidet der Mitarbeiter, welcher gemeint ist.
+      setAutoStempeln(heutige.length === 1);
       return;
     }
 
@@ -4496,7 +4540,7 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
             />
           )}
           {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => refreshData()} />}
-          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => refreshData()} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} />}
+          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => refreshData()} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} autoStamp={autoStempeln} />}
           {active === "timesheet" && (
             <Timesheet
               entries={timeEntries}

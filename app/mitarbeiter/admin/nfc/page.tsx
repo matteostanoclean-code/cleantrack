@@ -65,9 +65,10 @@ export default async function NfcAufkleberSeite() {
           <h1 className="text-[24px] font-bold">NFC-Aufkleber je Objekt</h1>
           <p className="mt-1 max-w-[640px] text-[14px] leading-relaxed text-ink-400">
             {sites.length} Objekte. Schreib die jeweilige Adresse mit einer NFC-Schreib-App auf
-            einen Aufkleber und bring ihn am Objekt an. Beim Auflegen des Telefons öffnet sich die
-            Stempeluhr mit dem heutigen Einsatz. Funktioniert auf iPhone und Android, die App muss
-            nicht offen sein.
+            einen Aufkleber und bring ihn am Objekt an. Beim Auflegen des Telefons wird der
+            Mitarbeiter direkt eingestempelt, ohne weiteres Tippen. Ausgestempelt wird bewusst nur
+            auf Tippen, sonst würde ein zweites Vorbeigehen die Schicht beenden. Funktioniert auf
+            iPhone und Android, die App muss nicht offen sein.
           </p>
         </div>
 

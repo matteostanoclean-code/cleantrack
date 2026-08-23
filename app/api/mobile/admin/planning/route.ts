@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { pushAnMitarbeiter } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,23 @@ function seriesQuery(supabase: any, groupId: string, scope: string, fromDate: st
   return query;
 }
 
+/**
+ * Meldung in der App ablegen und zusätzlich aufs Handy schicken.
+ *
+ * Vorher stand die Zuweisung nur in der App und wurde erst beim nächsten
+ * Öffnen gesehen. Wer nicht reinschaut, erfährt von einem neuen Einsatz nichts.
+ */
 async function insertAdminNote(supabase: any, payload: AnyRow) {
+  if (payload.employee_name) {
+    await pushAnMitarbeiter(
+      supabase,
+      payload.employee_name,
+      payload.title,
+      payload.message,
+      payload.push_url || "/mitarbeiter/schedule",
+      payload.notification_type || "planning_update"
+    );
+  }
   await supabase.from("admin_notifications").insert({
     title: payload.title,
     message: payload.message,

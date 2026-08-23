@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { pushAnMitarbeiter } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,15 @@ type AnyRow = Record<string, any>;
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
+}
+
+/** Datum in der Form "Mo., 24.08." für Push-Nachrichten. */
+function dateLabelDE(value: unknown) {
+  const text = clean(value).slice(0, 10);
+  if (!text) return "demnächst";
+  const date = new Date(`${text}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return text;
+  return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }).format(date);
 }
 
 function nullableText(value: unknown) {
@@ -486,6 +496,21 @@ export async function POST(request: Request) {
           work_site_id: payload.work_site_id,
           created_at: new Date().toISOString()
         });
+
+        // Zusätzlich aufs Handy. Ohne das stand die Meldung nur in der App und
+        // wurde erst beim nächsten Öffnen gesehen — ein neuer Einsatz kam so
+        // gar nicht an.
+        const wann = `${dateLabelDE(first.task_date)}${first.start_time ? `, ${String(first.start_time).slice(0, 5)} Uhr` : ""}`;
+        await pushAnMitarbeiter(
+          supabase,
+          payload.employee_name,
+          insertedTasks.length > 1 ? "Neue Einsatz-Serie" : "Neuer Einsatz",
+          insertedTasks.length > 1
+            ? `${insertedTasks.length} Termine ab ${wann}${payload.site ? ` · ${payload.site}` : ""}`
+            : `${wann}${payload.site ? ` · ${payload.site}` : ""} · ${payload.title}`,
+          "/mitarbeiter/schedule",
+          "task_created"
+        );
       }
 
       return NextResponse.json({ ok: true, item: insertedTasks[0] || null, items: insertedTasks, count: insertedTasks.length });
