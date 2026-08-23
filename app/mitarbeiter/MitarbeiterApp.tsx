@@ -3974,7 +3974,13 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [lastTest, setLastTest] = useState<string | null>(null);
+  // Rückmeldung direkt unter dem Knopf. Vorher landete sie als kleine graue
+  // Zeile oberhalb — beim Tippen sah es so aus, als passiere gar nichts.
+  const [meldung, setMeldung] = useState<{ tone: "danger" | "success"; text: string } | null>(null);
   const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
+  const alsAppInstalliert = typeof window !== "undefined"
+    && (window.matchMedia?.("(display-mode: standalone)").matches || (window.navigator as any).standalone === true);
+  const istApple = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
 
   useEffect(() => {
     async function check() {
@@ -3998,9 +4004,13 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
   async function enablePush() {
     setSaving(true);
     setLastTest(null);
+    setMeldung(null);
     try {
-      if (!pushSupported()) throw new Error("Push wird auf diesem Gerät nicht unterstützt.");
-      if (!vapidPublicKey) throw new Error("NEXT_PUBLIC_VAPID_PUBLIC_KEY fehlt in Vercel.");
+      if (istApple && !alsAppInstalliert) {
+        throw new Error("Auf dem iPhone gehen Meldungen nur, wenn die App auf dem Home-Bildschirm liegt. Unten auf das Teilen-Symbol, dann „Zum Home-Bildschirm“, und von dort aus noch einmal anmelden.");
+      }
+      if (!pushSupported()) throw new Error("Dieser Browser kann keine Meldungen empfangen.");
+      if (!vapidPublicKey) throw new Error("Der Schlüssel NEXT_PUBLIC_VAPID_PUBLIC_KEY fehlt in Vercel. Ohne ihn kann kein Gerät angemeldet werden.");
 
       const permission = await Notification.requestPermission();
       if (permission !== "granted") throw new Error("Benachrichtigungen wurden nicht erlaubt.");
@@ -4023,8 +4033,11 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
 
       setEnabled(true);
       setStatus("Push ist aktiv. Dieses Gerät kann jetzt Meldungen empfangen.");
+      setMeldung({ tone: "success", text: "Dieses Gerät ist angemeldet. Schick dir gleich eine Testmeldung." });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Push konnte nicht aktiviert werden.");
+      const text = error instanceof Error ? error.message : "Push konnte nicht aktiviert werden.";
+      setStatus(text);
+      setMeldung({ tone: "danger", text });
     } finally {
       setSaving(false);
     }
@@ -4068,9 +4081,14 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
         <Button variant="primary" full disabled={saving} onClick={enablePush}>
           {saving ? "Speichere…" : enabled ? "Erneut aktivieren" : "Auf diesem Gerät aktivieren"}
         </Button>
+        {meldung ? <Banner tone={meldung.tone}>{meldung.text}</Banner> : null}
         <Button variant="neutral" full disabled={saving || !enabled} onClick={sendTest}>Testmeldung senden</Button>
         {lastTest ? <Banner tone="info">{lastTest}</Banner> : null}
-        <p className="text-[13px] text-ink-400">Auf dem iPhone muss die App zuerst über „Teilen → Zum Home-Bildschirm“ hinzugefügt werden, sonst kommen keine Meldungen an.</p>
+        {istApple && !alsAppInstalliert ? (
+          <Banner tone="warn">Diese Seite läuft gerade im Safari-Tab. Für Meldungen muss sie über „Teilen → Zum Home-Bildschirm“ als App abgelegt und von dort geöffnet werden.</Banner>
+        ) : (
+          <p className="text-[13px] text-ink-400">Auf dem iPhone muss die App zuerst über „Teilen → Zum Home-Bildschirm“ hinzugefügt werden, sonst kommen keine Meldungen an.</p>
+        )}
       </div>
     </div>
   );

@@ -68,12 +68,14 @@ export async function GET(request: Request) {
 
     const { data: subscriptions, error: subscriptionError } = await auth.supabase
       .from("push_subscriptions")
-      .select("id, employee_profile_id, employee_name, active")
-      .eq("active", true);
+      // Nur Spalten, die es in der Tabelle wirklich gibt. employee_profile_id
+      // und active fehlen dort — die Abfrage lief deshalb in einen Fehler und
+      // die Push-Zentrale zeigte null angemeldete Geräte.
+      .select("id, employee_name");
 
     if (subscriptionError) throw new Error(subscriptionError.message);
 
-    const subscriptionRows = (subscriptions || []) as Array<{ employee_profile_id: string | null; employee_name: string | null }>;
+    const subscriptionRows = (subscriptions || []) as Array<{ employee_profile_id?: string | null; employee_name: string | null }>;
     const employeesWithCounts = ((employees || []) as EmployeeRow[]).map((employee) => {
       const employeeName = clean(employee.name);
       const pushCount = subscriptionRows.filter((subscription) =>
@@ -158,8 +160,7 @@ export async function POST(request: Request) {
 
     const { data: subscriptions, error: subscriptionError } = await auth.supabase
       .from("push_subscriptions")
-      .select("id, employee_profile_id, employee_name, endpoint, p256dh, auth")
-      .eq("active", true);
+      .select("id, employee_name, endpoint, p256dh, auth");
 
     if (subscriptionError) throw new Error(subscriptionError.message);
 
@@ -188,7 +189,7 @@ export async function POST(request: Request) {
         if (statusCode === 404 || statusCode === 410) {
           await auth.supabase
             .from("push_subscriptions")
-            .update({ active: false, updated_at: new Date().toISOString() })
+            .delete()
             .eq("id", subscription.id);
         }
       }

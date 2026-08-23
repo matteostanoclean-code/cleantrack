@@ -29,11 +29,13 @@ export async function POST(request: Request) {
     }
     configureWebPush();
 
+    // Über den Namen, nicht über employee_profile_id: die Spalte gibt es in
+    // der Tabelle nicht, dadurch lief der Test bisher in einen Datenbankfehler
+    // statt eine Meldung zu schicken. Der Versand sucht ebenfalls über den Namen.
     const { data, error } = await auth.supabase
       .from("push_subscriptions")
       .select("id, endpoint, p256dh, auth")
-      .eq("employee_profile_id", auth.profile.id)
-      .eq("active", true);
+      .eq("employee_name", auth.profile.name);
 
     if (error) throw new Error(error.message);
     const subscriptions = (data || []) as PushRow[];
@@ -57,8 +59,10 @@ export async function POST(request: Request) {
       } catch (pushError: any) {
         failed += 1;
         const statusCode = pushError?.statusCode || pushError?.status;
+        // Abgelaufenes Gerät raus. Vorher wurde active=false gesetzt, diese
+        // Spalte gibt es hier nicht — der Aufräumschritt lief also ins Leere.
         if (statusCode === 404 || statusCode === 410) {
-          await auth.supabase.from("push_subscriptions").update({ active: false, updated_at: new Date().toISOString() }).eq("id", item.id);
+          await auth.supabase.from("push_subscriptions").delete().eq("id", item.id);
         }
       }
     }

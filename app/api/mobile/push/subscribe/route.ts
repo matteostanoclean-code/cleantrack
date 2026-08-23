@@ -35,27 +35,65 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Push-Subscription ist unvollständig." }, { status: 400 });
     }
 
-    const payload = {
-      employee_profile_id: auth.profile.id,
+    // Pflichtangaben, die es in jeder Fassung der Tabelle gibt.
+    const kern = {
       employee_name: auth.profile.name,
       endpoint,
       p256dh,
       auth: authKey,
-      subscription_json: subscription,
-      user_agent: request.headers.get("user-agent") || null,
-      active: true,
       updated_at: new Date().toISOString()
     };
 
-    const { data, error } = await auth.supabase
-      .from("push_subscriptions")
-      .upsert(payload, { onConflict: "endpoint" })
-      .select("id, employee_name, active, updated_at")
-      .single();
+    // Zusatzangaben. Fehlt eine Spalte, wird sie unten einzeln weggelassen,
+    // statt die ganze Anmeldung scheitern zu lassen. Genau daran ist der
+    // Versand bisher gescheitert: die Tabelle stammt aus einer älteren
+    // Fassung, der Code schrieb Spalten hinein, die es dort nie gab — die
+    // Anmeldung schlug jedes Mal fehl und kein Gerät war je eingetragen.
+    const zusatz: Record<string, unknown> = {
+      employee_profile_id: auth.profile.id,
+      subscription: subscription,
+      subscription_json: subscription,
+      user_agent: request.headers.get("user-agent") || null,
+      active: true
+    };
 
-    if (error) throw new Error(error.message);
+    // Dasselbe Gerät kann sich erneut anmelden, etwa nach einem Namenswechsel.
+    // Erst die alte Zeile zu diesem Gerät weg, dann neu schreiben. Das kommt
+    // ohne eindeutigen Schlüssel auf endpoint aus, den es hier nicht gibt.
+    await auth.supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
 
-    return NextResponse.json({ ok: true, subscription: data });
+    let felder = { ...zusatz };
+    let versuch = 0;
+    let gespeichert: unknown = null;
+
+    while (versuch < 8) {
+      versuch += 1;
+      const { data, error } = await auth.supabase
+        .from("push_subscriptions")
+        .insert({ ...kern, ...felder })
+        .select("id, employee_name, updated_at")
+        .single();
+
+      if (!error) {
+        gespeichert = data;
+        break;
+      }
+
+      // PostgREST nennt die unbekannte Spalte im Text. Die fliegt raus, dann
+      // noch einmal. Ist nichts mehr wegzulassen, ist es ein echter Fehler.
+      const treffer = /column "?([a-z_]+)"? .*(does not exist|schema cache)/i.exec(error.message)
+        || /'([a-z_]+)' column/i.exec(error.message);
+      const spalte = treffer?.[1];
+      if (spalte && spalte in felder) {
+        delete felder[spalte];
+        continue;
+      }
+      throw new Error(error.message);
+    }
+
+    if (!gespeichert) throw new Error("Anmeldung konnte nicht gespeichert werden.");
+
+    return NextResponse.json({ ok: true, subscription: gespeichert });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Push konnte nicht gespeichert werden.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
