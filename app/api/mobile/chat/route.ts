@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { pushAnBuero, pushAnMitarbeiter } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+/**
+ * Erkennt, ob ein Fehler daher kommt, dass eine Spalte in der Tabelle fehlt.
+ * Nur dann lohnt ein zweiter Versuch mit weniger Feldern.
+ */
+function istSpaltenfehler(fehler: unknown) {
+  const f = fehler as { code?: string; message?: string };
+  const code = String(f?.code || "");
+  const text = String(f?.message || "").toLowerCase();
+  return code === "PGRST204" || code === "42703" || text.includes("column") || text.includes("schema cache");
 }
 
 export async function POST(request: Request) {
@@ -51,7 +63,10 @@ export async function POST(request: Request) {
 
     let insert = await auth.supabase.from("chat_messages").insert(fullPayload).select("*").maybeSingle();
 
-    if (insert.error) {
+    // Zweiter Versuch nur, wenn eine Spalte fehlt. Vorher wurde bei jedem
+    // beliebigen Fehler erneut geschrieben — auch dann, wenn die erste
+    // Zeile längst angelegt war. Ergebnis: jede Nachricht stand doppelt drin.
+    if (insert.error && istSpaltenfehler(insert.error)) {
       const fallbackPayload = {
         employee_name: threadEmployee,
         sender_name: auth.profile.name,
@@ -74,6 +89,24 @@ export async function POST(request: Request) {
         notification_type: "chat_message",
         status: "open"
       });
+
+      // Zusätzlich eine Push-Nachricht. Ohne sie steht die Meldung nur im
+      // Dashboard und wird oft erst Stunden später gesehen.
+      await pushAnBuero(
+        auth.supabase,
+        "Neue Chat-Nachricht",
+        `${auth.profile.name}: ${message}`,
+        "/mitarbeiter/admin/chat"
+      );
+    } else if (threadEmployee !== auth.profile.name) {
+      // Schreibt das Büro über diesen Weg, bekommt der Mitarbeiter die Meldung.
+      await pushAnMitarbeiter(
+        auth.supabase,
+        threadEmployee,
+        "Nachricht vom Büro",
+        message,
+        "/mitarbeiter/chat"
+      );
     }
 
     return NextResponse.json({ ok: true, message: insert.data, thread: threadEmployee });

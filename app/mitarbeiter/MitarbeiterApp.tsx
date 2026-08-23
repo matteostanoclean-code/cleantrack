@@ -532,9 +532,11 @@ function unreadCountFromData(data: AppData | null) {
   const unreadNotifications = (data.notifications || []).filter((item) => item.read === false || String(item.status || "open").toLowerCase() === "open").length;
   // Eigene Nachrichten zaehlen nicht als ungelesen. Sonst erzeugt sich ein Admin,
   // der in seinem eigenen Verlauf schreibt, selbst eine Benachrichtigung.
+  // Nicht auf "=== false" pruefen: In aelteren Zeilen steht dort null. Die
+  // waeren sonst nie als ungelesen gezaehlt worden.
   const unreadChats = (data.chatMessages || []).filter((item) =>
     String(item.sender_role || "").toLowerCase() === "admin"
-    && item.read_by_employee === false
+    && item.read_by_employee !== true
     && String(item.sender_name || "").trim() !== String(item.employee_name || "").trim()
   ).length;
   const pendingAbsences = (data.absences || []).filter((item) => ["approved", "rejected"].includes(String(item.status || "").toLowerCase()) && item.admin_response).length;
@@ -2064,7 +2066,7 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
         title: "Nachricht vom Büro",
         body: item.message || item.body || item.text || "",
         at: item.created_at || "",
-        unread: item.read_by_employee === false
+        unread: item.read_by_employee !== true
       });
     }
     for (const item of absenceUpdates) {
@@ -4059,9 +4061,9 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { href: "/mitarbeiter/admin/auswertung", label: "Monatsauswertung" },
     { href: "/mitarbeiter/admin/push", label: "Push-Zentrale" },
     { href: "/mitarbeiter/admin", label: "Admin-Dashboard" },
-    { href: "/mitarbeiter/freigaben", label: "Freigaben" },
+    { href: "/mitarbeiter/admin/freigaben", label: "Freigaben" },
     { href: "/mitarbeiter/admin?tab=employees", label: "Mitarbeiter anlegen" },
-    { href: "/mitarbeiter/aktivieren", label: "Mitarbeiter-Login vergeben" },
+    { href: "/mitarbeiter/admin/aktivieren", label: "Mitarbeiter-Login vergeben" },
     { href: "/mitarbeiter/admin/geraete", label: "Geräte und Inventar" }
   ];
 
@@ -4278,8 +4280,10 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
   );
 }
 
-export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: string }) {
+export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId = "" }: { initialTab?: string; initialWorkSiteId?: string }) {
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
+  const [siteHinweis, setSiteHinweis] = useState("");
+  const [siteErledigt, setSiteErledigt] = useState(false);
   const [data, setData] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
@@ -4328,6 +4332,16 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
     await loadData(name || employeeName, undefined, true);
   }, [employeeName, loadData]);
 
+  /**
+   * Service Worker beim Start anmelden, nicht erst beim Einschalten der
+   * Push-Nachrichten. Er speichert die App-Hülle zwischen, damit die App auch
+   * bei schlechtem Empfang sofort startet.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/sw.js").catch(() => null);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     async function initAuth() {
@@ -4353,6 +4367,40 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Kommt der Aufruf von einem NFC-Aufkleber am Objekt, ist die Objekt-Nummer
+   * in der Adresse enthalten. Sobald die Daten geladen sind, wird der heutige
+   * Einsatz an diesem Objekt gesucht und die Stempeluhr direkt geöffnet.
+   * Läuft nur einmal, damit der Mitarbeiter danach frei navigieren kann.
+   */
+  useEffect(() => {
+    if (!initialWorkSiteId || siteErledigt || !data) return;
+
+    const heute = todayIso();
+    const alle = data.tasks || [];
+    const passend = alle.filter((task) => String(task.work_site_id || "") === initialWorkSiteId);
+    const heutige = passend.filter((task) => String(task.task_date || "").slice(0, 10) === heute);
+    const treffer = heutige[0] || null;
+
+    setSiteErledigt(true);
+
+    if (treffer) {
+      setSelectedTaskId(treffer.id);
+      setActive("clock");
+      setSiteHinweis("");
+      return;
+    }
+
+    if (passend.length) {
+      setActive("schedule");
+      setSiteHinweis("Für dieses Objekt ist heute kein Einsatz geplant. Wähle den passenden Einsatz aus.");
+      return;
+    }
+
+    setActive("schedule");
+    setSiteHinweis("Dieses Objekt gehört nicht zu deinen Einsätzen.");
+  }, [initialWorkSiteId, siteErledigt, data]);
 
   async function handleLogin(token: string) {
     setAuthToken(token);
@@ -4425,6 +4473,18 @@ export default function MitarbeiterApp({ initialTab = "home" }: { initialTab?: s
     >
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
+      {!loading && !error && siteHinweis ? (
+        <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-[14px] leading-relaxed text-amber-900">{siteHinweis}</p>
+          <button
+            type="button"
+            onClick={() => setSiteHinweis("")}
+            className="mt-2 text-[13px] font-semibold text-amber-900 underline"
+          >
+            Verstanden
+          </button>
+        </div>
+      ) : null}
       {!loading && !error && (
         <>
           {active === "home" && <Dashboard data={data} assignments={assignments} setActive={setActive} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onOpenAssignment={openAssignment} onStartAssignment={(assignment) => { setSelectedTaskId(assignment.id); setActive("clock"); }} />}

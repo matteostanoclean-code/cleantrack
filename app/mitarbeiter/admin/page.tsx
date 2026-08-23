@@ -131,7 +131,7 @@ function StatusPill({ value }: { value?: unknown }) {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-[100dvh] bg-paper-100 text-ink-900">
-      <div className="mx-auto min-h-[100dvh] max-w-[520px] px-4 py-5" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
+      <div className="mx-auto min-h-[100dvh] max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 px-4 py-5" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
         {children}
       </div>
     </main>
@@ -461,7 +461,7 @@ export default function AdminDashboardPage() {
           <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-bold text-ink-600">Logout</button>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <TabButton active={tab === "overview"} label="Übersicht" onClick={() => setTab("overview")} />
           <TabButton active={tab === "tasks"} label="Einsätze" count={data?.tasks?.length || 0} onClick={() => setTab("tasks")} />
           <TabButton active={tab === "employees"} label="Mitarbeiter" count={data?.employees?.length || 0} onClick={() => setTab("employees")} />
@@ -477,7 +477,7 @@ export default function AdminDashboardPage() {
             damit unsichtbar und Speichern sah aus, als passiere nichts. */}
         {(error || message) && (
           <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
-            <div className={`mx-auto flex max-w-[520px] items-start gap-3 rounded-xl px-4 py-3.5 text-[15px] text-white shadow-lg ${error ? "bg-danger-500" : "bg-success-500"}`}>
+            <div className={`mx-auto flex max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 items-start gap-3 rounded-xl px-4 py-3.5 text-[15px] text-white shadow-lg ${error ? "bg-danger-500" : "bg-success-500"}`}>
               <span className="min-w-0 flex-1">{error || message}</span>
               <button onClick={() => { setError(null); setMessage(null); }} className="shrink-0 text-[14px] font-semibold opacity-90">Schließen</button>
             </div>
@@ -501,7 +501,7 @@ export default function AdminDashboardPage() {
               <section className="pt-3">
                 <h2 className="pb-1 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
                 {stats.openRequests > 0 ? (
-                  <NavRow href="/mitarbeiter/freigaben" label="Freigaben und Meldungen" hint="Urlaub, Material, Qualität" count={stats.openRequests} />
+                  <NavRow href="/mitarbeiter/admin/freigaben" label="Freigaben und Meldungen" hint="Urlaub, Material, Qualität" count={stats.openRequests} />
                 ) : null}
                 <NavRow href="/mitarbeiter/admin/zeiten" label="Zeiten prüfen" hint="Abweichungen und Standortfehler" />
                 {stats.unassignedTasks > 0 ? (
@@ -510,7 +510,8 @@ export default function AdminDashboardPage() {
               </section>
             ) : null}
 
-            <section className="pt-3">
+            {/* Am Rechner steht das alles in der Seitenleiste, deshalb nur am Handy zeigen. */}
+            <section className="pt-3 md:hidden">
               <h2 className="pb-1 text-[17px] font-bold text-ink-900">Planen</h2>
               <NavRow href="/mitarbeiter/admin/tageszentrale" label="Tageszentrale" hint="Was heute läuft" />
               <NavRow href="/mitarbeiter/admin/planung" label="Planungszentrale" hint="Wochenplan und Serien" />
@@ -519,16 +520,16 @@ export default function AdminDashboardPage() {
               <NavRow onClick={() => setTab("tasks")} label="Einsatz erstellen" />
             </section>
 
-            <section className="pt-3">
+            <section className="pt-3 md:hidden">
               <h2 className="pb-1 text-[17px] font-bold text-ink-900">Stammdaten</h2>
               <NavRow onClick={() => setTab("customers")} label="Kunden" count={data?.customers?.length || 0} />
               <NavRow onClick={() => setTab("sites")} label="Objekte" count={data?.workSites?.length || 0} />
               <NavRow onClick={() => setTab("employees")} label="Mitarbeiter" count={data?.employees?.length || 0} />
-              <NavRow href="/mitarbeiter/aktivieren" label="Mitarbeiter-Login vergeben" hint="Zugang für neue Leute" />
+              <NavRow href="/mitarbeiter/admin/aktivieren" label="Mitarbeiter-Login vergeben" hint="Zugang für neue Leute" />
               <NavRow href="/mitarbeiter/admin/geraete" label="Geräte und Inventar" hint="Maschinen je Objekt, Wartung, QR-Code" />
             </section>
 
-            <section className="pt-3">
+            <section className="pt-3 md:hidden">
               <h2 className="pb-1 text-[17px] font-bold text-ink-900">Auswerten</h2>
               <NavRow href="/mitarbeiter/admin/auswertung" label="Monatsauswertung" />
               <NavRow href="/mitarbeiter/admin/push" label="Push-Zentrale" hint="Nachricht ans Team" />
@@ -703,7 +704,7 @@ export default function AdminDashboardPage() {
                 <Field label="Aktiv"><select value={String(employeeForm.active)} onChange={(event) => setEmployeeForm({ ...employeeForm, active: event.target.value === "true" })} className={inputClass}><option value="false">Nein</option><option value="true">Ja</option></select></Field>
               </div>
               <button disabled={saving} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-60">{saving ? "Speichere…" : "Mitarbeiter speichern"}</button>
-              <Link href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Login-Zugang aktivieren</Link>
+              <Link href="/mitarbeiter/admin/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Login-Zugang aktivieren</Link>
             </form>
             <div className="space-y-3">
               {filtered.employees.map((employee) => (

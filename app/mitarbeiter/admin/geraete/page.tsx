@@ -187,7 +187,7 @@ export default function DevicesPage() {
     return (
       <main className="min-h-[100dvh] bg-paper-100">
         <PageHeader title="Geräte" backHref="/mitarbeiter/admin" />
-        <div className="mx-auto max-w-[520px] px-4 py-6">
+        <div className="mx-auto max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 px-4 py-6">
           <Banner tone="warn">Bitte zuerst in der App anmelden.</Banner>
         </div>
       </main>
@@ -196,7 +196,7 @@ export default function DevicesPage() {
 
   return (
     <main className="min-h-[100dvh] bg-paper-100 pb-28">
-      <div className="mx-auto max-w-[520px]">
+      <div className="mx-auto max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8">
         <PageHeader
           title="Geräte"
           backHref="/mitarbeiter/admin"
@@ -266,7 +266,7 @@ export default function DevicesPage() {
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
-        <div className="mx-auto grid max-w-[520px] gap-2">
+        <div className="mx-auto grid max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 gap-2">
           {devices.length ? (
             <a href="/mitarbeiter/admin/geraete/etiketten" className="rounded-xl border border-paper-300 bg-white px-4 py-3 text-center text-[15px] font-semibold text-ink-800">
               QR-Aufkleber drucken

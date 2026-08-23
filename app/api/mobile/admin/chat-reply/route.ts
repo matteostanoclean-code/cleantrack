@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { pushAnMitarbeiter } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+/** Nur bei fehlender Spalte lohnt ein zweiter Versuch mit weniger Feldern. */
+function istSpaltenfehler(fehler: unknown) {
+  const f = fehler as { code?: string; message?: string };
+  const code = String(f?.code || "");
+  const inhalt = String(f?.message || "").toLowerCase();
+  return code === "PGRST204" || code === "42703" || inhalt.includes("column") || inhalt.includes("schema cache");
 }
 
 export async function POST(request: Request) {
@@ -47,7 +56,8 @@ export async function POST(request: Request) {
 
     let insert = await auth.supabase.from("chat_messages").insert(payload).select("*").maybeSingle();
 
-    if (insert.error) {
+    // Zweiter Versuch nur bei fehlender Spalte, sonst entstehen Doppelungen.
+    if (insert.error && istSpaltenfehler(insert.error)) {
       const fallbackPayload = {
         employee_name: employeeName,
         sender_name: auth.profile.name,
@@ -79,6 +89,16 @@ export async function POST(request: Request) {
       admin_response: message,
       resolved_at: new Date().toISOString()
     });
+
+    // Push aufs Handy des Mitarbeiters. Ohne diesen Schritt kam eine Antwort
+    // aus dem Büro erst beim nächsten Öffnen der App an.
+    await pushAnMitarbeiter(
+      auth.supabase,
+      employeeName,
+      "Nachricht vom Büro",
+      message,
+      "/mitarbeiter/chat"
+    );
 
     return NextResponse.json({ ok: true, message: insert.data });
   } catch (error) {

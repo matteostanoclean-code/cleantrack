@@ -59,7 +59,7 @@ export default async function DeviceLabelsPage() {
 
   return (
     <main className="min-h-[100dvh] bg-paper-100 p-6 text-ink-900 print:bg-white print:p-0">
-      <div className="mx-auto max-w-[900px]">
+      <div className="mx-auto max-w-[900px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8">
         <div className="mb-6 flex items-start justify-between gap-4 print:hidden">
           <div>
             <h1 className="text-[24px] font-bold">Geräte-Aufkleber</h1>

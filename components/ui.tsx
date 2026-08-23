@@ -64,24 +64,38 @@ export function UiIcon({ name, className = "h-5 w-5" }: { name: string; classNam
 
 /* ------------------------------------------------------------ Seitenrahmen */
 
-/** Seitenkopf mit Zurück-Pfeil und mittig gesetztem Titel. */
+/**
+ * Seitenkopf.
+ *
+ * Am Handy die schmale Leiste mit Zurück-Pfeil und mittigem Titel. Am Rechner
+ * eine Überschrift links, ohne Pfeil — dort führt die Seitenleiste zurück.
+ */
 export function PageHeader({ title, onBack, backHref, right }: { title: string; onBack?: () => void; backHref?: string; right?: React.ReactNode }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-paper-200 bg-white px-2 py-3" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
-      {onBack ? (
-        <button onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full text-ink-800" aria-label="Zurück">
-          <UiIcon name="chevronLeft" className="h-6 w-6" />
-        </button>
-      ) : backHref ? (
-        <a href={backHref} className="grid h-10 w-10 place-items-center rounded-full text-ink-800" aria-label="Zurück">
-          <UiIcon name="chevronLeft" className="h-6 w-6" />
-        </a>
-      ) : (
-        <span className="h-10 w-10" />
-      )}
-      <h1 className="min-w-0 flex-1 truncate text-center text-[17px] font-bold text-ink-900">{title}</h1>
-      <div className="flex h-10 min-w-10 items-center justify-end pr-1">{right}</div>
-    </header>
+    <>
+      <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-paper-200 bg-white px-2 py-3 md:hidden" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
+        {onBack ? (
+          <button onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+            <UiIcon name="chevronLeft" className="h-6 w-6" />
+          </button>
+        ) : backHref ? (
+          <a href={backHref} className="grid h-10 w-10 place-items-center rounded-full text-ink-800" aria-label="Zurück">
+            <UiIcon name="chevronLeft" className="h-6 w-6" />
+          </a>
+        ) : (
+          <span className="h-10 w-10" />
+        )}
+        <h1 className="min-w-0 flex-1 truncate text-center text-[17px] font-bold text-ink-900">{title}</h1>
+        <div className="flex h-10 min-w-10 items-center justify-end pr-1">{right}</div>
+      </header>
+
+      <div className="hidden items-start justify-between gap-4 pb-4 md:flex">
+        <div>
+          <h1 className="text-[26px] font-bold text-ink-900">{title}</h1>
+        </div>
+        <div className="flex items-center gap-2">{right}</div>
+      </div>
+    </>
   );
 }
 

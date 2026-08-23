@@ -192,7 +192,7 @@ export async function POST(request: Request) {
       request.headers.get("origin") ||
       "http://localhost:3000";
 
-    const inviteLink = `${baseUrl}/mitarbeiter/aktivieren?token=${encodeURIComponent(
+    const inviteLink = `${baseUrl}/mitarbeiter/admin/aktivieren?token=${encodeURIComponent(
       token
     )}`;
 

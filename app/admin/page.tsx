@@ -7,8 +7,8 @@ export default function Page() {
         <h1 className="text-2xl font-black">Admin</h1>
         <p className="text-sm text-ink-400">Hier kommst du zu den wichtigsten Admin-Bereichen der mobilen App.</p>
         <Link href="/mitarbeiter/admin" className="block rounded-2xl bg-brand-600 px-5 py-3 text-center font-bold">Admin-Dashboard öffnen</Link>
-        <Link href="/mitarbeiter/freigaben" className="block rounded-2xl border border-paper-300 bg-paper-100 px-5 py-3 text-center font-bold text-brand-700">Admin-Freigaben öffnen</Link>
-        <Link href="/mitarbeiter/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-5 py-3 text-center font-bold text-brand-700">Mitarbeiter aktivieren</Link>
+        <Link href="/mitarbeiter/admin/freigaben" className="block rounded-2xl border border-paper-300 bg-paper-100 px-5 py-3 text-center font-bold text-brand-700">Admin-Freigaben öffnen</Link>
+        <Link href="/mitarbeiter/admin/aktivieren" className="block rounded-2xl border border-paper-300 bg-paper-100 px-5 py-3 text-center font-bold text-brand-700">Mitarbeiter aktivieren</Link>
         <Link href="/mitarbeiter" className="block rounded-2xl border border-paper-300 px-5 py-3 text-center font-bold text-ink-600">Zur Mitarbeiter-App</Link>
       </div>
     </main>

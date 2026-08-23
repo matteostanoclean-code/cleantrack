@@ -240,7 +240,7 @@ export default function TimeApprovalPage() {
     return (
       <main className="min-h-[100dvh] bg-paper-100">
         <PageHeader title="Zeitenfreigabe" backHref="/mitarbeiter/admin" />
-        <div className="mx-auto max-w-[520px] px-4 py-6">
+        <div className="mx-auto max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 px-4 py-6">
           <Banner tone="warn">Bitte zuerst in der App anmelden, dann diese Seite erneut öffnen.</Banner>
           <div className="mt-4"><a href="/mitarbeiter" className="text-[15px] font-semibold text-brand-700">Zur Anmeldung</a></div>
         </div>
@@ -250,7 +250,7 @@ export default function TimeApprovalPage() {
 
   return (
     <main className="min-h-[100dvh] bg-paper-100 pb-10">
-      <div className="mx-auto max-w-[520px] bg-paper-100">
+      <div className="mx-auto max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 bg-paper-100">
         <PageHeader
           title="Zeitenfreigabe"
           backHref="/mitarbeiter/admin"

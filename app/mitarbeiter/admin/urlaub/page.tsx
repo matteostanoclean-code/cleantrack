@@ -108,7 +108,7 @@ function typeLabel(value?: unknown) {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-[100dvh] bg-paper-100 text-ink-900">
-      <div className="mx-auto min-h-[100dvh] max-w-[520px] px-4 py-5" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
+      <div className="mx-auto min-h-[100dvh] max-w-[520px] md:max-w-[1100px] md:mx-0 md:px-6 xl:px-8 px-4 py-5" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
         {children}
       </div>
     </main>
