@@ -1,31 +1,28 @@
 import Link from "next/link";
 
+/**
+ * Startseite.
+ *
+ * Bewusst karg: Logo, wofür die App da ist, zwei Knöpfe. Wer hier landet,
+ * weiß längst, was Schichtklar ist — er will rein. Die Beschreibung von
+ * vorher war Werbung für Leute, die es hier nicht gibt.
+ */
 export default function Home() {
   return (
-    <main className="min-h-[100dvh] bg-paper-100 px-5 py-10 text-ink-900">
-      <section className="mx-auto flex min-h-[calc(100dvh-5rem)] max-w-[430px] flex-col justify-between rounded-[2rem] bg-white p-6">
-        <div>
-          <div className="mb-10 flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-50 text-xl">🧼</div>
-            <div>
-              <p className="text-[17px] font-bold">Schichtklar</p>
-              <p className="text-[13px] text-ink-400">Matteo Stano Clean · Team-App</p>
-            </div>
-          </div>
+    <main className="grid min-h-[100dvh] place-items-center bg-paper-100 px-5 py-10 text-ink-900">
+      <section className="w-full max-w-[420px] rounded-[2rem] bg-white px-6 py-10">
+        <img
+          src="/logo-app.png"
+          alt="Matteo Stano Clean Gebäudereinigung"
+          className="mx-auto w-full max-w-[260px]"
+        />
 
-          <h1 className="text-[32px] font-bold leading-tight tracking-tight">Einsatzplan, Stempeluhr und Zeiten in einer App.</h1>
-          <p className="mt-4 text-[15px] leading-6 text-ink-600">
-            Das Team sieht seine Einsätze, stempelt am Objekt ein und aus, meldet Material und schickt Qualitätsnachweise.
-            Das Büro plant, prüft die Zeiten und gibt frei.
-          </p>
-
-          <ul className="mt-6 space-y-2 text-[15px] text-ink-600">
-            <li>· Einsatzplan mit Tagesroute und Objektmappe</li>
-            <li>· Stempeluhr mit Standortprüfung am Objekt</li>
-            <li>· Zeiten prüfen, korrigieren und freigeben</li>
-            <li>· Material bestellen, Mängel melden, Chat mit dem Büro</li>
-          </ul>
-        </div>
+        <p className="mt-6 text-center text-[15px] font-semibold uppercase tracking-[0.18em] text-brand-600">
+          Team-App
+        </p>
+        <p className="mt-2 text-center text-[15px] leading-6 text-ink-400">
+          Einsatzplan, Stempeluhr und Zeiten
+        </p>
 
         <div className="mt-10 space-y-3">
           <Link href="/mitarbeiter" className="block rounded-xl bg-brand-600 px-5 py-4 text-center text-[16px] font-semibold text-white">
@@ -34,8 +31,11 @@ export default function Home() {
           <Link href="/mitarbeiter/admin" className="block rounded-xl border border-paper-300 px-5 py-4 text-center text-[16px] font-semibold text-ink-800">
             Adminbereich
           </Link>
-          <p className="text-center text-[13px] text-ink-400">Anmeldung mit deiner Mitarbeiter-E-Mail und deinem Passwort.</p>
         </div>
+
+        <p className="mt-6 text-center text-[13px] leading-5 text-ink-400">
+          Anmeldung mit deiner Mitarbeiter-E-Mail und deinem Passwort.
+        </p>
       </section>
     </main>
   );

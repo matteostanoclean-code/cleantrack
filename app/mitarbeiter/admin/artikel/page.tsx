@@ -228,22 +228,27 @@ export default function ArtikelSeite() {
         {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
         {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Lade…</p>}
 
-        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+        {/* Auswahlfeld statt Reihe von Knöpfen: es gibt über 25 Objekte, und
+            Objekte ohne Artikel müssen auswählbar bleiben — sonst kommt man an
+            das leere Objekt nicht heran, für das man gerade Artikel anlegen will. */}
+        <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => setFilter("alle")} className={`shrink-0 rounded-full border px-4 py-2 text-[13px] ${filter === "alle" ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 bg-white text-ink-600"}`}>
             Alle ({artikel.length})
           </button>
           <button onClick={() => setFilter("allgemein")} className={`shrink-0 rounded-full border px-4 py-2 text-[13px] ${filter === "allgemein" ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-            Ohne Objekt
+            Für alle Objekte ({artikel.filter((row) => !clean(row.work_site_id) && !clean(row.object_name)).length})
           </button>
-          {sites.map((site) => {
-            const anzahl = artikel.filter((row) => clean(row.work_site_id) === site.id || clean(row.object_name).toLowerCase() === clean(site.name).toLowerCase()).length;
-            if (!anzahl) return null;
-            return (
-              <button key={site.id} onClick={() => setFilter(site.id)} className={`shrink-0 rounded-full border px-4 py-2 text-[13px] ${filter === site.id ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 bg-white text-ink-600"}`}>
-                {clean(site.name)} ({anzahl})
-              </button>
-            );
-          })}
+          <select
+            value={filter === "alle" || filter === "allgemein" ? "" : filter}
+            onChange={(event) => setFilter(event.target.value || "alle")}
+            className="min-w-[240px] flex-1 rounded-full border border-paper-300 bg-white px-4 py-2 text-[13px] text-ink-600 outline-none focus:border-brand-500"
+          >
+            <option value="">Objekt wählen…</option>
+            {sites.map((site) => {
+              const anzahl = artikel.filter((row) => clean(row.work_site_id) === site.id || clean(row.object_name).toLowerCase() === clean(site.name).toLowerCase()).length;
+              return <option key={site.id} value={site.id}>{clean(site.name)} ({anzahl})</option>;
+            })}
+          </select>
         </div>
 
         {!gefiltert.length ? (
