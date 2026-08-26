@@ -2533,20 +2533,39 @@ type PickableSite = {
   distance: number | null;
 };
 
+/**
+ * Objekte zum Auswählen.
+ *
+ * Zuerst die eigenen — aus den Einsätzen und den zugeteilten Objekten —,
+ * danach alle übrigen aus dem Stamm. Vorher standen nur die eigenen drin.
+ * Ein Objekt ohne Einsatz, etwa ein frisch angelegtes, fehlte damit
+ * vollständig, und ein Aufkleber darauf lief ins Leere.
+ */
 function pickableSites(data: AppData | null, position: { latitude: number; longitude: number } | null): PickableSite[] {
   const byId = new Map((data?.workSites || []).map((site) => [site.id, site]));
-  return menuSites(data, data?.tasks || []).map((entry) => {
-    const site = entry.workSiteId ? byId.get(entry.workSiteId) : undefined;
+
+  function bauen(workSiteId: string | null, siteName: string): PickableSite {
+    const site = workSiteId ? byId.get(workSiteId) : undefined;
     const lat = getSiteLatitude(site);
     const lng = getSiteLongitude(site);
     const distance = position && lat !== null && lng !== null ? distanceMeters(position.latitude, position.longitude, lat, lng) : null;
     return {
-      workSiteId: entry.workSiteId,
-      siteName: entry.siteName,
+      workSiteId,
+      siteName,
       address: [site?.address, site?.customer_name].filter(Boolean).join(" · ") || "Keine Adresse hinterlegt",
       distance
     };
-  });
+  }
+
+  const eigene = menuSites(data, data?.tasks || []).map((entry) => bauen(entry.workSiteId, entry.siteName));
+  const bekannt = new Set(eigene.map((entry) => entry.workSiteId).filter(Boolean));
+
+  const uebrige = (data?.workSites || [])
+    .filter((site) => site.id && !bekannt.has(site.id))
+    .map((site) => bauen(site.id, workSiteName(site)))
+    .sort((a, b) => a.siteName.localeCompare(b.siteName));
+
+  return [...eigene, ...uebrige];
 }
 
 /** Auswahl-Sheet: erst was in der Nähe liegt, darunter alle Objekte. */
@@ -2605,6 +2624,7 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
   const sites = useMemo(() => pickableSites(data, position), [data, position]);
   const [siteIndex, setSiteIndex] = useState(0);
   const [sheetOpen, setSheetOpen] = useState(autoOpen);
+  const [vorauswahlFehler, setVorauswahlFehler] = useState<string | null>(null);
   const vorauswahlGesetzt = useRef(false);
 
   useEffect(() => {
@@ -2620,7 +2640,13 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
     if (!initialSiteId || vorauswahlGesetzt.current || !sites.length) return;
     const treffer = sites.findIndex((site) => String(site.workSiteId || "") === initialSiteId);
     vorauswahlGesetzt.current = true;
-    if (treffer >= 0) setSiteIndex(treffer);
+    if (treffer >= 0) {
+      setSiteIndex(treffer);
+      return;
+    }
+    // Lieber sagen, dass das Objekt fehlt, als still das erste der Liste
+    // nehmen. Sonst bestellt jemand für ein Objekt, an dem er nicht steht.
+    setVorauswahlFehler("Der Aufkleber zeigt auf ein Objekt, das hier nicht in der Liste steht. Bitte oben das richtige Objekt wählen.");
   }, [initialSiteId, sites]);
 
   const aktivesObjektId = sites[siteIndex]?.workSiteId || "";
@@ -2798,6 +2824,8 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
           }
         >
           <form id="material-order-form" onSubmit={submit} className="space-y-3">
+            {vorauswahlFehler ? <Banner tone="warn">{vorauswahlFehler}</Banner> : null}
+
             <button type="button" onClick={() => setSitePickerOpen(true)} className="flex w-full items-center gap-3 rounded-2xl border border-paper-300 px-4 py-3 text-left">
               <span className="shrink-0 text-ink-400"><UiIcon name="building" className="h-5 w-5" /></span>
               <span className="min-w-0 flex-1">
@@ -4404,7 +4432,13 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     try {
       const storedName = typeof window !== "undefined" ? window.localStorage.getItem("cleantrack-employee-name") || "" : "";
       const wantedName = name || employeeName || storedName;
-      const query = wantedName ? `?employee=${encodeURIComponent(wantedName)}` : "";
+      const teile: string[] = [];
+      if (wantedName) teile.push(`employee=${encodeURIComponent(wantedName)}`);
+      // Kommt der Aufruf von einem Aufkleber, muss dieses Objekt mitgeliefert
+      // werden, auch wenn der Mitarbeiter dort keinen Einsatz hat. Sonst fehlt
+      // es in der Auswahl und der Aufkleber zeigt auf ein leeres Feld.
+      if (initialWorkSiteId) teile.push(`site=${encodeURIComponent(initialWorkSiteId)}`);
+      const query = teile.length ? `?${teile.join("&")}` : "";
       const response = await fetch(`/api/mobile/bootstrap${query}`, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${token}` }

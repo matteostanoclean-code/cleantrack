@@ -32,6 +32,10 @@ export async function GET(request: Request) {
     const { supabase, profile, isAdmin } = auth;
     const { searchParams } = new URL(request.url);
     const requestedEmployee = searchParams.get("employee");
+    // Objekt aus einem Aufkleber. Es wird zusätzlich geladen, auch wenn dort
+    // kein Einsatz des Mitarbeiters liegt — sonst steht es nicht zur Auswahl.
+    const requestedSite = String(searchParams.get("site") || "").trim();
+    const extraSiteId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedSite) ? requestedSite : "";
 
     const employeesResult = (await supabase
       .from("employee_profiles")
@@ -102,7 +106,8 @@ export async function GET(request: Request) {
 
     const workSiteIds = Array.from(new Set([
       ...((tasksResult.data || []).map((task: any) => task.work_site_id).filter(Boolean)),
-      ...((employeeWorkSitesResult.data || []).map((site: any) => site.work_site_id).filter(Boolean))
+      ...((employeeWorkSitesResult.data || []).map((site: any) => site.work_site_id).filter(Boolean)),
+      ...(extraSiteId ? [extraSiteId] : [])
     ]));
 
     let cleaningPlans: any[] = [];
