@@ -22,6 +22,7 @@ import {
   cx
 } from "@/components/ui";
 import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, minutesBetweenHm, startOfWeekIso } from "@/lib/format";
+import { antwortLesen, bilderVerkleinern } from "@/lib/bild";
 
 type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push" | "search" | "admin";
 type ClockStatus = "idle" | "working" | "break";
@@ -2340,14 +2341,15 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
       formData.append("checkedItems", JSON.stringify(checkedLabels));
       formData.append("rating", String(rating));
       formData.append("notes", notes);
-      photos.slice(0, 6).forEach((file) => formData.append("photos", file));
+      const kleinere = await bilderVerkleinern(photos.slice(0, 6));
+      kleinere.forEach((file) => formData.append("photos", file));
 
       const response = await fetch("/api/mobile/quality-report", {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData
       });
-      const result = await response.json();
+      const result = await antwortLesen(response);
       if (!response.ok || !result.ok) throw new Error(result.error || "Qualitätsnachweis konnte nicht gespeichert werden.");
       setMessage(photos.length ? "Qualitätsnachweis mit Foto wurde gespeichert und an den Admin gesendet." : "Qualitätsnachweis wurde gespeichert und an den Admin gesendet.");
       await onReload();
@@ -2753,14 +2755,15 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
       formData.set("workSiteName", site?.siteName || "");
       formData.set("items", JSON.stringify(items));
       formData.set("notes", notes);
-      photos.forEach((photo) => formData.append("photos", photo));
+      const kleinere = await bilderVerkleinern(photos);
+      kleinere.forEach((photo) => formData.append("photos", photo));
 
       const response = await fetch("/api/mobile/material/report", {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData
       });
-      const result = await response.json();
+      const result = await antwortLesen(response);
       if (!response.ok || !result.ok) throw new Error(result.error || "Materialbestellung konnte nicht gesendet werden.");
       resetForm();
       setSheetOpen(false);
@@ -3021,14 +3024,15 @@ function AbsenceScreen({ data, authToken, onBack, onReload }: { data: AppData | 
       formData.set("startDate", startDate);
       formData.set("endDate", endDate);
       formData.set("reason", reason);
-      documents.forEach((file) => formData.append("documents", file));
+      const kleinere = await bilderVerkleinern(documents);
+      kleinere.forEach((file) => formData.append("documents", file));
 
       const response = await fetch("/api/mobile/absence", {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData
       });
-      const result = await response.json();
+      const result = await antwortLesen(response);
       if (!response.ok || !result.ok) throw new Error(result.error || "Antrag konnte nicht gesendet werden.");
       setReason("");
       setStartDate("");
@@ -3679,14 +3683,15 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
       formData.set("category", category);
       formData.set("priority", priority);
       formData.set("description", description);
-      photos.forEach((photo) => formData.append("photos", photo));
+      const kleinere = await bilderVerkleinern(photos);
+      kleinere.forEach((photo) => formData.append("photos", photo));
 
       const response = await fetch("/api/mobile/issues", {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData
       });
-      const result = await response.json();
+      const result = await antwortLesen(response);
       if (!response.ok || !result.ok) throw new Error(result.error || "Objektmeldung konnte nicht gesendet werden.");
       setMessage(photos.length ? "Objektmeldung mit Foto wurde an das Büro gesendet." : "Objektmeldung wurde an das Büro gesendet.");
       setDescription("");

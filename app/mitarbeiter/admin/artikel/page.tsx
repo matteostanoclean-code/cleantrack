@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
+import { antwortLesen, bildVerkleinern } from "@/lib/bild";
 
 /**
  * Artikelstamm fürs Material.
@@ -66,6 +67,39 @@ export default function ArtikelSeite() {
   const [filter, setFilter] = useState("alle");
   const [form, setForm] = useState<Row>({ ...emptyArtikel });
   const [formOffen, setFormOffen] = useState(false);
+  const [bildLaeuft, setBildLaeuft] = useState(false);
+  const [bildFeldKey, setBildFeldKey] = useState(0);
+
+  /**
+   * Bild verkleinern und hochladen.
+   *
+   * Ein Handyfoto hat schnell fünf Megabyte, der Server nimmt rund viereinhalb
+   * pro Anfrage an. Ohne das Verkleinern kommt statt einer Antwort nur der
+   * Klartext "Request Entity Too Large" zurück.
+   */
+  async function bildHochladen(datei: File | null) {
+    if (!datei) return;
+    setBildLaeuft(true);
+    setError(null);
+    try {
+      const klein = await bildVerkleinern(datei);
+      const daten = new FormData();
+      daten.set("bild", klein);
+      const response = await fetch("/api/admin/artikel-bild", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: daten
+      });
+      const ergebnis = await antwortLesen(response);
+      if (!response.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Bild konnte nicht hochgeladen werden.");
+      setForm((aktuell) => ({ ...aktuell, image_url: ergebnis.url }));
+    } catch (uploadFehler) {
+      setError(uploadFehler instanceof Error ? uploadFehler.message : "Bild konnte nicht hochgeladen werden.");
+    } finally {
+      setBildLaeuft(false);
+      setBildFeldKey((wert) => wert + 1);
+    }
+  }
 
   const ruf = useCallback(async (body: Row, currentToken?: string) => {
     const response = await fetch("/api/admin/data", {
@@ -317,7 +351,28 @@ export default function ArtikelSeite() {
                 <Field label="Soll"><input type="number" min="0" value={form.min_stock} onChange={(event) => setForm({ ...form, min_stock: event.target.value })} className={inputClass} /></Field>
               </div>
 
-              <Field label="Bild-Adresse, optional"><input value={form.image_url} onChange={(event) => setForm({ ...form, image_url: event.target.value })} placeholder="https://…" className={inputClass} /></Field>
+              <Field label="Bild, optional">
+                <div className="flex items-center gap-3">
+                  {clean(form.image_url) ? (
+                    <img src={clean(form.image_url)} alt="" className="h-16 w-16 shrink-0 rounded-xl border border-paper-200 object-cover" />
+                  ) : (
+                    <span className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-paper-100 text-[22px]">📦</span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <input
+                      key={bildFeldKey}
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => bildHochladen(event.target.files?.[0] || null)}
+                      className="block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
+                    />
+                    {bildLaeuft ? <p className="mt-1 text-[12px] text-brand-700">Lade Bild hoch…</p> : null}
+                    {clean(form.image_url) ? (
+                      <button type="button" onClick={() => setForm({ ...form, image_url: "" })} className="mt-1 text-[12px] font-semibold text-rose-600">Bild entfernen</button>
+                    ) : null}
+                  </div>
+                </div>
+              </Field>
               <Field label="Lieferant, optional"><input value={form.supplier} onChange={(event) => setForm({ ...form, supplier: event.target.value })} className={inputClass} /></Field>
               <Field label="Notiz, optional"><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={2} className={inputClass} /></Field>
 
