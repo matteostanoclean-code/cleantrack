@@ -7,6 +7,19 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 type Row = Record<string, any>;
 type Tab = "overview" | "tasks" | "employees" | "customers" | "sites" | "times";
 
+/** Offene Punkte, geliefert von /api/admin/aufgaben. */
+type Aufgaben = {
+  gesamt: number;
+  zeiten: number;
+  zeitenProblem: number;
+  urlaub: number;
+  material: number;
+  qualitaet: number;
+  ohneMitarbeiter: number;
+  chat: number;
+  meldungen: number;
+};
+
 type AdminData = {
   ok: boolean;
   error?: string;
@@ -249,6 +262,7 @@ export default function AdminDashboardPage() {
   const [token, setToken] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [data, setData] = useState<AdminData | null>(null);
+  const [aufgaben, setAufgaben] = useState<Aufgaben | null>(null);
   // Erlaubt Direktlinks wie /mitarbeiter/admin?tab=employees aus anderen Seiten.
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "overview";
@@ -298,6 +312,35 @@ export default function AdminDashboardPage() {
     }
     init();
   }, [load]);
+
+  /**
+   * Offene Punkte für "Zu erledigen". Kommt von derselben Stelle wie die
+   * Zahlen in der Seitenleiste, damit beides zusammenpasst.
+   */
+  useEffect(() => {
+    if (!token) return;
+    let aktiv = true;
+
+    async function holen() {
+      try {
+        const antwort = await fetch("/api/admin/aufgaben", {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const ergebnis = await antwort.json();
+        if (aktiv && ergebnis?.ok) setAufgaben(ergebnis);
+      } catch {
+        /* Die Übersicht darf ohne diese Zahlen weiterlaufen. */
+      }
+    }
+
+    holen();
+    const uhr = setInterval(holen, 60000);
+    return () => {
+      aktiv = false;
+      clearInterval(uhr);
+    };
+  }, [token]);
 
   async function handleLogin(nextToken: string) {
     setToken(nextToken);
@@ -496,19 +539,49 @@ export default function AdminDashboardPage() {
               <StatCard title="Planzeit" value={hoursLabel(stats.monthMinutes)} caption="Zeitraum" />
             </div>
 
-            {/* Nur zeigen, was gerade wirklich Arbeit macht. Ist nichts offen, verschwindet der Block. */}
-            {stats.openRequests > 0 || stats.unassignedTasks > 0 ? (
-              <section className="pt-3">
-                <h2 className="pb-1 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
-                {stats.openRequests > 0 ? (
-                  <NavRow href="/mitarbeiter/admin/freigaben" label="Freigaben und Meldungen" hint="Urlaub, Material, Qualität" count={stats.openRequests} />
-                ) : null}
-                <NavRow href="/mitarbeiter/admin/zeiten" label="Zeiten prüfen" hint="Abweichungen und Standortfehler" />
-                {stats.unassignedTasks > 0 ? (
-                  <NavRow href="/mitarbeiter/admin/planung" label="Einsätze ohne Mitarbeiter" hint="Zuweisen in der Planungszentrale" count={stats.unassignedTasks} />
-                ) : null}
-              </section>
-            ) : null}
+            {/*
+              Eine Zeile je Sache, mit eigener Zahl. Vorher stand hier eine
+              Sammelzahl "Freigaben und Meldungen 17" — daraus ging nicht
+              hervor, ob das drei Urlaubsanträge oder vierzehn Materialzettel
+              sind und wo man anfangen soll.
+            */}
+            <section className="pt-3">
+              <h2 className="pb-1 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
+              {aufgaben === null ? (
+                <p className="py-3 text-[14px] text-ink-400">Zähle offene Punkte…</p>
+              ) : aufgaben.gesamt === 0 ? (
+                <div className="rounded-2xl border border-paper-200 bg-white px-4 py-5 text-center">
+                  <p className="text-[16px] font-semibold text-ink-900">Nichts offen</p>
+                  <p className="mt-1 text-[14px] text-ink-400">Keine Zeiten, Anträge oder Meldungen, die auf dich warten.</p>
+                </div>
+              ) : (
+                <>
+                  {aufgaben.zeiten > 0 ? (
+                    <NavRow
+                      href="/mitarbeiter/admin/zeiten"
+                      label="Zeiten prüfen"
+                      hint={aufgaben.zeitenProblem > 0 ? `davon ${aufgaben.zeitenProblem} mit Standortfehler oder ohne Ausstempeln` : "Abweichungen zur geplanten Zeit"}
+                      count={aufgaben.zeiten}
+                    />
+                  ) : null}
+                  {aufgaben.chat > 0 ? (
+                    <NavRow href="/mitarbeiter/admin/chat" label="Nachrichten vom Team" hint="Ungelesen im Chat" count={aufgaben.chat} />
+                  ) : null}
+                  {aufgaben.urlaub > 0 ? (
+                    <NavRow href="/mitarbeiter/admin/urlaub" label="Urlaub und Abwesenheit" hint="Anträge ohne Entscheidung" count={aufgaben.urlaub} />
+                  ) : null}
+                  {aufgaben.material > 0 ? (
+                    <NavRow href="/mitarbeiter/admin/freigaben?bereich=material" label="Materialbestellungen" hint="Noch nicht bestellt oder geliefert" count={aufgaben.material} />
+                  ) : null}
+                  {aufgaben.qualitaet > 0 ? (
+                    <NavRow href="/mitarbeiter/admin/freigaben?bereich=qualitaet" label="Qualitätsnachweise" hint="Noch nicht angesehen" count={aufgaben.qualitaet} />
+                  ) : null}
+                  {aufgaben.ohneMitarbeiter > 0 ? (
+                    <NavRow href="/mitarbeiter/admin/planung" label="Einsätze ohne Mitarbeiter" hint="Zuweisen in der Planungszentrale" count={aufgaben.ohneMitarbeiter} />
+                  ) : null}
+                </>
+              )}
+            </section>
 
             {/* Am Rechner steht das alles in der Seitenleiste, deshalb nur am Handy zeigen. */}
             <section className="pt-3 md:hidden">

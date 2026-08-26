@@ -63,7 +63,7 @@ const GRUPPEN: Gruppe[] = [
 export default function AdminSeitenleiste() {
   const pfad = usePathname() || "";
   const [angemeldet, setAngemeldet] = useState(false);
-  const [ungelesen, setUngelesen] = useState(0);
+  const [zahlen, setZahlen] = useState<Record<string, number>>({});
 
   /**
    * Die Seitenleiste gehört zum Rahmen und weiß von sich aus nichts über die
@@ -88,8 +88,11 @@ export default function AdminSeitenleiste() {
   }, []);
 
   /**
-   * Anzahl ungelesener Chat-Nachrichten für den roten Punkt. Wird beim Laden
-   * und danach alle 30 Sekunden geholt, außerdem bei jedem Seitenwechsel.
+   * Offene Punkte für die roten Zahlen. Beim Laden, danach alle 30 Sekunden,
+   * außerdem bei jedem Seitenwechsel.
+   *
+   * Vorher hing nur am Chat eine Zahl. Wer sich morgens anmeldete, sah nirgends,
+   * dass Zeiten oder Anträge liegen — man musste jede Seite einzeln aufmachen.
    */
   useEffect(() => {
     if (!angemeldet) return;
@@ -101,12 +104,20 @@ export default function AdminSeitenleiste() {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
         if (!token) return;
-        const antwort = await fetch("/api/admin/chat?zaehler=1", {
+        const antwort = await fetch("/api/admin/aufgaben", {
           cache: "no-store",
           headers: { Authorization: `Bearer ${token}` },
         });
         const ergebnis = await antwort.json();
-        if (aktiv && ergebnis?.ok) setUngelesen(Number(ergebnis.ungelesen) || 0);
+        if (aktiv && ergebnis?.ok) {
+          setZahlen({
+            "/mitarbeiter/admin/zeiten": Number(ergebnis.zeiten) || 0,
+            "/mitarbeiter/admin/freigaben": Number(ergebnis.meldungen) || 0,
+            "/mitarbeiter/admin/urlaub": Number(ergebnis.urlaub) || 0,
+            "/mitarbeiter/admin/planung": Number(ergebnis.ohneMitarbeiter) || 0,
+            "/mitarbeiter/admin/chat": Number(ergebnis.chat) || 0,
+          });
+        }
       } catch {
         /* Zähler ist Beiwerk, Fehler bleiben still */
       }
@@ -153,9 +164,9 @@ export default function AdminSeitenleiste() {
                       >
                         <span className="w-4 shrink-0 text-center text-[13px] opacity-70">{eintrag.symbol}</span>
                         <span className="truncate">{eintrag.titel}</span>
-                        {eintrag.adresse === "/mitarbeiter/admin/chat" && ungelesen > 0 ? (
+                        {zahlen[eintrag.adresse] > 0 ? (
                           <span className="ml-auto shrink-0 rounded-full bg-danger-500 px-1.5 py-0.5 text-[11px] font-bold leading-tight text-white">
-                            {ungelesen}
+                            {zahlen[eintrag.adresse]}
                           </span>
                         ) : null}
                       </Link>
