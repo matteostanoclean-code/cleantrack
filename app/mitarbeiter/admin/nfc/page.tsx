@@ -76,22 +76,36 @@ export default async function NfcAufkleberSeite() {
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-[14px] text-red-700">{problem}</div>
         ) : null}
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           {sites.map((row) => {
-            const adresse = `${basis}/mitarbeiter/nfc/${row.id}`;
+            const stempeln = `${basis}/mitarbeiter/nfc/${row.id}`;
+            const material = `${stempeln}/material`;
             return (
-              <div
-                key={row.id}
-                className="flex items-center gap-4 rounded-2xl border border-paper-200 bg-white p-4 print:break-inside-avoid"
-              >
-                <div className="h-[76px] w-[76px] shrink-0" dangerouslySetInnerHTML={{ __html: qrSvg(adresse) }} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[16px] font-semibold">{siteName(row)}</p>
-                  <p className="truncate text-[13px] text-ink-400">
-                    {row.address || "Keine Adresse hinterlegt"}
-                    {row.allowed_radius_m ? ` · ${row.allowed_radius_m} m Radius` : ""}
-                  </p>
-                  <p className="mt-1 break-all font-mono text-[12px] text-ink-500">{adresse}</p>
+              <div key={row.id} className="rounded-2xl border border-paper-200 bg-white p-4 print:break-inside-avoid">
+                <p className="text-[16px] font-semibold">{siteName(row)}</p>
+                <p className="truncate text-[13px] text-ink-400">
+                  {row.address || "Keine Adresse hinterlegt"}
+                  {row.allowed_radius_m ? ` · ${row.allowed_radius_m} m Radius` : ""}
+                </p>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="flex items-center gap-3 rounded-xl bg-paper-100 p-3">
+                    <div className="h-[76px] w-[76px] shrink-0" dangerouslySetInnerHTML={{ __html: qrSvg(stempeln) }} />
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-semibold text-brand-700">Stempeln</p>
+                      <p className="text-[12px] text-ink-400">Stempelt beim Auflegen direkt ein</p>
+                      <p className="mt-1 break-all font-mono text-[11px] text-ink-500">{stempeln}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 rounded-xl bg-paper-100 p-3">
+                    <div className="h-[76px] w-[76px] shrink-0" dangerouslySetInnerHTML={{ __html: qrSvg(material) }} />
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-semibold text-brand-700">Material bestellen</p>
+                      <p className="text-[12px] text-ink-400">Öffnet die Bestellung für dieses Objekt</p>
+                      <p className="mt-1 break-all font-mono text-[11px] text-ink-500">{material}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             );
@@ -105,8 +119,12 @@ export default async function NfcAufkleberSeite() {
             <li>Eine Schreib-App installieren, zum Beispiel „NFC Tools".</li>
             <li>Datensatz-Typ <strong>URL</strong> wählen, Adresse von oben einfügen, schreiben.</li>
             <li>Aufkleber am Objekt anbringen, gut erreichbar und nicht auf Metall.</li>
-            <li>Einmal mit dem Telefon auflegen und prüfen, ob die Stempeluhr aufgeht.</li>
+            <li>Einmal mit dem Telefon auflegen und prüfen, ob der richtige Bildschirm aufgeht.</li>
           </ol>
+          <p className="mt-3">
+            Zwei Aufkleber je Objekt: der eine am Eingang zum Stempeln, der andere im Putzschrank
+            zum Bestellen. Beschrifte sie, von außen sehen sie gleich aus.
+          </p>
           <p className="mt-3">
             Aufkleber lassen sich sperren, damit niemand sie überschreibt. Erst sperren, wenn der
             Test geklappt hat, danach geht es nicht mehr rückgängig.

@@ -2597,21 +2597,51 @@ function SitePickerSheet({ sites, onPick, onClose }: { sites: PickableSite[]; on
 }
 
 /** Materialbestellung: mehrere Artikel in einem Vorgang, gruppiert und durchsuchbar. */
-function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void> }) {
+function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "", autoOpen = false }: { data: AppData | null; authToken: string; onBack: () => void; onReload: () => Promise<void>; initialSiteId?: string; autoOpen?: boolean }) {
   const [position, setPosition] = useState<{ latitude: number; longitude: number } | null>(null);
   const [sitePickerOpen, setSitePickerOpen] = useState(false);
   const [openOrder, setOpenOrder] = useState<MaterialOrder | null>(null);
   const [closing, setClosing] = useState(false);
   const sites = useMemo(() => pickableSites(data, position), [data, position]);
+  const [siteIndex, setSiteIndex] = useState(0);
+  const [sheetOpen, setSheetOpen] = useState(autoOpen);
+  const vorauswahlGesetzt = useRef(false);
 
   useEffect(() => {
     getBrowserPosition().then((result) => setPosition({ latitude: result.latitude, longitude: result.longitude })).catch(() => setPosition(null));
   }, []);
-  const products = useMemo(() => data?.materialProducts || [], [data?.materialProducts]);
-  const [sheetOpen, setSheetOpen] = useState(false);
+
+  /**
+   * Kommt der Aufruf vom Aufkleber am Objekt, steht die Objekt-Nummer in der
+   * Adresse. Sobald die Objektliste da ist, wird das passende ausgewählt.
+   * Läuft nur einmal, danach kann frei umgeschaltet werden.
+   */
+  useEffect(() => {
+    if (!initialSiteId || vorauswahlGesetzt.current || !sites.length) return;
+    const treffer = sites.findIndex((site) => String(site.workSiteId || "") === initialSiteId);
+    vorauswahlGesetzt.current = true;
+    if (treffer >= 0) setSiteIndex(treffer);
+  }, [initialSiteId, sites]);
+
+  const aktivesObjektId = sites[siteIndex]?.workSiteId || "";
+  const aktivesObjektName = (sites[siteIndex]?.siteName || "").trim().toLowerCase();
+
+  /**
+   * Artikel des gewählten Objekts, dazu die allgemeinen ohne Objektbindung.
+   * Vorher standen alle Artikel aller Objekte in jeder Bestellung — bei
+   * Papierhandtüchern, die es nur an einem Objekt gibt, ist das Unsinn.
+   */
+  const products = useMemo(() => (data?.materialProducts || []).filter((product) => {
+    const objektId = String(product.work_site_id || "");
+    const objektName = String(product.object_name || "").trim().toLowerCase();
+    if (!objektId && !objektName) return true;
+    if (aktivesObjektId && objektId === aktivesObjektId) return true;
+    if (aktivesObjektName && objektName === aktivesObjektName) return true;
+    return false;
+  }), [data?.materialProducts, aktivesObjektId, aktivesObjektName]);
+
   const [search, setSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
-  const [siteIndex, setSiteIndex] = useState(0);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [closedGroups, setClosedGroups] = useState<Record<string, boolean>>({});
   const [customMaterial, setCustomMaterial] = useState("");
@@ -2828,6 +2858,12 @@ function MaterialScreen({ data, authToken, onBack, onReload }: { data: AppData |
                 </div>
               );
             })}
+
+            {!groups.length ? (
+              <Banner tone="info">
+                Für dieses Objekt sind noch keine Artikel hinterlegt. Trag unten ein, was gebraucht wird — das Büro kann es danach als festen Artikel anlegen.
+              </Banner>
+            ) : null}
 
             <div className="rounded-xl border border-paper-200 p-3">
               <p className="text-[13px] text-ink-400">Nicht in der Liste?</p>
@@ -4338,7 +4374,7 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
   );
 }
 
-export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId = "" }: { initialTab?: string; initialWorkSiteId?: string }) {
+export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId = "", initialAction = "stempeln" }: { initialTab?: string; initialWorkSiteId?: string; initialAction?: "stempeln" | "material" }) {
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
   const [siteHinweis, setSiteHinweis] = useState("");
   const [siteErledigt, setSiteErledigt] = useState(false);
@@ -4435,6 +4471,13 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
    */
   useEffect(() => {
     if (!initialWorkSiteId || siteErledigt || !data) return;
+
+    // Materialaufkleber: kein Einsatz nötig, das Bestellblatt kümmert sich
+    // selbst um die Vorauswahl des Objekts.
+    if (initialAction === "material") {
+      setSiteErledigt(true);
+      return;
+    }
 
     const heute = todayIso();
     const alle = data.tasks || [];
@@ -4572,7 +4615,7 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
           )}
           {active === "tasks" && <Tasks tasks={data?.tasks || []} authToken={authToken} onReload={() => refreshData()} />}
           {active === "menu" && <Menu data={data} employeeName={employeeName} onEmployeeChange={handleEmployeeChange} onLogout={handleLogout} setActive={setActive} />}
-          {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
+          {active === "material" && <MaterialScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} initialSiteId={initialAction === "material" ? initialWorkSiteId : ""} autoOpen={initialAction === "material"} />}
           {active === "quality" && <QualityScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => selectedTaskId ? setActive("taskdetail") : setActive("menu")} onReload={() => refreshData()} />}
           {active === "absence" && <AbsenceScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
           {active === "chat" && <ChatScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onReload={() => refreshData()} />}

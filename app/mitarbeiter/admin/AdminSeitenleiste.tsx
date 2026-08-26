@@ -47,6 +47,7 @@ const GRUPPEN: Gruppe[] = [
     eintraege: [
       { titel: "Geräte", adresse: "/mitarbeiter/admin/geraete", symbol: "⚙" },
       { titel: "Geräte-Etiketten", adresse: "/mitarbeiter/admin/geraete/etiketten", symbol: "▢" },
+      { titel: "Artikel fürs Material", adresse: "/mitarbeiter/admin/artikel", symbol: "▣" },
       { titel: "NFC-Aufkleber", adresse: "/mitarbeiter/admin/nfc", symbol: "◎" },
     ],
   },
