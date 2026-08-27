@@ -561,6 +561,24 @@ export default function AdminPlanningPage() {
   const tasks = useMemo(() => allTasks.filter((task) => clean(task.task_date) >= today), [allTasks]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => iso(addDays(parseIso(weekStart), index))), [weekStart]);
   const weekTasks = useMemo(() => allTasks.filter((task) => weekDays.includes(clean(task.task_date))), [allTasks, weekDays]);
+
+  /**
+   * Genehmigte Abwesenheiten je Tag. Der Urlaub steht damit im Wochenplan,
+   * nicht nur in der Urlaubsliste — sonst plant man jemanden ein, der weg ist.
+   */
+  const abwesenheitenProTag = useMemo(() => {
+    const map = new Map<string, Row[]>();
+    for (const absence of data?.absences || []) {
+      if (clean(absence.status).toLowerCase() !== "approved") continue;
+      const von = clean(absence.start_date).slice(0, 10);
+      const bis = clean(absence.end_date || absence.start_date).slice(0, 10);
+      if (!von) continue;
+      for (const tag of weekDays) {
+        if (tag >= von && tag <= (bis || von)) map.set(tag, [...(map.get(tag) || []), absence]);
+      }
+    }
+    return map;
+  }, [data?.absences, weekDays]);
   const unassignedTasks = useMemo(() => tasks.filter((task) => !clean(task.employee_name) && activeStatus(task)), [tasks]);
 
   const seriesGroups = useMemo(() => {
@@ -659,6 +677,20 @@ export default function AdminPlanningPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    {(abwesenheitenProTag.get(day) || []).map((absence) => (
+                      <div key={`abwesend-${absence.id}`} className="rounded-2xl border border-amber-300 bg-amber-50 p-3">
+                        <p className="text-sm font-bold text-amber-800">
+                          {clean(absence.employee_name) || "Mitarbeiter"} ist nicht da
+                        </p>
+                        <p className="text-xs text-amber-700">
+                          {clean(absence.request_type || absence.absence_type) || "Abwesenheit"}
+                          {" · "}
+                          {dateText(absence.start_date)} bis {dateText(absence.end_date || absence.start_date)}
+                          {Number(absence.credited_minutes) > 0 ? ` · ${hoursLabel(Number(absence.credited_minutes))} gutgeschrieben` : ""}
+                        </p>
+                      </div>
+                    ))}
+
                     {dayTasks.map((task) => (
                       <div key={task.id} className="rounded-2xl border border-paper-300 bg-white p-3">
                         <button onClick={() => openEdit(task)} className="block w-full text-left">

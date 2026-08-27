@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { safeUpdateById } from "@/lib/safeWrite";
+import { urlaubsGutschrift } from "@/lib/urlaub";
 
 export const dynamic = "force-dynamic";
 
@@ -121,6 +123,22 @@ export async function POST(request: Request) {
     const { data, error } = await supabase.from("absence_requests").insert(payload).select("*").single();
     if (error) throw new Error(error.message);
 
+    // Trägt das Büro die Abwesenheit direkt genehmigt ein, wird gleich hier
+    // gerechnet. Sonst stünde der Urlaub ohne Stunden da.
+    let gutschrift = { tage: 0, minuten: 0, detail: [] as any[] };
+    if (clean(payload.status).toLowerCase() === "approved") {
+      gutschrift = await urlaubsGutschrift(supabase, employeeName, startDate, endDate);
+      try {
+        await safeUpdateById(supabase, "absence_requests", data.id, {
+          credited_minutes: gutschrift.minuten,
+          credited_days: gutschrift.tage,
+          credit_detail: gutschrift.detail
+        });
+      } catch {
+        /* Eintrag steht, nur die Stunden fehlen. Siehe supabase/urlaub_gutschrift.sql */
+      }
+    }
+
     await notifyEmployee(
       supabase,
       data,
@@ -128,7 +146,7 @@ export async function POST(request: Request) {
       `Für dich wurde eine Abwesenheit vom ${startDate} bis ${endDate} eingetragen.`
     );
 
-    return NextResponse.json({ ok: true, item: data });
+    return NextResponse.json({ ok: true, item: data, gutschrift });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Abwesenheit konnte nicht erstellt werden.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
@@ -163,6 +181,16 @@ export async function PATCH(request: Request) {
 
     if (action === "approve" || action === "approve_and_unassign") {
       const conflicts = await loadConflicts(supabase, absence);
+
+      // Zuerst rechnen, dann freigeben. Wird der Mitarbeiter vorher aus den
+      // Einsätzen genommen, ist die Planzeit weg und der Tag wäre null wert.
+      const gutschrift = await urlaubsGutschrift(
+        supabase,
+        clean(absence.employee_name),
+        clean(absence.start_date),
+        clean(absence.end_date || absence.start_date)
+      );
+
       let released = 0;
       if (action === "approve_and_unassign") {
         released = await unassignConflicts(supabase, conflicts, `${absence.employee_name} ist vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend.`);
@@ -176,14 +204,46 @@ export async function PATCH(request: Request) {
         .single();
       if (error) throw new Error(error.message);
 
+      // Getrennt geschrieben und über safeUpdateById, damit ein fehlendes Feld
+      // die Genehmigung nicht scheitern lässt.
+      let gespeicherteZeile: AnyRow | null = null;
+      let uebersprungen: string[] = ["credited_minutes", "credited_days", "credit_detail"];
+      try {
+        const ergebnis = await safeUpdateById(supabase, "absence_requests", id, {
+          credited_minutes: gutschrift.minuten,
+          credited_days: gutschrift.tage,
+          credit_detail: gutschrift.detail
+        });
+        gespeicherteZeile = ergebnis.data;
+        uebersprungen = ergebnis.skipped;
+      } catch {
+        /* Die Genehmigung steht, nur die Stunden fehlen. Hinweis unten. */
+      }
+      const gutschriftGespeichert = uebersprungen.length === 0;
+
       await notifyEmployee(
         supabase,
         data,
         "Abwesenheit genehmigt",
-        `${profile.name} hat deine Abwesenheit vom ${data.start_date} bis ${data.end_date || data.start_date} genehmigt.${released ? ` ${released} Einsätze wurden neu zur Planung freigegeben.` : ""}`
+        [
+          `${profile.name} hat deine Abwesenheit vom ${data.start_date} bis ${data.end_date || data.start_date} genehmigt.`,
+          gutschrift.minuten > 0
+            ? `Dir werden ${gutschrift.tage} Tage mit zusammen ${Math.floor(gutschrift.minuten / 60)}:${String(gutschrift.minuten % 60).padStart(2, "0")} Stunden gutgeschrieben.`
+            : "",
+          released ? `${released} Einsätze wurden neu zur Planung freigegeben.` : ""
+        ].filter(Boolean).join(" ")
       );
 
-      return NextResponse.json({ ok: true, item: data, conflicts: conflicts.length, conflictsReleased: released });
+      return NextResponse.json({
+        ok: true,
+        item: { ...data, ...(gespeicherteZeile || {}) },
+        conflicts: conflicts.length,
+        conflictsReleased: released,
+        gutschrift,
+        hinweis: gutschriftGespeichert
+          ? null
+          : "Die Gutschrift konnte nicht gespeichert werden. Bitte supabase/urlaub_gutschrift.sql einmal ausführen."
+      });
     }
 
     if (action === "unassign_conflicts") {

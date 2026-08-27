@@ -8,6 +8,19 @@
 
 import { localDayIso, parseHm } from "@/lib/format";
 
+/**
+ * Erklärung, die der Mitarbeiter beim Nachtragen abhaken muss.
+ *
+ * Steht hier und nicht im Bildschirm, damit genau der Wortlaut gespeichert
+ * wird, den er auch gesehen hat. Wird der Text später geändert, bleibt bei
+ * alten Nachträgen der alte Wortlaut stehen.
+ *
+ * Achtung: Das ist kein geprüfter Rechtstext. Vor dem Einsatz im Betrieb
+ * gehört der Wortlaut einmal vom Steuerberater oder Anwalt angesehen.
+ */
+export const NACHTRAG_ERKLAERUNG =
+  "Ich bestätige, dass ich an diesem Tag zu den angegebenen Zeiten gearbeitet habe und dass meine Angaben vollständig und richtig sind. Mir ist bekannt, dass der Nachtrag vom Büro geprüft wird.";
+
 export type AnyRow = Record<string, any>;
 
 /** Abweichungen bis zu dieser Grenze gelten als planmäßig und brauchen keine Freigabe. */

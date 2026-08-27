@@ -23,6 +23,7 @@ import {
 } from "@/components/ui";
 import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, minutesBetweenHm, startOfWeekIso } from "@/lib/format";
 import { antwortLesen, bilderVerkleinern } from "@/lib/bild";
+import { NACHTRAG_ERKLAERUNG } from "@/lib/zeiten";
 
 type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push" | "search" | "admin";
 type ClockStatus = "idle" | "working" | "break";
@@ -110,6 +111,9 @@ type Absence = {
   status?: string | null;
   created_at?: string | null;
   admin_response?: string | null;
+  // Bei der Genehmigung berechnet, siehe lib/urlaub.ts
+  credited_minutes?: number | null;
+  credited_days?: number | null;
 };
 
 type Notification = {
@@ -1859,6 +1863,7 @@ function NachtragSheet({ shift, authToken, onClose, onDone }: { shift: MissingSh
   const [endTime, setEndTime] = useState(formatTime(shift.task.end_time) === "—" ? "" : formatTime(shift.task.end_time));
   const [breakMinutes, setBreakMinutes] = useState("0");
   const [reason, setReason] = useState("");
+  const [bestaetigt, setBestaetigt] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1872,7 +1877,7 @@ function NachtragSheet({ shift, authToken, onClose, onDone }: { shift: MissingSh
       const response = await fetch("/api/mobile/time-entry/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ taskId: shift.task.id, startTime, endTime, breakMinutes: Number(breakMinutes || 0), reason })
+        body: JSON.stringify({ taskId: shift.task.id, startTime, endTime, breakMinutes: Number(breakMinutes || 0), reason, bestaetigt })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Zeit konnte nicht nachgetragen werden.");
@@ -1890,7 +1895,7 @@ function NachtragSheet({ shift, authToken, onClose, onDone }: { shift: MissingSh
       title="Zeit nachtragen"
       onClose={onClose}
       footer={
-        <Button variant="primary" full disabled={saving || !reason || net <= 0} onClick={submit}>
+        <Button variant="primary" full disabled={saving || !reason || net <= 0 || !bestaetigt} onClick={submit}>
           {saving ? "Sende…" : "Zeit nachtragen"}
         </Button>
       }
@@ -1936,8 +1941,20 @@ function NachtragSheet({ shift, authToken, onClose, onDone }: { shift: MissingSh
         <span className="text-[17px] font-semibold text-ink-900">{hhmm(net)} h</span>
       </div>
 
+      {/* Ohne Haken kein Nachtrag. Eine nachgetragene Zeit ist nicht gestempelt,
+          also braucht es wenigstens eine ausdrückliche Zusicherung dazu. */}
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-paper-300 p-3.5">
+        <input
+          type="checkbox"
+          checked={bestaetigt}
+          onChange={(event) => setBestaetigt(event.target.checked)}
+          className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
+        />
+        <span className="text-[14px] leading-5 text-ink-600">{NACHTRAG_ERKLAERUNG}</span>
+      </label>
+
       {error ? <Banner tone="danger">{error}</Banner> : null}
-      <p className="text-[13px] text-ink-400">Der Nachtrag geht ans Büro und wird dort freigegeben.</p>
+      <p className="text-[13px] text-ink-400">Der Nachtrag geht ans Büro und wird dort freigegeben. Wortlaut und Zeitpunkt der Bestätigung werden mitgespeichert.</p>
     </BottomSheet>
   );
 }
@@ -1953,7 +1970,18 @@ function Timesheet({ entries, absences, tasks, rawEntries, employee, authToken, 
 }) {
   const [filter, setFilter] = useState<"all" | "missing">("all");
   const [nachtrag, setNachtrag] = useState<MissingShift | null>(null);
-  const total = useMemo(() => entries.reduce((sum, entry) => sum + entry.minutes, 0), [entries]);
+  const worked = useMemo(() => entries.reduce((sum, entry) => sum + entry.minutes, 0), [entries]);
+  // Genehmigte Abwesenheiten mit Gutschrift zählen mit. Ein Urlaubstag ist
+  // bezahlte Zeit, er gehört auf den Stundenzettel wie gearbeitete Zeit.
+  const creditedAbsences = useMemo(
+    () => absences.filter((absence) => String(absence.status || "").toLowerCase() === "approved" && Number(absence.credited_minutes || 0) > 0),
+    [absences]
+  );
+  const creditedMinutes = useMemo(
+    () => creditedAbsences.reduce((sum, absence) => sum + Number(absence.credited_minutes || 0), 0),
+    [creditedAbsences]
+  );
+  const total = worked + creditedMinutes;
   const missing = useMemo(() => missingShiftsFrom(tasks, rawEntries), [tasks, rawEntries]);
   const targetHours = Number(employee?.monthly_hour_limit || 0);
   const percent = targetHours ? Math.min(100, Math.round((total / 60 / targetHours) * 100)) : 0;
@@ -1977,12 +2005,41 @@ function Timesheet({ entries, absences, tasks, rawEntries, employee, authToken, 
           {hhmm(total)} h
           {targetHours ? <span className="text-[20px] font-semibold text-ink-200"> / {targetHours}:00 h</span> : null}
         </p>
+        {creditedMinutes > 0 ? (
+          <p className="mt-1 text-[13px] text-ink-400">
+            davon {hhmm(creditedMinutes)} h aus genehmigter Abwesenheit, {hhmm(worked)} h gearbeitet
+          </p>
+        ) : null}
         {targetHours ? (
           <span className="mt-3 block h-2 rounded-full bg-paper-200">
             <span className="block h-2 rounded-full bg-brand-600 transition-all" style={{ width: `${percent}%` }} />
           </span>
         ) : null}
       </div>
+
+      {creditedAbsences.length ? (
+        <>
+          <SectionHeading>Gutgeschrieben</SectionHeading>
+          {creditedAbsences.map((absence) => (
+            <div key={absence.id} className="flex items-start gap-3 border-b border-paper-200 px-4 py-3.5">
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2 text-[14px] font-medium text-success-700">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-success-500" />
+                  <span className="truncate">{absence.request_type || absence.absence_type || "Abwesenheit"}</span>
+                </span>
+                <span className="mt-1 block text-[16px] font-semibold text-ink-900">
+                  {formatShortDateDE(absence.start_date || "")}
+                  {absence.end_date && absence.end_date !== absence.start_date ? ` bis ${formatShortDateDE(absence.end_date)}` : ""}
+                </span>
+                <span className="mt-0.5 block text-[13px] text-ink-400">
+                  {absence.credited_days || 0} {Number(absence.credited_days) === 1 ? "Tag" : "Tage"} gutgeschrieben
+                </span>
+              </span>
+              <span className="shrink-0 text-[16px] font-semibold text-ink-900">{hhmm(Number(absence.credited_minutes || 0))} h</span>
+            </div>
+          ))}
+        </>
+      ) : null}
 
       <ChipRow>
         <Chip label="Alle" count={entries.length + missing.length} active={filter === "all"} onClick={() => setFilter("all")} />

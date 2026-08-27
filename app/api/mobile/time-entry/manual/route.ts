@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert } from "@/lib/safeWrite";
 import { minutesBetweenHm, parseHm } from "@/lib/format";
+import { NACHTRAG_ERKLAERUNG } from "@/lib/zeiten";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,13 @@ export async function POST(request: Request) {
     if (parseHm(endTime) === null) return NextResponse.json({ ok: false, error: "Endzeit bitte als HH:MM angeben." }, { status: 400 });
     if (!reason) return NextResponse.json({ ok: false, error: "Bitte einen Grund für den Nachtrag angeben." }, { status: 400 });
 
+    // Ohne abgehakte Erklärung kein Nachtrag. Eine nachgetragene Zeit ist nicht
+    // gestempelt, also muss zumindest festgehalten sein, wer sie wann und mit
+    // welcher Zusicherung eingetragen hat.
+    if (body.bestaetigt !== true) {
+      return NextResponse.json({ ok: false, error: "Bitte die Erklärung bestätigen." }, { status: 400 });
+    }
+
     const taskResult = await auth.supabase.from("tasks").select("*").eq("id", taskId).maybeSingle();
     if (taskResult.error) throw new Error(taskResult.error.message);
     const task = taskResult.data as AnyRow | null;
@@ -100,6 +108,11 @@ export async function POST(request: Request) {
     const endIso = new Date(`${day}T${endTime}:00`).toISOString();
     const siteName = clean(task.site || task.customer_name) || null;
 
+    const erklaertAm = new Date().toISOString();
+    // Der Wortlaut wandert mit in die Notiz. Ändert sich der Text später,
+    // steht bei diesem Nachtrag weiterhin das, was der Mitarbeiter gesehen hat.
+    const notiz = `${reason} · Erklärung bestätigt am ${erklaertAm}: ${NACHTRAG_ERKLAERUNG}`;
+
     const common = {
       task_id: task.id,
       employee_name: employeeName,
@@ -110,7 +123,10 @@ export async function POST(request: Request) {
       entry_type: "manual",
       source: "nachtrag",
       reason,
-      note: reason
+      note: notiz,
+      // Optional, werden übersprungen solange die Spalten fehlen.
+      declaration_text: NACHTRAG_ERKLAERUNG,
+      declared_at: erklaertAm
     };
 
     await safeInsert(auth.supabase, "time_entries", {
@@ -141,6 +157,7 @@ export async function POST(request: Request) {
         `${employeeName} hat die Zeit für ${siteName || "einen Einsatz"} am ${day} nachgetragen.`,
         `${startTime} bis ${endTime}${breakMinutes ? `, ${breakMinutes} Min. Pause` : ""} — ${workedMinutes} Min.${plannedMinutes ? ` geplant waren ${plannedMinutes} Min.` : ""}`,
         `Grund: ${reason}`,
+        "Erklärung wurde bestätigt.",
         "Bitte in der Zeitenfreigabe prüfen."
       ].join("\n"),
       employee_name: employeeName,
