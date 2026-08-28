@@ -246,6 +246,55 @@ export async function PATCH(request: Request) {
       });
     }
 
+    /**
+     * Stunden von Hand setzen.
+     *
+     * Die Rechnung findet nicht immer etwas — bei jemandem, der erst seit
+     * kurzem da ist, oder bei einem Wochentag, an dem er sonst nie arbeitet.
+     * Dann trägt das Büro ein, was der Tag wert ist.
+     */
+    if (action === "credit") {
+      const roh = Array.isArray(body.detail) ? body.detail : [];
+      const detail = roh
+        .map((eintrag: AnyRow) => ({
+          tag: clean(eintrag.tag).slice(0, 10),
+          minuten: Math.max(0, Math.round(Number(eintrag.minuten) || 0)),
+          quelle: clean(eintrag.quelle) || "manuell"
+        }))
+        .filter((eintrag: AnyRow) => /^\d{4}-\d{2}-\d{2}$/.test(eintrag.tag));
+
+      if (!detail.length) {
+        return NextResponse.json({ ok: false, error: "Keine Tage übergeben." }, { status: 400 });
+      }
+
+      const minuten = detail.reduce((summe: number, eintrag: AnyRow) => summe + eintrag.minuten, 0);
+      const tage = detail.filter((eintrag: AnyRow) => eintrag.minuten > 0).length;
+
+      try {
+        const ergebnis = await safeUpdateById(supabase, "absence_requests", id, {
+          credited_minutes: minuten,
+          credited_days: tage,
+          credit_detail: detail
+        });
+        if (ergebnis.skipped.length) {
+          return NextResponse.json(
+            { ok: false, error: "Die Spalten für die Gutschrift fehlen noch. Bitte supabase/urlaub_gutschrift.sql ausführen." },
+            { status: 409 }
+          );
+        }
+        await notifyEmployee(
+          supabase,
+          absence,
+          "Stunden für deine Abwesenheit",
+          `Dir wurden ${tage} ${tage === 1 ? "Tag" : "Tage"} mit zusammen ${Math.floor(minuten / 60)}:${String(minuten % 60).padStart(2, "0")} Stunden gutgeschrieben.`
+        );
+        return NextResponse.json({ ok: true, item: ergebnis.data, credited_minutes: minuten, credited_days: tage });
+      } catch (fehler) {
+        const text = fehler instanceof Error ? fehler.message : "Gutschrift konnte nicht gespeichert werden.";
+        return NextResponse.json({ ok: false, error: text }, { status: 500 });
+      }
+    }
+
     if (action === "unassign_conflicts") {
       const conflicts = await loadConflicts(supabase, absence);
       const released = await unassignConflicts(supabase, conflicts, `${absence.employee_name} ist vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend.`);

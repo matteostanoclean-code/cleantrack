@@ -19,7 +19,7 @@ import { localDayIso, parseHm } from "@/lib/format";
  * gehört der Wortlaut einmal vom Steuerberater oder Anwalt angesehen.
  */
 export const NACHTRAG_ERKLAERUNG =
-  "Ich bestätige, dass ich an diesem Tag zu den angegebenen Zeiten gearbeitet habe und dass meine Angaben vollständig und richtig sind. Mir ist bekannt, dass der Nachtrag vom Büro geprüft wird.";
+  "Ich bestätige, dass ich die oben angegebenen Arbeitszeiten tatsächlich und vollständig geleistet habe und meine Angaben wahrheitsgemäß sind. Mir ist bekannt, dass die Nachbuchung zunächst ungeprüft ist und erst nach Prüfung durch den Arbeitgeber freigegeben wird.";
 
 export type AnyRow = Record<string, any>;
 

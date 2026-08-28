@@ -105,6 +105,133 @@ function typeLabel(value?: unknown) {
   return "Urlaub";
 }
 
+/** "2:30" oder "2,5" oder "150" -> Minuten. Leer -> 0. */
+function minutenAusEingabe(text: string) {
+  const wert = clean(text).replace(",", ".");
+  if (!wert) return 0;
+  if (wert.includes(":")) {
+    const [h, m] = wert.split(":");
+    return Math.max(0, (Number(h) || 0) * 60 + (Number(m) || 0));
+  }
+  const zahl = Number(wert);
+  if (!Number.isFinite(zahl) || zahl < 0) return 0;
+  // Unter 24 als Stunden lesen, darüber als Minuten. Niemand trägt 30 Stunden
+  // für einen einzelnen Tag ein, aber 30 Minuten kommt vor.
+  return zahl < 24 ? Math.round(zahl * 60) : Math.round(zahl);
+}
+
+function stundenText(minuten: number) {
+  const m = Math.max(0, Math.round(minuten));
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function tageZwischen(von?: string | null, bis?: string | null) {
+  const start = parseDate(von);
+  const ende = parseDate(bis || von);
+  const tage: string[] = [];
+  if (!start || !ende || ende < start) return tage;
+  for (let cursor = new Date(start); cursor <= ende; cursor = addDays(cursor, 1)) {
+    tage.push(iso(cursor));
+    if (tage.length > 120) break;
+  }
+  return tage;
+}
+
+const QUELLE_TEXT: Record<string, string> = {
+  einsatz: "aus dem Einsatz an dem Tag",
+  muster: "aus dem gleichen Wochentag der letzten Wochen",
+  keine: "nichts gefunden, bitte eintragen",
+  manuell: "von Hand eingetragen"
+};
+
+/**
+ * Stunden je Urlaubstag von Hand setzen.
+ *
+ * Die automatische Rechnung findet nicht immer etwas — bei jemandem, der neu
+ * ist, oder an einem Wochentag, an dem er sonst nie arbeitet. Dann steht hier
+ * eine Null, und das Büro trägt ein, was der Tag wert ist.
+ */
+function GutschriftBlatt({ absence, saving, onClose, onSave }: {
+  absence: Row;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (detail: Array<{ tag: string; minuten: number; quelle: string }>) => Promise<void>;
+}) {
+  const vorhanden: Row[] = Array.isArray(absence.credit_detail) ? absence.credit_detail : [];
+  const tage = tageZwischen(absence.start_date, absence.end_date || absence.start_date);
+
+  const [werte, setWerte] = useState<Record<string, string>>(() => {
+    const start: Record<string, string> = {};
+    for (const tag of tage) {
+      const treffer = vorhanden.find((eintrag) => clean(eintrag.tag) === tag);
+      const minuten = Number(treffer?.minuten || 0);
+      start[tag] = minuten > 0 ? stundenText(minuten) : "";
+    }
+    return start;
+  });
+
+  const summe = tage.reduce((gesamt, tag) => gesamt + minutenAusEingabe(werte[tag] || ""), 0);
+
+  function speichern() {
+    const detail = tage.map((tag) => {
+      const minuten = minutenAusEingabe(werte[tag] || "");
+      const alt = vorhanden.find((eintrag) => clean(eintrag.tag) === tag);
+      const unveraendert = Number(alt?.minuten || 0) === minuten;
+      return { tag, minuten, quelle: unveraendert ? clean(alt?.quelle) || "manuell" : "manuell" };
+    });
+    return onSave(detail);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/40 md:items-center md:p-6" onClick={onClose}>
+      <div className="flex max-h-[92dvh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-3xl bg-white md:rounded-3xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-paper-200 px-5 py-4">
+          <div>
+            <p className="text-[17px] font-bold">Stunden je Tag</p>
+            <p className="text-xs text-ink-400">{absence.employee_name} · {shortDate(absence.start_date)} bis {shortDate(absence.end_date || absence.start_date)}</p>
+          </div>
+          <button onClick={onClose} className="rounded-xl border border-paper-300 px-3 py-2 text-sm font-bold text-ink-600">Schließen</button>
+        </div>
+
+        <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
+          <p className="pb-1 text-[13px] text-ink-400">
+            Angabe als Stunden, zum Beispiel <strong>2</strong> oder <strong>1:30</strong>. Leer lassen heißt: an dem Tag hätte er nicht gearbeitet.
+          </p>
+          {tage.map((tag) => {
+            const treffer = vorhanden.find((eintrag) => clean(eintrag.tag) === tag);
+            const quelle = clean(treffer?.quelle) || "keine";
+            return (
+              <div key={tag} className="flex items-center gap-3 rounded-xl border border-paper-200 p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold">{shortDate(tag)}</p>
+                  <p className="truncate text-[12px] text-ink-400">{QUELLE_TEXT[quelle] || quelle}</p>
+                </div>
+                <input
+                  value={werte[tag] || ""}
+                  onChange={(event) => setWerte({ ...werte, [tag]: event.target.value })}
+                  placeholder="0:00"
+                  inputMode="decimal"
+                  className="w-24 shrink-0 rounded-xl border border-paper-300 px-3 py-2.5 text-right text-[15px] outline-none focus:border-brand-500"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="border-t border-paper-200 px-5 py-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[14px] text-ink-600">Zusammen</span>
+            <span className="text-[17px] font-bold">{stundenText(summe)} h</span>
+          </div>
+          <button disabled={saving} onClick={speichern} className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white disabled:opacity-60">
+            {saving ? "Speichere…" : "Stunden gutschreiben"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-[100dvh] bg-paper-100 text-ink-900">
@@ -184,6 +311,7 @@ export default function AdminVacationPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [gutschrift, setGutschrift] = useState<Row | null>(null);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState({ employee_name: "", request_type: "urlaub", start_date: today, end_date: today, reason: "" });
 
@@ -251,6 +379,12 @@ export default function AdminVacationPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function speichereGutschrift(detail: Array<{ tag: string; minuten: number; quelle: string }>) {
+    if (!gutschrift) return;
+    await patchAbsence({ id: gutschrift.id, action: "credit", detail }, "Stunden wurden gutgeschrieben.");
+    setGutschrift(null);
   }
 
   async function patchAbsence(payload: Row, success: string) {
@@ -454,6 +588,24 @@ export default function AdminVacationPage() {
                   ) : (
                     <p className="mt-3 rounded-2xl border border-emerald-500/20 bg-brand-50 p-3 text-sm text-brand-700">Keine Einsatz-Konflikte gefunden.</p>
                   )}
+                  {/* Was der Urlaub an Stunden wert ist. Steht da nichts, hat
+                      die Rechnung nichts gefunden und das Büro trägt es ein. */}
+                  {["approved", "genehmigt"].includes(status.toLowerCase()) ? (
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-paper-300 bg-white px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Gutgeschrieben</p>
+                        <p className="text-[15px] font-semibold">
+                          {Number(absence.credited_minutes) > 0
+                            ? `${stundenText(Number(absence.credited_minutes))} h · ${absence.credited_days || 0} ${Number(absence.credited_days) === 1 ? "Tag" : "Tage"}`
+                            : "Noch keine Stunden"}
+                        </p>
+                      </div>
+                      <button onClick={() => setGutschrift(absence)} className="shrink-0 rounded-xl border border-brand-500/40 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">
+                        {Number(absence.credited_minutes) > 0 ? "Ändern" : "Eintragen"}
+                      </button>
+                    </div>
+                  ) : null}
+
                   <div className="mt-3 grid gap-2">
                     {!isClosed ? (
                       <>
@@ -474,6 +626,15 @@ export default function AdminVacationPage() {
           </div>
         </section>
       </div>
+
+      {gutschrift ? (
+        <GutschriftBlatt
+          absence={gutschrift}
+          saving={saving}
+          onClose={() => setGutschrift(null)}
+          onSave={speichereGutschrift}
+        />
+      ) : null}
     </Shell>
   );
 }
