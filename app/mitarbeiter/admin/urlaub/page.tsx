@@ -588,23 +588,32 @@ export default function AdminVacationPage() {
                   ) : (
                     <p className="mt-3 rounded-2xl border border-emerald-500/20 bg-brand-50 p-3 text-sm text-brand-700">Keine Einsatz-Konflikte gefunden.</p>
                   )}
-                  {/* Was der Urlaub an Stunden wert ist. Steht da nichts, hat
-                      die Rechnung nichts gefunden und das Büro trägt es ein. */}
-                  {["approved", "genehmigt"].includes(status.toLowerCase()) ? (
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-paper-300 bg-white px-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Gutgeschrieben</p>
-                        <p className="text-[15px] font-semibold">
-                          {Number(absence.credited_minutes) > 0
-                            ? `${stundenText(Number(absence.credited_minutes))} h · ${absence.credited_days || 0} ${Number(absence.credited_days) === 1 ? "Tag" : "Tage"}`
-                            : "Noch keine Stunden"}
-                        </p>
-                      </div>
-                      <button onClick={() => setGutschrift(absence)} className="shrink-0 rounded-xl border border-brand-500/40 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">
-                        {Number(absence.credited_minutes) > 0 ? "Ändern" : "Eintragen"}
-                      </button>
+                  {/*
+                    Was der Urlaub an Stunden wert ist. Immer sichtbar, auch
+                    wenn noch nichts entschieden ist oder längst genehmigt
+                    wurde — es fällt oft erst später auf, dass eine Zahl nicht
+                    passt, und dann muss man drankommen.
+
+                    Gezählt wird die Gutschrift im Stundenzettel erst, wenn die
+                    Abwesenheit genehmigt ist. Ein Eintrag bei einem offenen
+                    Antrag schreibt also noch niemandem etwas gut.
+                  */}
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-paper-300 bg-white px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Gutgeschrieben</p>
+                      <p className="text-[15px] font-semibold">
+                        {Number(absence.credited_minutes) > 0
+                          ? `${stundenText(Number(absence.credited_minutes))} h · ${absence.credited_days || 0} ${Number(absence.credited_days) === 1 ? "Tag" : "Tage"}`
+                          : "Noch keine Stunden"}
+                      </p>
+                      {!["approved", "genehmigt"].includes(status.toLowerCase()) && Number(absence.credited_minutes) > 0 ? (
+                        <p className="text-[12px] text-amber-700">Zählt erst nach der Genehmigung</p>
+                      ) : null}
                     </div>
-                  ) : null}
+                    <button onClick={() => setGutschrift(absence)} className="shrink-0 rounded-xl border border-brand-500/40 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">
+                      {Number(absence.credited_minutes) > 0 ? "Ändern" : "Eintragen"}
+                    </button>
+                  </div>
 
                   <div className="mt-3 grid gap-2">
                     {!isClosed ? (
