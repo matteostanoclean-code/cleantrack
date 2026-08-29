@@ -55,6 +55,7 @@ const GRUPPEN: Gruppe[] = [
     name: "Team",
     eintraege: [
       { titel: "Mitarbeiter aktivieren", adresse: "/mitarbeiter/admin/aktivieren", symbol: "＋" },
+      { titel: "Objekte je Mitarbeiter", adresse: "/mitarbeiter/admin/objektzuordnung", symbol: "◫" },
       { titel: "Push-Nachrichten", adresse: "/mitarbeiter/admin/push", symbol: "◈" },
     ],
   },

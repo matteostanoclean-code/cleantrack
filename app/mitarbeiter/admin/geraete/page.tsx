@@ -97,6 +97,9 @@ export default function DevicesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
+  // Nach Objekt ist die Standardansicht: die Frage im Alltag ist, was bei
+  // welchem Kunden steht, nicht wie die Geräte alphabetisch heißen.
+  const [ansicht, setAnsicht] = useState<"objekt" | "liste">("objekt");
   const [form, setForm] = useState({ ...emptyForm });
   const [sheetOpen, setSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -158,6 +161,31 @@ export default function DevicesPage() {
   const dueCount = devices.filter(serviceDue).length;
   const defectCount = devices.filter((device) => String(device.status || "").toLowerCase() === "defekt").length;
 
+  /**
+   * Geräte nach Objekt gebündelt, mit dem Kunden dazu.
+   *
+   * Die flache Liste beantwortet "wo ist Gerät X". Die Frage im Alltag ist
+   * aber die umgekehrte: was steht bei diesem Kunden vor Ort. Dafür diese
+   * Ansicht. Geräte ohne Objekt stehen ganz unten, die sind im Lager.
+   */
+  const nachObjekt = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; kunde: string; geraete: Device[] }>();
+    for (const device of filtered) {
+      const id = String(device.work_site_id || "");
+      const site = sites.find((eintrag) => eintrag.id === id);
+      const name = device.work_site_name || (site ? siteLabel(site) : "") || "Ohne Objekt, im Lager";
+      const schluessel = id || "__lager";
+      const vorhanden = map.get(schluessel);
+      if (vorhanden) vorhanden.geraete.push(device);
+      else map.set(schluessel, { id: schluessel, name, kunde: String(site?.customer_name || ""), geraete: [device] });
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.id === "__lager") return 1;
+      if (b.id === "__lager") return -1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [filtered, sites]);
+
   async function save() {
     setSaving(true);
     setError(null);
@@ -211,6 +239,23 @@ export default function DevicesPage() {
           <SearchInput value={query} onChange={setQuery} placeholder="Gerät, Nummer oder Objekt suchen" />
         </div>
 
+        <div className="border-b border-paper-200 bg-white px-4 pb-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setAnsicht("objekt")}
+              className={cx("rounded-xl border px-3 py-2.5 text-[14px]", ansicht === "objekt" ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 text-ink-600")}
+            >
+              Nach Objekt
+            </button>
+            <button
+              onClick={() => setAnsicht("liste")}
+              className={cx("rounded-xl border px-3 py-2.5 text-[14px]", ansicht === "liste" ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 text-ink-600")}
+            >
+              Alle Geräte
+            </button>
+          </div>
+        </div>
+
         {sites.length ? (
           <div className="border-b border-paper-200 bg-white px-4 pb-3">
             <select value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)} className="w-full rounded-xl border border-paper-200 px-3 py-2.5 text-[14px] text-ink-800 outline-none">
@@ -244,25 +289,58 @@ export default function DevicesPage() {
           ) : null}
         </div>
 
-        <div className="px-4">
-          {filtered.map((device) => {
-            const status = statusTone(device.status);
-            const due = serviceDue(device);
-            return (
-              <a key={device.id} href={`/mitarbeiter/geraet/${device.id}`} className="flex items-start gap-3 border-b border-paper-200 py-3.5">
-                <span className="mt-0.5 shrink-0 text-ink-400"><UiIcon name="box" className="h-[22px] w-[22px]" /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[16px] font-semibold text-ink-900">{device.name}</span>
-                  <span className="mt-0.5 block truncate text-[13px] text-ink-400">
-                    {[device.device_type, device.work_site_name, device.inventory_number].filter(Boolean).join(" · ") || "Ohne weitere Angaben"}
+        {ansicht === "objekt" ? (
+          <div className="space-y-3 px-4">
+            {nachObjekt.map((gruppe) => (
+              <section key={gruppe.id} className="rounded-2xl border border-paper-200 bg-white p-4">
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[16px] font-semibold text-ink-900">{gruppe.name}</p>
+                    <p className="truncate text-[13px] text-ink-400">{gruppe.kunde || "Kein Kunde hinterlegt"}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-paper-100 px-3 py-1 text-[12px] font-bold text-ink-600">{gruppe.geraete.length}</span>
+                </div>
+                {gruppe.geraete.map((device) => {
+                  const status = statusTone(device.status);
+                  const due = serviceDue(device);
+                  return (
+                    <a key={device.id} href={`/mitarbeiter/geraet/${device.id}`} className="flex items-start gap-3 border-t border-paper-200 py-3">
+                      <span className="mt-0.5 shrink-0 text-ink-400"><UiIcon name="box" className="h-[20px] w-[20px]" /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] font-semibold text-ink-900">{device.name}</span>
+                        <span className="mt-0.5 block truncate text-[13px] text-ink-400">
+                          {[device.device_type, device.inventory_number, device.serial_number].filter(Boolean).join(" · ") || "Ohne weitere Angaben"}
+                        </span>
+                        {due ? <span className="mt-1 block text-[13px] font-medium text-amber-700">Wartung fällig</span> : null}
+                      </span>
+                      <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                    </a>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="px-4">
+            {filtered.map((device) => {
+              const status = statusTone(device.status);
+              const due = serviceDue(device);
+              return (
+                <a key={device.id} href={`/mitarbeiter/geraet/${device.id}`} className="flex items-start gap-3 border-b border-paper-200 py-3.5">
+                  <span className="mt-0.5 shrink-0 text-ink-400"><UiIcon name="box" className="h-[22px] w-[22px]" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[16px] font-semibold text-ink-900">{device.name}</span>
+                    <span className="mt-0.5 block truncate text-[13px] text-ink-400">
+                      {[device.device_type, device.work_site_name, device.inventory_number].filter(Boolean).join(" · ") || "Ohne weitere Angaben"}
+                    </span>
+                    {due ? <span className="mt-1 block text-[13px] font-medium text-amber-700">Wartung fällig</span> : null}
                   </span>
-                  {due ? <span className="mt-1 block text-[13px] font-medium text-amber-700">Wartung fällig</span> : null}
-                </span>
-                <StatusPill tone={status.tone}>{status.label}</StatusPill>
-              </a>
-            );
-          })}
-        </div>
+                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                </a>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
