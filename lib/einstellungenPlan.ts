@@ -401,7 +401,7 @@ export const BEREICHE: Bereich[] = [
             hinweis: "Die Zeit zwischen zwei Objekten am selben Tag.",
             felder: [
               { art: "schalter", schluessel: "fahrzeit_aktiv", label: "Fahrzeit erfassen" },
-              { art: "zeit", schluessel: "fahrzeit_zwischenzeit", label: "Maximale Zwischenzeit", hinweis: "Liegt mehr dazwischen, zählt es nicht als Fahrt." },
+              { art: "zeit", schluessel: "fahrzeit_zwischenzeit", label: "Maximale Zwischenzeit", hinweis: "Rahmentarifvertrag § 11 Nr. 2: über drei Stunden Zwischenzeit gibt es keine Fahrtkostenerstattung." },
               { art: "text", schluessel: "fahrzeit_lohnnummer", label: "Lohnnummer für Fahrzeiten" }
             ]
           }
@@ -445,11 +445,19 @@ export const BEREICHE: Bereich[] = [
         art: "formular",
         bereich: "abwesenheit",
         ueberschrift: "Urlaubsanspruch",
-        hinweis: "Grundlage für die Berechnung je Mitarbeiter. Der Anspruch nach Rahmentarifvertrag Gebäudereinigung kann davon abweichen — im Zweifel gilt der Vertrag, nicht dieser Wert.",
+        hinweis: "Nach Rahmentarifvertrag § 15 Nr. 1.1 sind es ab 2021 dreißig Arbeitstage — aber auf Grundlage einer Fünf-Tage-Woche. Wer weniger Tage arbeitet, hat entsprechend weniger Anspruch. Der Wert hier ist also die Grundlage, nicht das Ergebnis.",
         abschnitte: [
           {
             titel: "Grundanspruch",
-            felder: [{ art: "zahl", schluessel: "urlaubsanspruch", label: "Urlaubstage im Jahr", einheit: "Tage" }]
+            felder: [
+              {
+                art: "zahl",
+                schluessel: "urlaubsanspruch",
+                label: "Urlaubstage im Jahr",
+                einheit: "Tage",
+                hinweis: "Bei Fünf-Tage-Woche. Drei Tage die Woche heißt entsprechend 18 Tage."
+              }
+            ]
           },
           {
             titel: "Wartezeit",
@@ -520,7 +528,7 @@ export const BEREICHE: Bereich[] = [
           },
           {
             titel: "Nachtarbeit",
-            hinweis: "Das Zeitfenster, in dem Nachtzuschlag greift.",
+            hinweis: "Als Nachtarbeit gilt nach Rahmentarifvertrag § 3 Nr. 4.2 die Zeit von 22.00 bis 5.00 Uhr.",
             felder: [
               { art: "zeit", schluessel: "nacht_von", label: "Nachtarbeit von" },
               { art: "zeit", schluessel: "nacht_bis", label: "Nachtarbeit bis" }

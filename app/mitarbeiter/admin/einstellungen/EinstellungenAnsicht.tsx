@@ -7,7 +7,7 @@ import { UiIcon, cx } from "@/components/ui";
 import { VORGABEN } from "@/lib/einstellungen";
 import { BEREICHE, FARB_OPTIONEN, STAMMSPALTEN, bereichFinden, gruppeFinden } from "@/lib/einstellungenPlan";
 import type { Feld, Gruppe, Spalte } from "@/lib/einstellungenPlan";
-import { TARIFVORLAGEN, TARIF_GRUPPEN, TARIF_WARNUNG } from "@/lib/tarifvorlagen";
+import { TARIFVORLAGEN, TARIF_GRUPPEN, TARIF_QUELLE, TARIF_REGELN, TARIF_WARNUNG } from "@/lib/tarifvorlagen";
 import type { Tarifvorlage } from "@/lib/tarifvorlagen";
 
 /**
@@ -649,11 +649,24 @@ export default function EinstellungenAnsicht({ bereich, gruppe }: { bereich: str
               </button>
             </div>
 
-            {blatt.vorlage ? (
-              <div className="mt-3 rounded-xl bg-brand-100 px-4 py-3 text-[13px] leading-relaxed text-brand-700">
-                Aus der Tarifvorlage übernommen. {TARIF_WARNUNG}
-              </div>
-            ) : null}
+            {blatt.vorlage ? (() => {
+              const vorlage = TARIFVORLAGEN.find((eintrag) => eintrag.schluessel === blatt.vorlage);
+              if (!vorlage) return null;
+              return (
+                <div className="mt-3 space-y-2">
+                  <div className="rounded-xl bg-brand-100 px-4 py-3 text-[13px] leading-relaxed text-brand-700">
+                    <p className="font-semibold">Aus dem Rahmentarifvertrag, {vorlage.fundstelle}</p>
+                    {vorlage.hinweis ? <p className="mt-1">{vorlage.hinweis}</p> : null}
+                  </div>
+                  {vorlage.abgelaufen ? (
+                    <div className="rounded-xl bg-danger-100 px-4 py-3 text-[13px] leading-relaxed text-danger-700">
+                      <p className="font-semibold">Gilt nach diesem Text nicht mehr</p>
+                      <p className="mt-1">{vorlage.abgelaufen}</p>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })() : null}
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {aktiveGruppe.felder.map((feld) => (
@@ -708,7 +721,18 @@ export default function EinstellungenAnsicht({ bereich, gruppe }: { bereich: str
               </button>
             </div>
 
-            <div className="mt-3 rounded-xl bg-amber-100 px-4 py-3 text-[13px] leading-relaxed text-amber-800">{TARIF_WARNUNG}</div>
+            <div className="mt-3 rounded-xl bg-brand-100 px-4 py-3 text-[13px] leading-relaxed text-brand-700">{TARIF_QUELLE}</div>
+            <div className="mt-2 rounded-xl bg-amber-100 px-4 py-3 text-[13px] leading-relaxed text-amber-800">{TARIF_WARNUNG}</div>
+
+            {/* Zwei Regeln, die keine Vorlage abbilden kann, weil sie erst beim
+                Zusammentreffen mehrerer Zuschläge greifen. */}
+            <div className="mt-2 space-y-1.5 rounded-xl border border-paper-200 px-4 py-3">
+              {TARIF_REGELN.map((regel) => (
+                <p key={regel.fundstelle} className="text-[13px] leading-relaxed text-ink-600">
+                  <span className="font-semibold text-ink-800">{regel.fundstelle}</span> — {regel.text}
+                </p>
+              ))}
+            </div>
 
             <div className="mt-4 space-y-5">
               {TARIF_GRUPPEN.map((gruppeEintrag) => {
@@ -725,9 +749,21 @@ export default function EinstellungenAnsicht({ bereich, gruppe }: { bereich: str
                           key={vorlage.schluessel}
                           type="button"
                           onClick={() => vorlageUebernehmen(vorlage)}
-                          className="flex w-full items-center justify-between gap-4 rounded-xl border border-paper-200 px-4 py-3 text-left transition hover:border-brand-500"
+                          className={cx(
+                            "flex w-full items-start justify-between gap-4 rounded-xl border px-4 py-3 text-left transition hover:border-brand-500",
+                            vorlage.abgelaufen ? "border-danger-500/40 bg-danger-100/40" : "border-paper-200"
+                          )}
                         >
-                          <span className="min-w-0 text-[14px] font-medium text-ink-800">{vorlage.name}</span>
+                          <span className="min-w-0">
+                            <span className="block text-[14px] font-medium text-ink-800">{vorlage.name}</span>
+                            <span className="mt-0.5 block text-[12px] text-ink-400">
+                              {vorlage.fundstelle}
+                              {vorlage.hinweis ? ` · ${vorlage.hinweis}` : ""}
+                            </span>
+                            {vorlage.abgelaufen ? (
+                              <span className="mt-1 block text-[12px] font-semibold text-danger-600">Gilt nach diesem Text nicht mehr</span>
+                            ) : null}
+                          </span>
                           <span className="shrink-0 text-[14px] font-semibold text-ink-600">
                             {vorlage.einheit === "prozent" ? `${vorlage.hoehe} %` : `${String(vorlage.hoehe).replace(".", ",")} €/h`}
                           </span>
