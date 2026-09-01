@@ -19,6 +19,7 @@ type Einrichtung = {
     id: string;
     name: string;
     email: string;
+    avatar_url?: string | null;
     einsatz: boolean;
     login: boolean;
     angemeldet: boolean;
@@ -28,6 +29,11 @@ type Einrichtung = {
   }>;
   kennzahlen: { einsatz: number; login: number; angemeldet: number; gestempelt: number; push: number; fertig: number };
 };
+
+function initialen(name: string) {
+  const teile = name.split(" ").filter(Boolean);
+  return ((teile[0]?.[0] || "") + (teile[teile.length - 1]?.[0] || "")).toUpperCase() || "?";
+}
 
 function QuoteCard({ titel, wert, gesamt, hervorgehoben }: { titel: string; wert: number; gesamt: number; hervorgehoben?: boolean }) {
   const prozent = gesamt > 0 ? Math.round((wert / gesamt) * 1000) / 10 : 0;
@@ -114,15 +120,26 @@ export default function EinrichtungBlock({ token, titel = "Einrichtung im Team" 
                 {stand.personen.map((person) => (
                   <tr key={person.id} className="border-b border-paper-200 last:border-0">
                     <td className="px-4 py-3">
-                      <p className="text-[15px] font-semibold text-ink-900">{person.name}</p>
-                      {person.email ? <p className="text-[12px] text-ink-400">{person.email}</p> : null}
+                      <div className="flex items-center gap-3">
+                        {person.avatar_url ? (
+                          <img src={person.avatar_url} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                        ) : (
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-600 text-[12px] font-bold text-white">
+                            {initialen(person.name)}
+                          </span>
+                        )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-[15px] font-semibold text-ink-900">{person.name}</span>
+                          {person.email ? <span className="block truncate text-[12px] text-ink-400">{person.email}</span> : null}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className="h-1.5 w-[110px] shrink-0 overflow-hidden rounded-full bg-paper-200">
                           <span
-                            className={`block h-1.5 rounded-full ${person.fortschritt === 100 ? "bg-success-500" : "bg-amber-500"}`}
-                            style={{ width: `${person.fortschritt}%` }}
+                            className={`block h-1.5 rounded-full ${person.fortschritt === 100 ? "bg-success-500" : "bg-brand-600"}`}
+                            style={{ width: `${Math.max(4, person.fortschritt)}%` }}
                           />
                         </span>
                         <span className="text-[13px] font-semibold text-ink-600">{person.fortschritt}%</span>

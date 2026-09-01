@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
+import { UiIcon } from "@/components/ui";
 
 type Row = Record<string, any>;
 type Tab = "overview" | "tasks" | "employees" | "customers" | "sites" | "times";
@@ -202,6 +203,40 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 
 /** Anteilskachel: große Prozentzahl, daneben die rohen Zahlen, darunter ein Balken. */
 /** Tabellenzelle mit Haken oder Kreuz. */
+/**
+ * Kachel für einen offenen Punkt auf dem Dashboard.
+ *
+ * Steht die Zahl auf null, wird gar nichts gezeigt — eine Kachel mit einer
+ * Null ist keine Aufgabe. Dringendes bekommt einen roten Rand, alles andere
+ * bleibt blau; sonst schreit die ganze Seite und man sieht nicht mehr, was
+ * wirklich eilt.
+ */
+function AufgabenKachel({ zahl, titel, hinweis, icon, href, dringend }: {
+  zahl: number;
+  titel: string;
+  hinweis: string;
+  icon: string;
+  href: string;
+  dringend?: boolean;
+}) {
+  if (!zahl) return null;
+  return (
+    <a
+      href={href}
+      className={`group flex items-start gap-4 rounded-2xl border bg-white p-4 transition hover:shadow-md ${dringend ? "border-danger-500/40" : "border-paper-200"}`}
+    >
+      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${dringend ? "bg-danger-50 text-danger-600" : "bg-brand-50 text-brand-600"}`}>
+        <UiIcon name={icon} className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold text-ink-900">{titel}</span>
+        <span className="mt-0.5 block text-[13px] leading-snug text-ink-400">{hinweis}</span>
+      </span>
+      <span className={`shrink-0 text-[30px] font-bold leading-none ${dringend ? "text-danger-600" : "text-brand-600"}`}>{zahl}</span>
+    </a>
+  );
+}
+
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
     <div className="rounded-2xl border border-paper-200 bg-white p-4">
@@ -552,41 +587,36 @@ export default function AdminDashboardPage() {
               hervor, ob das drei Urlaubsanträge oder vierzehn Materialzettel
               sind und wo man anfangen soll.
             */}
+            {/*
+              Kacheln statt Zeilen. Eine Kachel je Sache, die Zahl gross, damit
+              man sie im Vorbeigehen liest. Was auf null steht, verschwindet —
+              eine Kachel mit einer Null ist keine Aufgabe, sondern Ballast.
+            */}
             <section className="pt-3">
-              <h2 className="pb-1 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
+              <h2 className="pb-2 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
               {aufgaben === null ? (
                 <p className="py-3 text-[14px] text-ink-400">Zähle offene Punkte…</p>
               ) : aufgaben.gesamt === 0 ? (
-                <div className="rounded-2xl border border-paper-200 bg-white px-4 py-5 text-center">
-                  <p className="text-[16px] font-semibold text-ink-900">Nichts offen</p>
+                <div className="rounded-2xl border border-paper-200 bg-white px-4 py-8 text-center">
+                  <p className="text-[17px] font-semibold text-ink-900">Nichts offen</p>
                   <p className="mt-1 text-[14px] text-ink-400">Keine Zeiten, Anträge oder Meldungen, die auf dich warten.</p>
                 </div>
               ) : (
-                <>
-                  {aufgaben.zeiten > 0 ? (
-                    <NavRow
-                      href="/mitarbeiter/admin/zeiten"
-                      label="Zeiten prüfen"
-                      hint={aufgaben.zeitenProblem > 0 ? `davon ${aufgaben.zeitenProblem} mit Standortfehler oder ohne Ausstempeln` : "Abweichungen zur geplanten Zeit"}
-                      count={aufgaben.zeiten}
-                    />
-                  ) : null}
-                  {aufgaben.chat > 0 ? (
-                    <NavRow href="/mitarbeiter/admin/chat" label="Nachrichten vom Team" hint="Ungelesen im Chat" count={aufgaben.chat} />
-                  ) : null}
-                  {aufgaben.urlaub > 0 ? (
-                    <NavRow href="/mitarbeiter/admin/urlaub" label="Urlaub und Abwesenheit" hint="Anträge ohne Entscheidung" count={aufgaben.urlaub} />
-                  ) : null}
-                  {aufgaben.material > 0 ? (
-                    <NavRow href="/mitarbeiter/admin/freigaben?bereich=material" label="Materialbestellungen" hint="Noch nicht bestellt oder geliefert" count={aufgaben.material} />
-                  ) : null}
-                  {aufgaben.qualitaet > 0 ? (
-                    <NavRow href="/mitarbeiter/admin/freigaben?bereich=qualitaet" label="Qualitätsnachweise" hint="Noch nicht angesehen" count={aufgaben.qualitaet} />
-                  ) : null}
-                  {aufgaben.ohneMitarbeiter > 0 ? (
-                    <NavRow href="/mitarbeiter/admin/planung" label="Einsätze ohne Mitarbeiter" hint="Zuweisen in der Planungszentrale" count={aufgaben.ohneMitarbeiter} />
-                  ) : null}
-                </>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <AufgabenKachel
+                    zahl={aufgaben.zeiten}
+                    titel="Zeiten prüfen"
+                    hinweis={aufgaben.zeitenProblem > 0 ? `${aufgaben.zeitenProblem} mit Standortfehler oder ohne Ausstempeln` : "Abweichungen zur Zeitvorgabe"}
+                    icon="stopwatch"
+                    href="/mitarbeiter/admin/zeiten"
+                    dringend={aufgaben.zeitenProblem > 0}
+                  />
+                  <AufgabenKachel zahl={aufgaben.chat} titel="Nachrichten vom Team" hinweis="Ungelesen im Chat" icon="chat" href="/mitarbeiter/admin/chat" />
+                  <AufgabenKachel zahl={aufgaben.urlaub} titel="Urlaub und Abwesenheit" hinweis="Anträge ohne Entscheidung" icon="plane" href="/mitarbeiter/admin/urlaub" />
+                  <AufgabenKachel zahl={aufgaben.material} titel="Materialbestellungen" hinweis="Noch nicht bestellt oder geliefert" icon="box" href="/mitarbeiter/admin/bestellungen" />
+                  <AufgabenKachel zahl={aufgaben.qualitaet} titel="Qualitätsnachweise" hinweis="Noch nicht angesehen" icon="check" href="/mitarbeiter/admin/freigaben" />
+                  <AufgabenKachel zahl={aufgaben.ohneMitarbeiter} titel="Einsätze ohne Mitarbeiter" hinweis="Noch niemand eingeteilt" icon="users" href="/mitarbeiter/admin/einsatzplaner" dringend />
+                </div>
               )}
             </section>
 

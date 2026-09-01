@@ -24,12 +24,24 @@ const ARTEN = [
   { code: "SONS", label: "Sonstiges", ton: "bg-paper-200 text-ink-600" }
 ];
 
+/**
+ * Prioritäten als Ampel.
+ *
+ * Vier Stufen, drei Farben plus Orange dazwischen. Ein farbiger Punkt ist im
+ * Vorbeischauen schneller gelesen als vier verschieden hohe Balken — und in
+ * einer Liste mit dreißig Zeilen ist genau das die Frage: wo muss ich zuerst
+ * hinsehen.
+ */
 const PRIORITAETEN = [
-  { code: "gering", label: "Gering", balken: 1 },
-  { code: "mittel", label: "Mittel", balken: 2 },
-  { code: "hoch", label: "Hoch", balken: 3 },
-  { code: "dringend", label: "Dringend", balken: 4 }
+  { code: "gering", label: "Gering", balken: 1, punkt: "bg-success-500", text: "text-success-700" },
+  { code: "mittel", label: "Mittel", balken: 2, punkt: "bg-amber-400", text: "text-amber-700" },
+  { code: "hoch", label: "Hoch", balken: 3, punkt: "bg-orange-500", text: "text-orange-700" },
+  { code: "dringend", label: "Dringend", balken: 4, punkt: "bg-danger-500", text: "text-danger-700" }
 ];
+
+function prioVon(wert: unknown) {
+  return PRIORITAETEN.find((eintrag) => eintrag.code === String(wert ?? "").trim().toLowerCase()) || PRIORITAETEN[1];
+}
 
 const ZUSTAENDE = [
   { code: "neu", label: "Neu", ton: "bg-paper-200 text-ink-600" },
@@ -95,16 +107,13 @@ function spanne(von?: unknown, bis?: unknown) {
   return tage > 0 ? `${tage}T ${zeit}` : zeit;
 }
 
-function Balken({ stufe }: { stufe: number }) {
+/** Ampelpunkt für die Priorität, wahlweise mit Text daneben. */
+function Prio({ wert, mitText }: { wert: unknown; mitText?: boolean }) {
+  const prio = prioVon(wert);
   return (
-    <span className="inline-flex items-end gap-[2px]" title={PRIORITAETEN[stufe - 1]?.label}>
-      {[1, 2, 3, 4].map((n) => (
-        <span
-          key={n}
-          className={cx("w-[3px] rounded-sm", n <= stufe ? (stufe >= 4 ? "bg-danger-500" : stufe === 3 ? "bg-amber-500" : "bg-brand-600") : "bg-paper-300")}
-          style={{ height: `${4 + n * 2.5}px` }}
-        />
-      ))}
+    <span className="inline-flex items-center gap-2" title={`Priorität: ${prio.label}`}>
+      <span className={cx("h-2.5 w-2.5 shrink-0 rounded-full", prio.punkt)} />
+      {mitText ? <span className={cx("text-[13px] font-medium", prio.text)}>{prio.label}</span> : null}
     </span>
   );
 }
@@ -299,7 +308,7 @@ export default function AufgabenSeite() {
     const zeilen = gefiltert.map((t) => [
       clean(t.identifier),
       artVon(t.ticket_type).label,
-      clean(t.priority),
+      prioVon(t.priority).label,
       zustandVon(t.status).label,
       clean(t.title),
       zeitpunkt(t.created_at),
@@ -407,13 +416,12 @@ export default function AufgabenSeite() {
                 {gefiltert.map((ticket) => {
                   const art = artVon(ticket.ticket_type);
                   const zustand = zustandVon(ticket.status);
-                  const prio = PRIORITAETEN.find((p) => p.code === clean(ticket.priority).toLowerCase()) || PRIORITAETEN[1];
                   const ueberfaellig = clean(ticket.due_date) && clean(ticket.due_date).slice(0, 10) < heute && clean(ticket.status) !== "abgeschlossen";
                   return (
                     <tr key={ticket.id} onClick={() => bearbeiten(ticket)} className="cursor-pointer border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
                       <td className="px-4 py-3"><span className={cx("rounded-md px-2 py-1 text-[12px] font-semibold", art.ton)}>{art.label}</span></td>
                       <td className="px-3 py-3 font-mono text-[13px] text-ink-600">{clean(ticket.identifier) || "–"}</td>
-                      <td className="px-3 py-3"><Balken stufe={prio.balken} /></td>
+                      <td className="px-3 py-3"><Prio wert={ticket.priority} mitText /></td>
                       <td className="px-3 py-3"><span className={cx("rounded-md px-2 py-1 text-[12px] font-semibold", zustand.ton)}>{zustand.label}</span></td>
                       <td className="px-3 py-3 text-[14px] font-medium text-ink-900">{clean(ticket.title)}</td>
                       <td className="px-3 py-3 text-[13px] text-ink-500">{zeitpunkt(ticket.created_at)}</td>
@@ -451,7 +459,6 @@ export default function AufgabenSeite() {
                   <div className="space-y-2">
                     {eigene.map((ticket) => {
                       const art = artVon(ticket.ticket_type);
-                      const prio = PRIORITAETEN.find((p) => p.code === clean(ticket.priority).toLowerCase()) || PRIORITAETEN[1];
                       const index = ZUSTAENDE.findIndex((z) => z.code === spalte.code);
                       return (
                         <div key={ticket.id} className="rounded-xl border border-paper-200 p-3">
@@ -460,7 +467,7 @@ export default function AufgabenSeite() {
                               <span className="shrink-0 font-mono text-[12px] text-ink-400">{clean(ticket.identifier)}</span>
                               <span className={cx("truncate rounded-md px-1.5 py-0.5 text-[11px] font-semibold", art.ton)}>{art.label}</span>
                               <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                                <Balken stufe={prio.balken} />
+                                <Prio wert={ticket.priority} />
                                 {clean(ticket.assigned_to) ? (
                                   <span
                                     title={clean(ticket.assigned_to)}

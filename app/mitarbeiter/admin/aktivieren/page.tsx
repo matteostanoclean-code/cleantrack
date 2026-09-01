@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { UiIcon } from "@/components/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
@@ -152,8 +153,8 @@ export default function ActivateEmployeesPage() {
 
   if (!token && !loading) {
     return (
-      <main className="min-h-screen bg-paper-100 px-3 py-4 text-ink-900">
-        <section className="mx-auto max-w-[430px] md:mx-0 md:max-w-[720px] rounded-[2rem] border border-brand-500/30 bg-paper-100 p-5 shadow-2xl shadow-ink-900/10">
+      <main className="min-h-[100dvh] bg-paper-100 px-4 py-5 text-ink-900 md:px-6 xl:px-8">
+        <section className="max-w-[720px] rounded-2xl border border-paper-200 bg-white p-5">
           <h1 className="text-2xl font-bold">Mitarbeiter aktivieren</h1>
           <p className="mt-2 text-sm text-ink-400">Bitte erst als Admin in der Mitarbeiter-App anmelden.</p>
           <Link href="/mitarbeiter" className="mt-5 block rounded-2xl bg-brand-600 px-5 py-4 text-center font-bold">Zum Login</Link>
@@ -179,17 +180,17 @@ export default function ActivateEmployeesPage() {
           <section className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-paper-200 bg-white p-4">
               <p className="text-xs text-ink-400">Aktiv</p>
-              <p className="mt-1 text-3xl font-bold text-brand-700">{activeEmployees.length}</p>
+              <p className="mt-1 text-3xl font-bold text-brand-600">{activeEmployees.length}</p>
             </div>
             <div className="rounded-2xl border border-paper-200 bg-white p-4">
               <p className="text-xs text-ink-400">Offen</p>
-              <p className="mt-1 text-3xl font-bold text-yellow-200">{inactiveEmployees.length}</p>
+              <p className="mt-1 text-3xl font-bold text-ink-900">{inactiveEmployees.length}</p>
             </div>
           </section>
 
           {loading && (
             <div className="rounded-2xl border border-paper-200 bg-white p-5 text-center">
-              <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-paper-300 border-t-blue-500" />
+              <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-paper-300 border-t-brand-600" />
               <p className="font-bold">Lade Mitarbeiter…</p>
             </div>
           )}

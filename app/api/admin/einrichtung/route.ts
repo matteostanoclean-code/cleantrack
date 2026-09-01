@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     const supabase = auth.supabase;
 
     const [profileResult, tasksResult, entriesResult, pushResult] = await Promise.all([
-      supabase.from("employee_profiles").select("id, name, email, role, auth_user_id, active, last_active").order("name", { ascending: true }),
+      supabase.from("employee_profiles").select("id, name, email, role, auth_user_id, active, last_active, avatar_url").order("name", { ascending: true }),
       supabase.from("tasks").select("employee_name").limit(4000),
       supabase.from("time_entries").select("employee_name").limit(4000),
       supabase.from("push_subscriptions").select("employee_name").limit(500)
@@ -80,6 +80,7 @@ export async function GET(request: Request) {
           id: row.id,
           name,
           email: clean(row.email),
+          avatar_url: clean(row.avatar_url) || null,
           einsatz,
           login,
           angemeldet,

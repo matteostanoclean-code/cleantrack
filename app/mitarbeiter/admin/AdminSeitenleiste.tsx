@@ -87,7 +87,9 @@ const BLOECKE: Block[] = [
       { titel: "Aufgaben", adresse: "/mitarbeiter/admin/aufgaben", icon: "list" },
       {
         titel: "Materialwesen",
-        adresse: "/mitarbeiter/admin/artikel",
+        // Führt auf die Bestellungen: das ist der Bereich, der Arbeit macht.
+        // Der Artikelstamm wird selten angefasst.
+        adresse: "/mitarbeiter/admin/bestellungen",
         icon: "box",
         zaehler: "material",
         kinder: [
