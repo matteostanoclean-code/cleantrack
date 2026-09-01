@@ -117,14 +117,14 @@ select * from (values
 ) as neu(liste, name, nummer, sortierung, daten)
 where not exists (select 1 from settings_lists where liste = 'lieferanten');
 
--- Gesetzliche Feiertage Baden-Wuerttemberg, 2026 und 2027.
+-- Gesetzliche Feiertage Baden-Württemberg, 2026 und 2027.
 -- Die beweglichen haengen an Ostern: 2026 faellt Ostersonntag auf den 5. April,
 -- 2027 auf den 28. Maerz. Bewusst ausgeschrieben statt gerechnet, damit man
 -- jede Zeile nachschlagen kann.
 insert into settings_lists (liste, name, sortierung, daten)
 select * from (values
   ('feiertage', 'Neujahr',                    1,  '{"datum": "2026-01-01", "region": "BW"}'::jsonb),
-  ('feiertage', 'Heilige Drei Koenige',       2,  '{"datum": "2026-01-06", "region": "BW"}'::jsonb),
+  ('feiertage', 'Heilige Drei Könige',       2,  '{"datum": "2026-01-06", "region": "BW"}'::jsonb),
   ('feiertage', 'Karfreitag',                 3,  '{"datum": "2026-04-03", "region": "BW"}'::jsonb),
   ('feiertage', 'Ostermontag',                4,  '{"datum": "2026-04-06", "region": "BW"}'::jsonb),
   ('feiertage', 'Tag der Arbeit',             5,  '{"datum": "2026-05-01", "region": "BW"}'::jsonb),
@@ -136,7 +136,7 @@ select * from (values
   ('feiertage', '1. Weihnachtsfeiertag',      11, '{"datum": "2026-12-25", "region": "BW"}'::jsonb),
   ('feiertage', '2. Weihnachtsfeiertag',      12, '{"datum": "2026-12-26", "region": "BW"}'::jsonb),
   ('feiertage', 'Neujahr',                    13, '{"datum": "2027-01-01", "region": "BW"}'::jsonb),
-  ('feiertage', 'Heilige Drei Koenige',       14, '{"datum": "2027-01-06", "region": "BW"}'::jsonb),
+  ('feiertage', 'Heilige Drei Könige',       14, '{"datum": "2027-01-06", "region": "BW"}'::jsonb),
   ('feiertage', 'Karfreitag',                 15, '{"datum": "2027-03-26", "region": "BW"}'::jsonb),
   ('feiertage', 'Ostermontag',                16, '{"datum": "2027-03-29", "region": "BW"}'::jsonb),
   ('feiertage', 'Tag der Arbeit',             17, '{"datum": "2027-05-01", "region": "BW"}'::jsonb),
@@ -154,8 +154,8 @@ where not exists (select 1 from settings_lists where liste = 'feiertage');
 -- jedem Ausdruck, die Zeit-Werte steuern die Zeitenfreigabe.
 insert into app_settings (key, value) values
   ('firma', '{
-      "name": "Matteo Stano Clean Gebaeudereinigung",
-      "strasse": "Wilhelmstrasse 6",
+      "name": "Matteo Stano Clean Gebäudereinigung",
+      "strasse": "Wilhelmstraße 6",
       "plz": "75228",
       "ort": "Ispringen",
       "land": "DE Deutschland",
@@ -216,6 +216,6 @@ insert into app_settings (key, value) values
       "nacht_von": "22:00",
       "nacht_bis": "05:00",
       "land": "Deutschland",
-      "region": "Baden-Wuerttemberg"
+      "region": "Baden-Württemberg"
    }'::jsonb)
 on conflict (key) do nothing;
