@@ -1,11 +1,8 @@
-import Platzhalter from "../Platzhalter";
+import { redirect } from "next/navigation";
+import { BEREICHE } from "@/lib/einstellungenPlan";
 
+/** Einstellungen ohne Bereich landen auf der ersten Seite. */
 export default function Seite() {
-  return (
-    <Platzhalter
-      titel="Einstellungen"
-      kommt="Betriebsweite Einstellungen: Radius fürs Stempeln, Toleranz bei Abweichungen, Texte für Erklärungen, wer Meldungen bekommt."
-      heute={[{ text: "Push-Nachrichten", adresse: "/mitarbeiter/admin/push" }]}
-    />
-  );
+  const ersterBereich = BEREICHE[0];
+  redirect(`/mitarbeiter/admin/einstellungen/${ersterBereich.schluessel}/${ersterBereich.gruppen[0].schluessel}`);
 }

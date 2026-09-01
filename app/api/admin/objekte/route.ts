@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
 import { OBJEKT_TAGS, koordinaten } from "@/lib/objekte";
+import { listeLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,12 @@ export async function GET(request: Request) {
 
     if (objekte.error) throw new Error(objekte.error.message);
 
+    // Die Objekt-Tags sind die Auftragsarten aus den Einstellungen. Solange
+    // dort nichts steht — etwa weil die Tabelle noch fehlt — gilt die alte
+    // feste Liste, damit die Objektmaske nie ohne Auswahl dasteht.
+    const auftragsarten = await listeLaden(supabase, "auftragsarten");
+    const tags = auftragsarten.length ? auftragsarten.map((zeile) => String(zeile.name)).filter(Boolean) : OBJEKT_TAGS;
+
     return NextResponse.json({
       ok: true,
       sites: objekte.data || [],
@@ -72,7 +79,7 @@ export async function GET(request: Request) {
       devices: geraete.error ? [] : (geraete.data || []),
       keys: schluessel.error ? [] : (schluessel.data || []),
       tasks: aufgaben.error ? [] : (aufgaben.data || []),
-      tags: OBJEKT_TAGS
+      tags
     });
   } catch (fehler) {
     const text = fehler instanceof Error ? fehler.message : "Objekte konnten nicht geladen werden.";

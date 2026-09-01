@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { zeitgrenzenLaden } from "@/lib/einstellungen";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 
 export const dynamic = "force-dynamic";
@@ -369,7 +370,9 @@ export async function POST(request: Request) {
     const employeeLng = numberOrNull(body.longitude);
     const siteLat = pickNumber(site, ["latitude", "lat", "gps_latitude", "object_latitude"]);
     const siteLng = pickNumber(site, ["longitude", "lng", "lon", "gps_longitude", "object_longitude"]);
-    const allowedRadius = Math.round(pickNumber(site, ["allowed_radius_m", "radius_m", "gps_radius_m", "geofence_radius_m"]) ?? 150);
+    // Ohne eigenen Radius am Objekt gilt die Toleranz aus den Einstellungen.
+    const standardRadius = (await zeitgrenzenLaden(auth.supabase)).gps_toleranz_m;
+    const allowedRadius = Math.round(pickNumber(site, ["allowed_radius_m", "radius_m", "gps_radius_m", "geofence_radius_m"]) ?? standardRadius);
     const gpsRequired = pickBoolean(site, ["gps_required", "geofence_required", "location_required"], false);
     const hasSiteGps = siteLat !== null && siteLng !== null;
     const siteName = pickText(site, ["name", "site", "object_name", "site_name"]) || textOrNull(task.site || task.customer_name || task.title) || null;

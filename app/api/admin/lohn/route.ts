@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { buildRecords, plannedMinutesFromTask } from "@/lib/zeiten";
+import { zeitgrenzenLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -115,7 +116,7 @@ export async function GET(request: Request) {
       return tag >= von && tag <= bis;
     });
 
-    const saetze = buildRecords(eintraege, tasksById);
+    const saetze = buildRecords(eintraege, tasksById, await zeitgrenzenLaden(supabase));
 
     const zeilen = ((personen.data || []) as AnyRow[])
       .filter((person) => clean(person.name) && person.active !== false && clean(person.role).toLowerCase() !== "admin")

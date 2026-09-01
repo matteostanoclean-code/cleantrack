@@ -3,6 +3,7 @@ import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
 import { localDayIso, minutesBetweenHm, minutesToHm, parseHm } from "@/lib/format";
 import { AnyRow, TOLERANCE_MINUTES, buildRecords, numberOrNull, plannedMinutesFromTask, text } from "@/lib/zeiten";
+import { zeitgrenzenLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
       .select("id, name, active")
       .order("name", { ascending: true });
 
-    const records = buildRecords(entries, tasksById);
+    const records = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
     const summary = {
       open: records.filter((record) => record.state === "open").length,
       approved: records.filter((record) => record.state === "approved").length,

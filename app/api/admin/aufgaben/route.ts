@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { buildRecords } from "@/lib/zeiten";
+import { zeitgrenzenLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
       for (const task of stamm.data || []) tasksById.set(task.id, task);
     }
 
-    const records = buildRecords(entries, tasksById);
+    const records = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
     const zeitenOffen = records.filter((record: AnyRow) => record.state === "open").length;
     const zeitenProblem = records.filter((record: AnyRow) => record.locationIssue || record.incomplete).length;
 

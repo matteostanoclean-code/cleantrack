@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { zeitgrenzenLaden } from "@/lib/einstellungen";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
@@ -412,7 +413,8 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "GPS konnte nicht gelesen werden. Bitte Standortfreigabe erlauben." }, { status: 400 });
         }
         const distance = distanceMeters(latitude, longitude, Number(site.latitude), Number(site.longitude));
-        const radius = Number(site.allowed_radius_m || 150);
+        // Ohne eigenen Radius am Objekt gilt die Toleranz aus den Einstellungen.
+        const radius = Number(site.allowed_radius_m) || (await zeitgrenzenLaden(supabaseAdmin)).gps_toleranz_m;
         if (distance > radius) {
           return NextResponse.json({ error: `Du bist ${Math.round(distance)} m vom Objekt entfernt. Erlaubt sind ${radius} m.` }, { status: 400 });
         }

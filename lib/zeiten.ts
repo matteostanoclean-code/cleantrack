@@ -121,7 +121,42 @@ function actionLabel(action?: string | null) {
  * Wird auch von der Aufgabenzählung genutzt, damit die Zahl im Dashboard und
  * die Liste in der Zeitenfreigabe nie auseinanderlaufen.
  */
-export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>) {
+export type Zeitgrenzen = {
+  /** Ab wie viel Prozent unter der Planzeit vorgelegt wird. */
+  unter_prozent: number;
+  /** Und ab wie vielen Minuten. Beides muss zutreffen. */
+  unter_minuten: number;
+  /** Ab wie vielen Minuten über der Planzeit vorgelegt wird. */
+  ueber_minuten: number;
+  /** Ob ein Standortfehler allein schon zur Vorlage führt. */
+  fehler_standort: boolean;
+};
+
+export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
+  unter_prozent: 25,
+  unter_minuten: 10,
+  ueber_minuten: TOLERANCE_MINUTES,
+  fehler_standort: true
+};
+
+/**
+ * Entscheidet, ob eine Abweichung vorgelegt werden muss.
+ *
+ * Nach oben reicht die Minutengrenze. Nach unten müssen Prozent und Minuten
+ * beide überschritten sein: sonst würde bei einem Zwanzig-Minuten-Auftrag
+ * jede Verspätung von sechs Minuten als grobe Unterschreitung durchgehen, und
+ * bei einer Achtstundenschicht bliebe eine Dreiviertelstunde unbemerkt.
+ */
+function abweichungVorlegen(abweichung: number, planminuten: number, grenzen: Zeitgrenzen) {
+  if (!planminuten) return false;
+  if (abweichung > 0) return abweichung > Math.max(0, grenzen.ueber_minuten);
+  const fehlend = Math.abs(abweichung);
+  if (!fehlend) return false;
+  const prozent = (fehlend / planminuten) * 100;
+  return fehlend > Math.max(0, grenzen.unter_minuten) && prozent >= Math.max(0, grenzen.unter_prozent);
+}
+
+export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, grenzen: Zeitgrenzen = ZEITGRENZEN_VORGABE) {
   const groups = new Map<string, AnyRow[]>();
 
   for (const entry of entries) {
@@ -178,7 +213,10 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>) 
     else if (rawStatus === "rejected") state = "rejected";
     else if (rawStatus === "pending") state = "open";
     else if (incomplete) state = "open";
-    else state = Math.abs(deviationMinutes) > TOLERANCE_MINUTES || locationIssue ? "open" : "approved";
+    else {
+      const standortZaehlt = grenzen.fehler_standort && locationIssue;
+      state = abweichungVorlegen(deviationMinutes, plannedMinutes, grenzen) || standortZaehlt ? "open" : "approved";
+    }
 
     const day = localDayIso(clockIn?.created_at);
 
