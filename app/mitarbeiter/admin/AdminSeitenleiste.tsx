@@ -50,10 +50,10 @@ const BLOECKE: Block[] = [
     eintraege: [
       {
         titel: "Mitarbeiter",
-        adresse: "/mitarbeiter/admin?tab=employees",
+        adresse: "/mitarbeiter/admin/mitarbeiter",
         icon: "users",
         kinder: [
-          { titel: "Übersicht", adresse: "/mitarbeiter/admin?tab=employees", icon: "users" },
+          { titel: "Übersicht", adresse: "/mitarbeiter/admin/mitarbeiter", icon: "users" },
           { titel: "Login vergeben", adresse: "/mitarbeiter/admin/aktivieren", icon: "user" },
           { titel: "Objekte je Mitarbeiter", adresse: "/mitarbeiter/admin/objektzuordnung", icon: "building" },
           { titel: "Kapazität", adresse: "/mitarbeiter/admin/kapazitaet", icon: "priority" },
