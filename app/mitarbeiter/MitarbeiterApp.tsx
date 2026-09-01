@@ -2567,12 +2567,31 @@ function productImage(product: MaterialProduct) {
 }
 
 /** "0 / 1 Stk." — aktueller Bestand gegen Mindestbestand, wie in der Vorlage. */
+/**
+ * Was unter dem Artikelnamen steht.
+ *
+ * Bewusst kein Lagerbestand: Den zählt am Objekt niemand nach, eine Zahl wie
+ * "0 / 1 Stk." wäre also erfunden. Stattdessen die Einheit — und, wo es eine
+ * gibt, die offene Meldung. Die verhindert, dass dasselbe zweimal gemeldet
+ * wird, weil der Nächste nicht weiß, dass es schon unterwegs ist.
+ */
 function stockLabel(product: MaterialProduct) {
-  const unit = product.unit || "Stk.";
-  const current = Number(product.current_stock ?? 0);
-  const minimum = Number(product.min_stock ?? product.minimum_stock ?? 0);
-  if (!current && !minimum) return unit;
-  return `${current} / ${minimum} ${unit}`;
+  return product.unit || "Stk.";
+}
+
+/** Datum der letzten offenen Meldung dieses Artikels an diesem Objekt. */
+function offeneMeldung(reports: MaterialReport[], product: MaterialProduct, siteName: string) {
+  const name = String(product.name || "").trim().toLowerCase();
+  const objekt = String(siteName || "").trim().toLowerCase();
+  const treffer = reports
+    .filter((report) => {
+      if (String(report.status || "open").toLowerCase() !== "open") return false;
+      const gemeldet = String(report.material_name || report.product_name || "").trim().toLowerCase();
+      const wo = String(report.object_name || report.site || "").trim().toLowerCase();
+      return gemeldet === name && (!objekt || wo === objekt);
+    })
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  return treffer[0] || null;
 }
 
 function materialStatus(status?: string | null): { label: string; tone: "success" | "info" | "danger" | "neutral" } {
@@ -2888,7 +2907,7 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
               disabled={saving || !selectedCount}
               className="w-full rounded-xl bg-brand-600 py-4 text-[16px] font-semibold text-white disabled:bg-paper-200 disabled:text-ink-200"
             >
-              {saving ? "Sende…" : selectedCount ? `Material bestellen (${selectedCount})` : "Material bestellen"}
+              {saving ? "Sende…" : selectedCount ? `Bedarf melden (${selectedCount})` : "Bedarf melden"}
             </button>
           }
         >
@@ -2932,21 +2951,53 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
                     <div className="space-y-2">
                       {items.map((product) => {
                         const image = productImage(product);
+                        const gewaehlt = (quantities[product.id] || 0) > 0;
+                        const schonGemeldet = offeneMeldung(reports, product, sites[siteIndex]?.siteName || "");
                         return (
-                          <div key={product.id} className="flex items-center gap-3 rounded-xl border border-paper-200 p-3">
-                            {image ? (
-                              <img src={image} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
-                            ) : (
-                              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-paper-100 text-ink-200"><UiIcon name="box" className="h-5 w-5" /></span>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[13px] text-ink-400">{stockLabel(product)}</p>
-                              <p className="truncate text-[15px] font-medium text-ink-900">{product.name || "Material"}</p>
+                          <div key={product.id} className={cx("rounded-xl border p-3", gewaehlt ? "border-brand-500/50 bg-brand-50" : "border-paper-200")}>
+                            <div className="flex items-center gap-3">
+                              {image ? (
+                                <img src={image} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                              ) : (
+                                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-paper-100 text-ink-200"><UiIcon name="box" className="h-5 w-5" /></span>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[15px] font-medium text-ink-900">{product.name || "Material"}</p>
+                                <p className="text-[13px] text-ink-400">{stockLabel(product)}</p>
+                              </div>
+                              {/*
+                                Ein Tipp genügt: "brauche ich". Die Menge ist die
+                                Ausnahme, nicht die Regel — wer sagt "das Papier
+                                ist alle", zählt nicht erst nach.
+                              */}
+                              <button
+                                type="button"
+                                onClick={() => setQuantities((current) => ({ ...current, [product.id]: gewaehlt ? 0 : 1 }))}
+                                className={cx(
+                                  "shrink-0 rounded-xl px-4 py-2.5 text-[14px] font-semibold transition",
+                                  gewaehlt ? "bg-brand-600 text-white" : "border border-paper-300 text-ink-600"
+                                )}
+                              >
+                                {gewaehlt ? "✓ Ausgewählt" : "Brauche ich"}
+                              </button>
                             </div>
-                            <Stepper
-                              value={quantities[product.id] || 0}
-                              onChange={(next) => setQuantities((current) => ({ ...current, [product.id]: next }))}
-                            />
+
+                            {gewaehlt ? (
+                              <div className="mt-2 flex items-center justify-between gap-3 border-t border-brand-500/20 pt-2">
+                                <span className="text-[13px] text-ink-500">Wie viel?</span>
+                                <Stepper
+                                  value={quantities[product.id] || 1}
+                                  min={1}
+                                  onChange={(next) => setQuantities((current) => ({ ...current, [product.id]: Math.max(1, next) }))}
+                                />
+                              </div>
+                            ) : null}
+
+                            {schonGemeldet && !gewaehlt ? (
+                              <p className="mt-2 text-[12px] text-amber-700">
+                                Schon gemeldet am {formatShortDateDE(String(schonGemeldet.created_at || ""))}, noch offen.
+                              </p>
+                            ) : null}
                           </div>
                         );
                       })}
@@ -2963,7 +3014,7 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
             ) : null}
 
             <div className="rounded-xl border border-paper-200 p-3">
-              <p className="text-[13px] text-ink-400">Nicht in der Liste?</p>
+              <p className="text-[13px] text-ink-400">Nicht in der Liste? Trag es hier ein.</p>
               <div className="mt-2 flex items-center gap-3">
                 <input
                   value={customMaterial}
