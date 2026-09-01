@@ -75,7 +75,7 @@ const BLOECKE: Block[] = [
           { titel: "Auswertung", adresse: "/mitarbeiter/admin/auswertung", icon: "priority" }
         ]
       },
-      { titel: "Aufgaben", adresse: "/mitarbeiter/admin?tab=tasks", icon: "list" },
+      { titel: "Aufgaben", adresse: "/mitarbeiter/admin/aufgaben", icon: "list" },
       {
         titel: "Materialwesen",
         adresse: "/mitarbeiter/admin/artikel",
