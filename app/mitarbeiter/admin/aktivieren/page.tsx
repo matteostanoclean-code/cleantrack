@@ -207,7 +207,7 @@ export default function ActivateEmployeesPage() {
                   <li><span className="font-semibold text-ink-900">2.</span> Hier den Login vergeben. E-Mail und Startpasswort weitergeben, fertig.</li>
                 </ol>
                 <Link
-                  href="/mitarbeiter/admin?tab=employees"
+                  href="/mitarbeiter/admin/mitarbeiter"
                   className="mt-4 block rounded-xl bg-brand-600 px-4 py-3.5 text-center text-[16px] font-semibold text-white"
                 >
                   Neuen Mitarbeiter anlegen
@@ -266,7 +266,7 @@ export default function ActivateEmployeesPage() {
                       Hier stehen später alle, die noch keinen Login haben. Zuerst muss das Profil im Admin-Dashboard angelegt werden.
                     </p>
                     <Link
-                      href="/mitarbeiter/admin?tab=employees"
+                      href="/mitarbeiter/admin/mitarbeiter"
                       className="mt-4 inline-block rounded-xl bg-brand-600 px-5 py-3 text-[15px] font-semibold text-white"
                     >
                       Zum Anlegen

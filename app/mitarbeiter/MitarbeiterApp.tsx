@@ -4306,7 +4306,7 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
     { href: "/mitarbeiter/admin/push", label: "Push-Zentrale" },
     { href: "/mitarbeiter/admin", label: "Admin-Dashboard" },
     { href: "/mitarbeiter/admin/freigaben", label: "Freigaben" },
-    { href: "/mitarbeiter/admin?tab=employees", label: "Mitarbeiter anlegen" },
+    { href: "/mitarbeiter/admin/mitarbeiter", label: "Mitarbeiter anlegen" },
     { href: "/mitarbeiter/admin/aktivieren", label: "Mitarbeiter-Login vergeben" },
     { href: "/mitarbeiter/admin/geraete", label: "Geräte und Inventar" }
   ];

@@ -75,7 +75,7 @@ const BLOECKE: Block[] = [
         icon: "building",
         kinder: [
           { titel: "Objekte", adresse: "/mitarbeiter/admin/objekte", icon: "building" },
-          { titel: "Kunden", adresse: "/mitarbeiter/admin?tab=customers", icon: "user" },
+          { titel: "Kunden", adresse: "/mitarbeiter/admin/kunden", icon: "user" },
           { titel: "Kontakte", adresse: "/mitarbeiter/admin/kontakte", icon: "note" },
           { titel: "Geräte", adresse: "/mitarbeiter/admin/geraete", icon: "box" },
           { titel: "Geräte-Etiketten", adresse: "/mitarbeiter/admin/geraete/etiketten", icon: "photo" },
