@@ -82,8 +82,8 @@ const BLOECKE: Block[] = [
         icon: "box",
         zaehler: "material",
         kinder: [
-          { titel: "Artikel", adresse: "/mitarbeiter/admin/artikel", icon: "box" },
-          { titel: "Bestellungen", adresse: "/mitarbeiter/admin/freigaben", icon: "flag", zaehler: "material" }
+          { titel: "Bestellungen", adresse: "/mitarbeiter/admin/bestellungen", icon: "flag", zaehler: "material" },
+          { titel: "Artikel", adresse: "/mitarbeiter/admin/artikel", icon: "box" }
         ]
       }
     ]

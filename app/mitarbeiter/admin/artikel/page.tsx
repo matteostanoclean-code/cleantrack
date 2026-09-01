@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import { antwortLesen, bildVerkleinern } from "@/lib/bild";
+import { cx } from "@/components/ui";
 
 /**
  * Artikelstamm fürs Material.
@@ -20,12 +21,15 @@ type Row = Record<string, any>;
 const emptyArtikel: Row = {
   id: "",
   name: "",
+  article_number: "",
+  external_number: "",
   category: "",
   unit: "Stück",
   current_stock: "0",
   min_stock: "1",
   image_url: "",
   supplier: "",
+  description: "",
   notes: "",
   work_site_id: ""
 };
@@ -172,12 +176,15 @@ export default function ArtikelSeite() {
       ...emptyArtikel,
       id: row.id,
       name: clean(row.name),
+      article_number: String(row.article_number ?? ""),
+      external_number: clean(row.external_number),
       category: clean(row.category),
       unit: clean(row.unit) || "Stück",
       current_stock: String(row.current_stock ?? "0"),
       min_stock: String(row.min_stock ?? row.minimum_stock ?? "1"),
       image_url: clean(row.image_url),
       supplier: clean(row.supplier),
+      description: clean(row.description || row.notes),
       notes: clean(row.notes),
       work_site_id: clean(row.work_site_id)
     });
@@ -195,6 +202,9 @@ export default function ArtikelSeite() {
     try {
       const payload: Row = {
         name: clean(form.name),
+        article_number: Number(form.article_number) || null,
+        external_number: clean(form.external_number) || null,
+        description: clean(form.description) || null,
         // Leerzeichen am Ende erzeugen sonst eine zweite Gruppe mit gleichem Namen.
         category: clean(form.category) || null,
         unit: clean(form.unit) || null,
@@ -203,7 +213,7 @@ export default function ArtikelSeite() {
         minimum_stock: Number(form.min_stock) || 0,
         image_url: clean(form.image_url) || null,
         supplier: clean(form.supplier) || null,
-        notes: clean(form.notes) || null,
+        notes: clean(form.description || form.notes) || null,
         work_site_id: clean(form.work_site_id) || null,
         object_name: clean(form.work_site_id) ? objektName(form.work_site_id) : null
       };
@@ -292,8 +302,67 @@ export default function ArtikelSeite() {
           </div>
         ) : null}
 
+        {/*
+          Am Rechner eine Tabelle, wie sie ein Artikelstamm sein soll: Nummer,
+          Gruppe, Lieferant, Bestand und Mindestbestand nebeneinander. Wer
+          unter dem Mindestbestand liegt, wird rot — das ist die Zeile, die
+          bestellt werden muss.
+        */}
+        <div className="hidden overflow-x-auto rounded-2xl border border-paper-200 bg-white md:block">
+          <table className="w-full min-w-[860px] text-left">
+            <thead>
+              <tr className="border-b border-paper-200 bg-paper-100/60 text-[12px] font-bold uppercase tracking-wide text-ink-400">
+                <th className="px-4 py-3">Name</th>
+                <th className="px-3 py-3">Nummer</th>
+                <th className="px-3 py-3">Artikelgruppe</th>
+                <th className="px-3 py-3">Lieferant</th>
+                <th className="px-3 py-3">Objekt</th>
+                <th className="px-3 py-3 text-right">Bestand</th>
+                <th className="px-3 py-3 text-right">Min. Bestand</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gefiltert.map((row) => {
+                const bestand = Number(row.current_stock ?? 0);
+                const minimum = Number(row.min_stock ?? row.minimum_stock ?? 0);
+                const knapp = minimum > 0 && bestand < minimum;
+                return (
+                  <tr key={row.id} onClick={() => bearbeiten(row)} className="cursor-pointer border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {clean(row.image_url) ? (
+                          <img src={clean(row.image_url)} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
+                        ) : (
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-paper-100 text-[16px]">📦</span>
+                        )}
+                        <span className="text-[15px] font-medium text-brand-700">{clean(row.name) || "Ohne Namen"}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-[14px] text-ink-600">{clean(row.article_number) || "–"}</td>
+                    <td className="px-3 py-3 text-[14px] text-ink-600">{clean(row.category) || "–"}</td>
+                    <td className="px-3 py-3">
+                      {clean(row.supplier) ? (
+                        <span className="rounded-md bg-success-100 px-2 py-1 text-[12px] font-semibold text-success-700">{clean(row.supplier)}</span>
+                      ) : <span className="text-[13px] text-ink-300">–</span>}
+                    </td>
+                    <td className="px-3 py-3 text-[13px] text-ink-500">{clean(row.object_name) || objektName(row.work_site_id) || "Alle Objekte"}</td>
+                    <td className={cx("px-3 py-3 text-right text-[14px] font-semibold", knapp ? "text-danger-600" : "text-ink-800")}>
+                      {bestand} {clean(row.unit) || "Stk."}
+                    </td>
+                    <td className="px-3 py-3 text-right text-[14px] text-ink-500">{minimum || "–"}</td>
+                  </tr>
+                );
+              })}
+              {!gefiltert.length && !loading ? (
+                <tr><td colSpan={7} className="px-4 py-14 text-center text-[14px] text-ink-400">Keine Artikel in dieser Auswahl.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Am Handy nach Gruppe, dort ist eine Tabelle mit sieben Spalten unbrauchbar. */}
         {gruppen.map(([gruppe, zeilen]) => (
-          <section key={gruppe} className="rounded-2xl border border-paper-200 bg-white p-4">
+          <section key={gruppe} className="rounded-2xl border border-paper-200 bg-white p-4 md:hidden">
             <div className="mb-3 flex items-center justify-between">
               <p className="font-bold">{gruppe}</p>
               <span className="rounded-full bg-paper-100 px-3 py-1 text-[11px] font-bold text-ink-600">{zeilen.length}</span>
@@ -374,7 +443,11 @@ export default function ArtikelSeite() {
                 </div>
               </Field>
               <Field label="Lieferant, optional"><input value={form.supplier} onChange={(event) => setForm({ ...form, supplier: event.target.value })} className={inputClass} /></Field>
-              <Field label="Notiz, optional"><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={2} className={inputClass} /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nummer"><input inputMode="numeric" value={form.article_number} onChange={(event) => setForm({ ...form, article_number: event.target.value })} placeholder="wird vergeben" className={inputClass} /></Field>
+                <Field label="Externe Nummer"><input value={form.external_number} onChange={(event) => setForm({ ...form, external_number: event.target.value })} placeholder="beim Lieferanten" className={inputClass} /></Field>
+              </div>
+              <Field label="Beschreibung, optional"><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className={inputClass} /></Field>
 
               {form.id && (
                 <button type="button" onClick={loeschen} className="w-full rounded-xl border border-rose-300 bg-rose-50 py-3 text-sm font-bold text-rose-700">Artikel löschen</button>
