@@ -8,6 +8,33 @@ Chat und Adminbereich.
 
 ---
 
+## Stand 01.09.2026
+
+### Personalakte mit Vorlagen
+
+Neuer Ordner `personalakte/`. Er hat zwei Hälften: `vorlagen/` mit der
+Endfassung jedes Dokuments — ohne Namen, ohne Lohn, ohne Datum, nur mit
+Platzhaltern — und `mitarbeiter/` mit den gefüllten Akten je Person.
+
+Bei einer Neueinstellung genügt ein Satz („Lege die Personalakte für … an"),
+und alle Einstellungsdokumente entstehen ausgefüllt in einem Ordner, obenauf
+eine Checkliste mit dem, was zu unterschreiben, zu drucken und ans Lohnbüro zu
+schicken ist. Von Hand geht dasselbe über
+`node personalakte/werkzeug/anlegen.mjs daten.json`; das Werkzeug meldet jeden
+Platzhalter, der offen geblieben ist.
+
+Vorhanden sind 25 Vorlagen für Einstellung, Vertragsänderung, laufendes
+Arbeitsverhältnis und Austritt — vom Arbeitsvertrag über die Einwilligung zur
+Standorterfassung bis zum qualifizierten Arbeitszeugnis.
+`personalakte/README.md` listet dazu auf, was noch entstehen kann.
+
+Die Regel für die Vorlagen: **immer nur die Endfassung**. Wird ein Dokument
+überarbeitet, wird die vorhandene Datei geändert; die alten Fassungen stehen in
+der Git-Historie. Die Ordner unter `mitarbeiter/` enthalten echte Personendaten
+und sind deshalb von Git ausgenommen.
+
+---
+
 ## Stand 11.08.2026
 
 ### Reparaturen

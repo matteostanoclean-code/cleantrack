@@ -1,0 +1,41 @@
+{
+  "_hinweis": "Beispiel. Für eine echte Einstellung kopieren, ausfüllen und als daten.json übergeben. Feldnamen wie in der App (employee_profiles) oder direkt der Platzhaltername in Großbuchstaben.",
+
+  "first_name": "Maria",
+  "last_name": "Musterfrau",
+  "gender": "weiblich",
+  "birthday": "1988-03-14",
+  "GEBURTSORT": "Pforzheim",
+  "STAATSANGEHOERIGKEIT": "deutsch",
+
+  "street": "Hauptstraße 12",
+  "postal_code": "75179",
+  "city": "Pforzheim",
+  "country": "Deutschland",
+  "email": "maria.musterfrau@example.de",
+  "phone": "0170 1234567",
+
+  "employee_number": "042",
+  "employment_type": "Minijob",
+  "employee_group": "Unterhaltsreinigung",
+  "TAETIGKEIT": "Reinigungskraft in der Unterhaltsreinigung",
+  "contract_start": "2026-10-01",
+  "contract_end": "",
+  "BEFRISTUNG_GRUND": "",
+  "PROBEZEIT_MONATE": "6",
+
+  "wage_type": "Stundenlohn",
+  "hourly_rate": "14.25",
+  "weekly_hours": "10",
+  "hours_monday": "2",
+  "hours_tuesday": "2",
+  "hours_wednesday": "2",
+  "hours_thursday": "2",
+  "hours_friday": "2",
+  "hours_saturday": "0",
+  "hours_sunday": "0",
+  "travel_time_allowed": "nein",
+
+  "KUENDIGUNGSFRIST": "vier Wochen zum 15. oder zum Ende eines Kalendermonats",
+  "EINSATZORT": "die Objekte in Remchingen und Umgebung"
+}
