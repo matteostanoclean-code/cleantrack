@@ -71,10 +71,10 @@ const BLOECKE: Block[] = [
       },
       {
         titel: "Objekte",
-        adresse: "/mitarbeiter/admin?tab=sites",
+        adresse: "/mitarbeiter/admin/objekte",
         icon: "building",
         kinder: [
-          { titel: "Objekte", adresse: "/mitarbeiter/admin?tab=sites", icon: "building" },
+          { titel: "Objekte", adresse: "/mitarbeiter/admin/objekte", icon: "building" },
           { titel: "Kunden", adresse: "/mitarbeiter/admin?tab=customers", icon: "user" },
           { titel: "Kontakte", adresse: "/mitarbeiter/admin/kontakte", icon: "note" },
           { titel: "Geräte", adresse: "/mitarbeiter/admin/geraete", icon: "box" },
