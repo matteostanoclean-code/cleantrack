@@ -129,6 +129,24 @@ export default function ObjekteSeite() {
     init();
   }, [load]);
 
+  /**
+   * Aus der Auswertung heraus soll ein Objekt sofort aufgehen: ?objekt=<id>.
+   * Sonst schickt man jemanden mit "trag da mal den Stundensatz nach" in eine
+   * Liste von achtundzwanzig und lässt ihn suchen.
+   *
+   * Bewusst über window.location statt useSearchParams — das verlangte sonst
+   * eine Suspense-Grenze um die ganze Seite.
+   */
+  const [direktGeoeffnet, setDirektGeoeffnet] = useState(false);
+  useEffect(() => {
+    if (direktGeoeffnet || !sites.length) return;
+    const gesucht = new URLSearchParams(window.location.search).get("objekt");
+    if (!gesucht) return;
+    setDirektGeoeffnet(true);
+    const treffer = sites.find((objekt) => clean(objekt.id) === gesucht);
+    if (treffer) bearbeiten(treffer);
+  }, [sites, direktGeoeffnet]);
+
   const gefiltert = useMemo(() => {
     const needle = suche.trim().toLowerCase();
     return sites.filter((objekt) => {

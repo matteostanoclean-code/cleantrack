@@ -1,0 +1,245 @@
+import { NextResponse } from "next/server";
+import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { buildRecords } from "@/lib/zeiten";
+import { zeitgrenzenLaden } from "@/lib/einstellungen";
+
+export const dynamic = "force-dynamic";
+
+type AnyRow = Record<string, any>;
+
+/**
+ * Wirtschaftlichkeit je Objekt für einen Monat.
+ *
+ * Die Frage, die dieser Bildschirm beantwortet: Womit verdienst du Geld, und
+ * womit legst du drauf. Der Umsatz allein sagt das nicht — ein Objekt mit
+ * 800 Euro Pauschale, an dem zwanzig Stunden hängen, ist schlechter als eines
+ * mit 400 und fünf.
+ *
+ * Zwei Arten von Erlös:
+ *   Pauschale     ein fester Betrag im Monat, unabhängig von den Stunden
+ *   Stundensatz   Stunden mal Satz, für alles ohne Pauschale
+ * Steht am Objekt beides, gilt die Pauschale. Steht keines von beidem, kommt
+ * das Objekt in eine eigene Gruppe, statt mit null Umsatz die Bilanz zu
+ * verzerren.
+ *
+ * Die Stunden kommen über dieselbe Rechnung wie Zeitenfreigabe und Lohn.
+ * Gezählt wird nur, was freigegeben ist — offene Zeiten stehen daneben, damit
+ * sichtbar bleibt, wie vorläufig die Zahl noch ist.
+ *
+ * WICHTIG zu den Kosten: Gerechnet wird mit dem Bruttostundenlohn aus dem
+ * Mitarbeiterstamm. Das ist NICHT, was die Stunde dich wirklich kostet — die
+ * Arbeitgeberanteile beziehungsweise die Pauschalabgaben beim Minijob fehlen.
+ * Der Deckungsbeitrag hier ist deshalb die Obergrenze, nie das Ergebnis.
+ */
+
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function zahl(value: unknown) {
+  const wert = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(wert) ? wert : 0;
+}
+
+function monatsGrenzen(monat: string) {
+  const [jahr, m] = monat.split("-").map(Number);
+  if (!jahr || !m) {
+    const jetzt = new Date();
+    return monatsGrenzen(`${jetzt.getFullYear()}-${String(jetzt.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const von = `${jahr}-${String(m).padStart(2, "0")}-01`;
+  const letzterTag = new Date(jahr, m, 0).getDate();
+  const bis = `${jahr}-${String(m).padStart(2, "0")}-${String(letzterTag).padStart(2, "0")}`;
+  return { von, bis, tage: letzterTag };
+}
+
+export async function GET(request: Request) {
+  try {
+    const auth = await getAuthenticatedMobileProfile(request);
+    if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    if (!auth.isAdmin) return NextResponse.json({ ok: false, error: "Nur fürs Büro." }, { status: 403 });
+
+    const supabase = auth.supabase;
+    const { searchParams } = new URL(request.url);
+    const monat = clean(searchParams.get("month")) || new Date().toISOString().slice(0, 7);
+    const { von, bis, tage } = monatsGrenzen(monat);
+
+    // Ein Tag Puffer, damit Buchungen am Tagesrand nicht durch die Zeitzone fallen.
+    const rahmenVon = new Date(`${von}T00:00:00`);
+    rahmenVon.setDate(rahmenVon.getDate() - 1);
+    const rahmenBis = new Date(`${bis}T23:59:59`);
+    rahmenBis.setDate(rahmenBis.getDate() + 1);
+
+    const [objekteErgebnis, personenErgebnis, zeitenErgebnis, aufgabenErgebnis] = await Promise.all([
+      supabase.from("work_sites").select("*").order("name", { ascending: true }).limit(500),
+      supabase.from("employee_profiles").select("id, name, hourly_rate, active, role"),
+      supabase
+        .from("time_entries")
+        .select("*")
+        .gte("created_at", rahmenVon.toISOString())
+        .lte("created_at", rahmenBis.toISOString())
+        .order("created_at", { ascending: true })
+        .limit(4000),
+      supabase
+        .from("tasks")
+        .select("id, title, site, customer_name, employee_name, task_date, start_time, end_time, planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done, status, window_binding")
+        .gte("task_date", von)
+        .lte("task_date", bis)
+        .limit(4000)
+    ]);
+
+    if (objekteErgebnis.error) throw new Error(objekteErgebnis.error.message);
+
+    const objekte = (objekteErgebnis.data || []) as AnyRow[];
+    const aufgaben = (aufgabenErgebnis.data || []) as AnyRow[];
+
+    const tasksById = new Map<string, AnyRow>();
+    for (const aufgabe of aufgaben) tasksById.set(aufgabe.id, aufgabe);
+
+    // Einsätze nachladen, auf die Buchungen zeigen, die aber außerhalb des
+    // Monats liegen — sonst fehlt ihnen die Zeitvorgabe.
+    const fehlendeIds = Array.from(new Set(
+      ((zeitenErgebnis.data || []) as AnyRow[]).map((eintrag) => clean(eintrag.task_id)).filter((id) => id && !tasksById.has(id))
+    ));
+    if (fehlendeIds.length) {
+      const nachschlag = await supabase
+        .from("tasks")
+        .select("id, title, site, customer_name, employee_name, task_date, start_time, end_time, planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done, status, window_binding")
+        .in("id", fehlendeIds);
+      for (const aufgabe of (nachschlag.data || []) as AnyRow[]) tasksById.set(aufgabe.id, aufgabe);
+    }
+
+    const eintraege = ((zeitenErgebnis.data || []) as AnyRow[]).filter((eintrag) => {
+      const tag = clean(eintrag.created_at).slice(0, 10);
+      return tag >= von && tag <= bis;
+    });
+
+    const saetze = buildRecords(eintraege, tasksById, await zeitgrenzenLaden(supabase));
+
+    // Stundenlohn je Person, für die Kostenseite.
+    const lohnJePerson = new Map<string, number | null>();
+    for (const person of ((personenErgebnis.data || []) as AnyRow[])) {
+      const name = clean(person.name).toLowerCase();
+      if (!name) continue;
+      const satz = zahl(person.hourly_rate);
+      lohnJePerson.set(name, satz > 0 ? satz : null);
+    }
+
+    type Sammler = {
+      minutenFrei: number;
+      minutenOffen: number;
+      minutenGeplant: number;
+      lohnkosten: number;
+      minutenOhneLohn: number;
+      personen: Set<string>;
+    };
+    const leererSammler = (): Sammler => ({
+      minutenFrei: 0, minutenOffen: 0, minutenGeplant: 0, lohnkosten: 0, minutenOhneLohn: 0, personen: new Set<string>()
+    });
+
+    const jeObjekt = new Map<string, Sammler>();
+    const ohneObjekt = leererSammler();
+    const personenOhneLohn = new Set<string>();
+
+    for (const satz of saetze as AnyRow[]) {
+      const objektId = clean(satz.workSiteId);
+      const topf = objektId ? (jeObjekt.get(objektId) || leererSammler()) : ohneObjekt;
+      if (objektId) jeObjekt.set(objektId, topf);
+
+      const person = clean(satz.employeeName);
+      if (person) topf.personen.add(person);
+
+      const minuten = Number(satz.approvedMinutes ?? satz.actualMinutes ?? 0) || 0;
+
+      if (satz.state === "approved") {
+        topf.minutenFrei += minuten;
+        const lohn = lohnJePerson.get(person.toLowerCase());
+        if (lohn === null || lohn === undefined) {
+          topf.minutenOhneLohn += minuten;
+          if (person) personenOhneLohn.add(person);
+        } else {
+          topf.lohnkosten += (minuten / 60) * lohn;
+        }
+      } else {
+        topf.minutenOffen += minuten;
+      }
+    }
+
+    // Planzeit je Objekt aus den Einsätzen des Monats.
+    for (const aufgabe of aufgaben) {
+      const objektId = clean(aufgabe.work_site_id);
+      if (!objektId) continue;
+      const topf = jeObjekt.get(objektId) || leererSammler();
+      jeObjekt.set(objektId, topf);
+      topf.minutenGeplant += zahl(aufgabe.planned_minutes);
+    }
+
+    const zeilen = objekte.map((objekt) => {
+      const topf = jeObjekt.get(clean(objekt.id)) || leererSammler();
+      const pauschale = zahl(objekt.monthly_flat_rate);
+      const stundensatz = zahl(objekt.hourly_rate);
+      const stunden = topf.minutenFrei / 60;
+
+      // Pauschale schlägt Stundensatz. Steht beides da, ist die Pauschale
+      // vereinbart und der Satz nur eine Notiz für Zusatzarbeiten.
+      const art: "pauschale" | "stundensatz" | "keiner" =
+        pauschale > 0 ? "pauschale" : stundensatz > 0 ? "stundensatz" : "keiner";
+      const erloes = art === "pauschale" ? pauschale : art === "stundensatz" ? stunden * stundensatz : 0;
+
+      const deckungsbeitrag = erloes - topf.lohnkosten;
+
+      return {
+        id: objekt.id,
+        name: clean(objekt.name) || "Ohne Namen",
+        objektnummer: objekt.object_number ?? null,
+        kunde: clean(objekt.customer_name) || null,
+        tags: clean(objekt.tags) || null,
+        aktiv: objekt.active !== false && clean(objekt.status).toLowerCase() !== "passiv",
+        art,
+        pauschale: pauschale > 0 ? pauschale : null,
+        stundensatz: stundensatz > 0 ? stundensatz : null,
+        minutenFrei: Math.round(topf.minutenFrei),
+        minutenOffen: Math.round(topf.minutenOffen),
+        minutenGeplant: Math.round(topf.minutenGeplant),
+        minutenOhneLohn: Math.round(topf.minutenOhneLohn),
+        personen: topf.personen.size,
+        erloes,
+        lohnkosten: topf.lohnkosten,
+        deckungsbeitrag: art === "keiner" ? null : deckungsbeitrag,
+        marge: art === "keiner" || erloes <= 0 ? null : (deckungsbeitrag / erloes) * 100,
+        erloesJeStunde: art === "keiner" || stunden <= 0 ? null : erloes / stunden
+      };
+    });
+
+    const gerechnet = zeilen.filter((zeile) => zeile.art !== "keiner");
+    const summe = {
+      erloes: gerechnet.reduce((s, z) => s + z.erloes, 0),
+      lohnkosten: gerechnet.reduce((s, z) => s + z.lohnkosten, 0),
+      minutenFrei: zeilen.reduce((s, z) => s + z.minutenFrei, 0),
+      minutenOffen: zeilen.reduce((s, z) => s + z.minutenOffen, 0),
+      minutenGeplant: zeilen.reduce((s, z) => s + z.minutenGeplant, 0),
+      minutenOhneObjekt: Math.round(ohneObjekt.minutenFrei),
+      objekteOhneSatz: zeilen.filter((z) => z.art === "keiner" && (z.minutenFrei > 0 || z.aktiv)).length
+    };
+
+    const heute = new Date().toISOString().slice(0, 10);
+
+    return NextResponse.json({
+      ok: true,
+      monat,
+      von,
+      bis,
+      tage,
+      // Läuft der Monat noch, steht die volle Pauschale gegen erst halb
+      // erfasste Stunden. Die Marge sieht dann besser aus, als sie ist.
+      laufend: heute >= von && heute <= bis,
+      zeilen,
+      summe: { ...summe, deckungsbeitrag: summe.erloes - summe.lohnkosten },
+      personenOhneLohn: Array.from(personenOhneLohn).sort(),
+      hinweisKosten: "Gerechnet mit dem Bruttostundenlohn aus dem Mitarbeiterstamm. Arbeitgeberanteile und Pauschalabgaben sind nicht enthalten — der Deckungsbeitrag ist die Obergrenze."
+    });
+  } catch (fehler) {
+    const text = fehler instanceof Error ? fehler.message : "Auswertung konnte nicht geladen werden.";
+    return NextResponse.json({ ok: false, error: text }, { status: 500 });
+  }
+}
