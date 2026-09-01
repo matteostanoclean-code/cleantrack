@@ -187,12 +187,29 @@ async function closeStaleClock(auth: any, openEntry: Record<string, any>, employ
   }
 
   const openedAt = new Date(openEntry.created_at);
-  let closeAt = openedAt;
-
-  const plannedEnd = taskExpectedEnd(task, localDay(openEntry.created_at));
-  if (plannedEnd && plannedEnd.getTime() > openedAt.getTime()) closeAt = plannedEnd;
-
   const plannedMinutes = task ? plannedMinutesFromTask(task) : 0;
+
+  /**
+   * Wann die vergessene Schicht rechnerisch endet.
+   *
+   * Erste Wahl: Einstempeln plus Zeitvorgabe. Das ist die Angabe, die es bei
+   * einem Blocker immer gibt, und sie unterstellt niemandem mehr oder weniger
+   * als das, was vereinbart war.
+   *
+   * Zweite Wahl, falls keine Vorgabe hinterlegt ist: das alte Zeitfenster.
+   * Gibt es auch das nicht, bleibt die Zeit auf null stehen — lieber eine
+   * Null, die im Büro auffällt, als eine erfundene Stundenzahl in der
+   * Lohnabrechnung.
+   *
+   * In jedem Fall geht der Eintrag als "pending" ins Büro.
+   */
+  let closeAt = openedAt;
+  if (plannedMinutes > 0) {
+    closeAt = new Date(openedAt.getTime() + plannedMinutes * 60000);
+  } else {
+    const plannedEnd = taskExpectedEnd(task, localDay(openEntry.created_at));
+    if (plannedEnd && plannedEnd.getTime() > openedAt.getTime()) closeAt = plannedEnd;
+  }
   const previousResult = await auth.supabase
     .from("time_entries")
     .select("*")
@@ -223,7 +240,9 @@ async function closeStaleClock(auth: any, openEntry: Record<string, any>, employ
     overtime_minutes: plannedMinutes ? Math.max(0, actualMinutes - plannedMinutes) : 0,
     approved_minutes: null,
     approval_status: "pending",
-    error_message: "Automatisch beendet: es wurde nicht ausgestempelt. Bitte im Büro prüfen."
+    error_message: plannedMinutes > 0
+      ? `Automatisch beendet nach der Zeitvorgabe von ${plannedMinutes} Minuten, es wurde nicht ausgestempelt. Bitte im Büro prüfen.`
+      : "Automatisch beendet: es wurde nicht ausgestempelt und es gibt keine Zeitvorgabe. Bitte im Büro eintragen."
   });
 
   await auth.supabase.from("admin_notifications").insert({

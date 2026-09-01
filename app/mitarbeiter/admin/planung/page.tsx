@@ -47,8 +47,11 @@ const emptyTask: Row = {
   id: "",
   title: "Unterhaltsreinigung",
   task_date: today,
-  start_time: "08:00",
-  end_time: "10:00",
+  // Ein Blocker hat standardmaessig kein Zeitfenster, nur eine Dauer.
+  mit_fenster: false,
+  window_binding: false,
+  start_time: "",
+  end_time: "",
   planned_minutes: "120",
   employee_name: "",
   customer_id: "",
@@ -313,14 +316,44 @@ function TaskSheet({
 
           <Field label="Was ist zu tun"><input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required className={inputClass} /></Field>
 
+          {/*
+            Die Zeitvorgabe ist die führende Angabe, nicht das Zeitfenster.
+            Gestempelt wird über den Aufkleber am Objekt, wann genau jemand
+            kommt, entscheidet er selbst. Gezählt wird die Dauer.
+          */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Datum"><input type="date" value={form.task_date} onChange={(event) => setForm({ ...form, task_date: event.target.value })} required className={inputClass} /></Field>
-            <Field label="Planzeit in Minuten"><input type="number" min="0" value={form.planned_minutes} onChange={(event) => setForm({ ...form, planned_minutes: event.target.value })} className={inputClass} /></Field>
+            <Field label="Zeitvorgabe in Minuten">
+              <input type="number" min="0" step="5" value={form.planned_minutes} onChange={(event) => setForm({ ...form, planned_minutes: event.target.value })} required className={inputClass} />
+            </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Von"><input type="time" value={form.start_time} onChange={(event) => setTimes(event.target.value, form.end_time)} className={inputClass} /></Field>
-            <Field label="Bis"><input type="time" value={form.end_time} onChange={(event) => setTimes(form.start_time, event.target.value)} className={inputClass} /></Field>
+          <div className="rounded-2xl border border-paper-200 bg-paper-100/70 p-3">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={Boolean(form.mit_fenster)}
+                onChange={(event) => setForm({ ...form, mit_fenster: event.target.checked, start_time: event.target.checked ? form.start_time : "", end_time: event.target.checked ? form.end_time : "", window_binding: event.target.checked ? form.window_binding : false })}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
+              />
+              <span>
+                <span className="block text-[14px] font-semibold text-ink-800">Zeitfenster vorgeben</span>
+                <span className="block text-[13px] text-ink-400">Nur nötig, wenn der Kunde eine Uhrzeit erwartet. Ohne Fenster zählt allein die Dauer.</span>
+              </span>
+            </label>
+
+            {form.mit_fenster ? (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Frühestens ab"><input type="time" value={form.start_time} onChange={(event) => setTimes(event.target.value, form.end_time)} className={inputClass} /></Field>
+                  <Field label="Spätestens bis"><input type="time" value={form.end_time} onChange={(event) => setTimes(form.start_time, event.target.value)} className={inputClass} /></Field>
+                </div>
+                <label className="flex cursor-pointer items-center gap-3">
+                  <input type="checkbox" checked={Boolean(form.window_binding)} onChange={(event) => setForm({ ...form, window_binding: event.target.checked })} className="h-5 w-5 accent-brand-600" />
+                  <span className="text-[13px] text-ink-600">Fenster einhalten — außerhalb wird in der Zeitenfreigabe angezeigt</span>
+                </label>
+              </div>
+            ) : null}
           </div>
 
           <Field label="Mitarbeiter">
@@ -482,8 +515,10 @@ export default function AdminPlanningPage() {
       id: task.id,
       title: clean(task.title) || "Einsatz",
       task_date: clean(task.task_date) || today,
-      start_time: clean(task.start_time) || "",
-      end_time: clean(task.end_time) || "",
+      start_time: clean(task.start_time).slice(0, 5) || "",
+      end_time: clean(task.end_time).slice(0, 5) || "",
+      mit_fenster: Boolean(clean(task.start_time) || clean(task.end_time)),
+      window_binding: task.window_binding === true,
       planned_minutes: String(minutesFromTask(task) || ""),
       employee_name: clean(task.employee_name),
       customer_id: clean(task.customer_id),
@@ -696,7 +731,7 @@ export default function AdminPlanningPage() {
                         <button onClick={() => openEdit(task)} className="block w-full text-left">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-bold">{task.start_time || "—"} · {task.title || "Einsatz"}</p>
+                              <p className="truncate text-sm font-bold">{clean(task.start_time).slice(0, 5) || hoursLabel(minutesFromTask(task))} · {task.title || "Einsatz"}</p>
                               <p className="truncate text-xs text-ink-400">{taskPlace(task)}</p>
                               <p className="mt-1 truncate text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"}</p>
                             </div>
@@ -736,7 +771,7 @@ export default function AdminPlanningPage() {
             {filteredUnassigned.slice(0, 25).map((task) => (
               <div key={task.id} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
                 <button onClick={() => openEdit(task)} className="block w-full text-left">
-                  <p className="font-bold">{dateText(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
+                  <p className="font-bold">{dateText(task.task_date)} · {clean(task.start_time) ? `${clean(task.start_time).slice(0, 5)} - ${clean(task.end_time).slice(0, 5)}` : hoursLabel(minutesFromTask(task))}</p>
                   <p className="text-sm text-ink-600">{task.title || "Einsatz"}</p>
                   <p className="text-xs text-ink-400">{taskPlace(task)} · {hoursLabel(minutesFromTask(task))}</p>
                 </button>
@@ -768,7 +803,7 @@ export default function AdminPlanningPage() {
                     <div>
                       <p className="font-bold">{series.first.title || "Einsatz-Serie"}</p>
                       <p className="mt-1 text-xs text-brand-700/80">{taskPlace(series.first)}</p>
-                      <p className="mt-1 text-xs text-ink-400">{series.days || "Tage offen"} · {series.first.start_time || "—"} - {series.first.end_time || "—"}</p>
+                      <p className="mt-1 text-xs text-ink-400">{series.days || "Tage offen"} · {clean(series.first.start_time) ? `${clean(series.first.start_time).slice(0, 5)} - ${clean(series.first.end_time).slice(0, 5)}` : hoursLabel(series.minutes)}</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-paper-100 px-3 py-1 text-[11px] font-bold text-brand-700">{series.count} Termine</span>
                   </div>

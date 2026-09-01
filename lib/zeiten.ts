@@ -149,6 +149,29 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>) 
     const locationIssue = sorted.some(entryHasLocationProblem);
     const incomplete = !clockOut;
 
+    /**
+     * Zeitfenster nur prüfen, wenn es ausdrücklich eingehalten werden soll.
+     *
+     * Bei einem Blocker zählt die Dauer, nicht die Uhrzeit. Wer 17:15 statt
+     * 17:00 anfängt und seine zwei Stunden macht, hat nichts falsch gemacht.
+     * Nur wo der Kunde ein Fenster erwartet, ist ein Verlassen ein Hinweis —
+     * und auch dann bleibt es ein Hinweis, keine Sperre.
+     */
+    const fensterBindend = task?.window_binding === true;
+    const fensterVon = parseHm(text(task?.start_time).slice(0, 5));
+    const fensterBis = parseHm(text(task?.end_time).slice(0, 5));
+    let windowIssue = false;
+    if (fensterBindend && (fensterVon !== null || fensterBis !== null)) {
+      const minutenAmTag = (wert: unknown) => {
+        const zeit = new Date(String(wert || ""));
+        return Number.isNaN(zeit.getTime()) ? null : zeit.getHours() * 60 + zeit.getMinutes();
+      };
+      const beginn = minutenAmTag(clockIn?.created_at);
+      const ende = minutenAmTag(clockOut?.created_at);
+      if (fensterVon !== null && beginn !== null && beginn < fensterVon - TOLERANCE_MINUTES) windowIssue = true;
+      if (fensterBis !== null && ende !== null && ende > fensterBis + TOLERANCE_MINUTES) windowIssue = true;
+    }
+
     const rawStatus = text(clockOut?.approval_status).toLowerCase();
     let state: "open" | "approved" | "rejected";
     if (rawStatus === "approved") state = "approved";
@@ -185,6 +208,9 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>) 
       employeeReason: clockOut?.reason || clockOut?.note || null,
       locationIssue,
       incomplete,
+      windowIssue,
+      windowFrom: fensterVon !== null ? text(task?.start_time).slice(0, 5) : null,
+      windowTo: fensterBis !== null ? text(task?.end_time).slice(0, 5) : null,
       log: sorted.map((row) => ({
         id: row.id,
         action: row.action,

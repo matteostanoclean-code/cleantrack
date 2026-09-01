@@ -82,6 +82,9 @@ type TimeRecord = {
   adminResponse: string | null;
   employeeReason: string | null;
   locationIssue: boolean;
+  windowIssue?: boolean;
+  windowFrom?: string | null;
+  windowTo?: string | null;
   incomplete: boolean;
   log: LogRow[];
 };
@@ -345,6 +348,7 @@ export default function TimeApprovalPage() {
                     const fehler: string[] = [];
                     if (record.locationIssue) fehler.push("Standortfehler");
                     if (record.incomplete) fehler.push("Kein Ausstempeln");
+                    if (record.windowIssue) fehler.push("Ausserhalb Zeitfenster");
                     if (Math.abs(record.deviationMinutes) > 5) fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
                     return (
                       <tr key={record.id} className="border-b border-paper-200 last:border-0 hover:bg-paper-100/60">

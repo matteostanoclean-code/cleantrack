@@ -386,8 +386,11 @@ function taskPayload(body: AnyRow, customer?: AnyRow | null, site?: AnyRow | nul
     site: selectedSiteName || null,
     employee_name: nullableText(body.employee_name),
     task_date: clean(body.task_date) || todayIso(),
+    // Zeitfenster ist freiwillig. Ein Blocker sagt nur, wer an welchem Tag wie
+    // lange am Objekt ist; wann genau, entscheidet die Stempeluhr.
     start_time: nullableText(body.start_time),
     end_time: nullableText(body.end_time),
+    window_binding: booleanValue(body.window_binding, false),
     max_minutes: plannedMinutes,
     planned_minutes: plannedMinutes,
     paid_minutes: nullableNumber(body.paid_minutes) ?? plannedMinutes,

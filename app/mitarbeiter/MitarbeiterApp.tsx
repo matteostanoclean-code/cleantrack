@@ -565,11 +565,20 @@ function taskDuration(task: RawTask) {
   return `${(minutes / 60).toFixed(minutes % 60 ? 1 : 0)}h`;
 }
 
+/**
+ * Was oben auf dem Einsatz steht.
+ *
+ * Ohne Zeitfenster ist es die Zeitvorgabe: "2:00 Std." Wann genau gearbeitet
+ * wird, entscheidet der Mitarbeiter, gestempelt wird am Objekt. Steht ein
+ * Fenster drin, weil der Kunde eine Uhrzeit erwartet, dann das Fenster.
+ */
 function taskTime(task: RawTask) {
   const start = formatTime(task.start_time);
   const end = formatTime(task.end_time);
   if (start !== "—" && end !== "—") return `${start} - ${end}`;
-  if (start !== "—") return start;
+  if (start !== "—") return `ab ${start}`;
+  const minuten = plannedMinutesOf(task);
+  if (minuten > 0) return `${hhmm(minuten)} Std.`;
   return "Zeit offen";
 }
 
