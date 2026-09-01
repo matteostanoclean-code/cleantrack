@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import { UiIcon, cx } from "@/components/ui";
+import EinrichtungBlock from "../EinrichtungBlock";
 
 /**
  * Mitarbeiterbereich.
@@ -311,7 +312,16 @@ export default function MitarbeiterSeite() {
 
         {error && !offen ? <p className="mt-4 rounded-xl bg-rose-100 px-4 py-3 text-[14px] text-rose-700">{error}</p> : null}
 
-        <div className="mt-4 overflow-x-auto rounded-2xl border border-paper-200 bg-white">
+        {/*
+          Der Einrichtungsstand gehört hierher, nicht aufs Dashboard: Es ist
+          eine Frage über die Mannschaft, und die Antwort steht direkt über der
+          Liste, in der man sie ändert.
+        */}
+        <div className="mt-5">
+          <EinrichtungBlock token={token} />
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-paper-200 bg-white">
           <table className="w-full min-w-[820px] text-left">
             <thead>
               <tr className="border-b border-paper-200 bg-paper-100/60 text-[12px] font-bold uppercase tracking-wide text-ink-400">

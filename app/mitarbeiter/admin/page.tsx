@@ -20,23 +20,6 @@ type Aufgaben = {
   meldungen: number;
 };
 
-/** Einrichtungsstand je Person, geliefert von /api/admin/einrichtung. */
-type Einrichtung = {
-  gesamt: number;
-  personen: Array<{
-    id: string;
-    name: string;
-    email: string;
-    einsatz: boolean;
-    login: boolean;
-    angemeldet: boolean;
-    gestempelt: boolean;
-    push: boolean;
-    fortschritt: number;
-  }>;
-  kennzahlen: { einsatz: number; login: number; angemeldet: number; gestempelt: number; push: number; fertig: number };
-};
-
 type AdminData = {
   ok: boolean;
   error?: string;
@@ -218,32 +201,7 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 }
 
 /** Anteilskachel: große Prozentzahl, daneben die rohen Zahlen, darunter ein Balken. */
-function QuoteCard({ titel, wert, gesamt, hervorgehoben }: { titel: string; wert: number; gesamt: number; hervorgehoben?: boolean }) {
-  const prozent = gesamt > 0 ? Math.round((wert / gesamt) * 1000) / 10 : 0;
-  const voll = gesamt > 0 && wert === gesamt;
-  return (
-    <div className={`rounded-2xl border p-4 ${hervorgehoben ? "border-transparent bg-[#141d33]" : "border-paper-200 bg-white"}`}>
-      <p className={`text-[13px] ${hervorgehoben ? "text-white/70" : "text-ink-400"}`}>{titel}</p>
-      <div className="mt-2 flex items-end justify-between gap-2">
-        <p className={`text-[28px] font-bold leading-none ${hervorgehoben ? "text-white" : "text-ink-900"}`}>{prozent}%</p>
-        <p className={`text-[13px] ${hervorgehoben ? "text-white/70" : "text-ink-400"}`}>{wert} / {gesamt}</p>
-      </div>
-      <span className={`mt-3 block h-1.5 overflow-hidden rounded-full ${hervorgehoben ? "bg-white/20" : "bg-paper-200"}`}>
-        <span className={`block h-1.5 rounded-full ${voll ? "bg-success-500" : "bg-danger-500"}`} style={{ width: `${Math.max(2, prozent)}%` }} />
-      </span>
-    </div>
-  );
-}
-
 /** Tabellenzelle mit Haken oder Kreuz. */
-function Haken({ an }: { an: boolean }) {
-  return (
-    <td className="px-3 py-3 text-center">
-      <span className={`text-[16px] font-bold ${an ? "text-success-600" : "text-ink-200"}`}>{an ? "✓" : "✕"}</span>
-    </td>
-  );
-}
-
 function StatCard({ title, value, caption }: { title: string; value: string | number; caption: string }) {
   return (
     <div className="rounded-2xl border border-paper-200 bg-white p-4">
@@ -307,7 +265,6 @@ export default function AdminDashboardPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [data, setData] = useState<AdminData | null>(null);
   const [aufgaben, setAufgaben] = useState<Aufgaben | null>(null);
-  const [einrichtung, setEinrichtung] = useState<Einrichtung | null>(null);
   // Erlaubt Direktlinks wie /mitarbeiter/admin?tab=employees aus anderen Seiten.
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "overview";
@@ -375,12 +332,6 @@ export default function AdminDashboardPage() {
         const ergebnis = await antwort.json();
         if (aktiv && ergebnis?.ok) setAufgaben(ergebnis);
 
-        const stand = await fetch("/api/admin/einrichtung", {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const standErgebnis = await stand.json();
-        if (aktiv && standErgebnis?.ok) setEinrichtung(standErgebnis);
       } catch {
         /* Die Übersicht darf ohne diese Zahlen weiterlaufen. */
       }
@@ -556,14 +507,23 @@ export default function AdminDashboardPage() {
           <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-bold text-ink-600">Logout</button>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          <TabButton active={tab === "overview"} label="Übersicht" onClick={() => setTab("overview")} />
-          <TabButton active={tab === "tasks"} label="Einsätze" count={data?.tasks?.length || 0} onClick={() => setTab("tasks")} />
-          <TabButton active={tab === "employees"} label="Mitarbeiter" count={data?.employees?.length || 0} onClick={() => setTab("employees")} />
-          <TabButton active={tab === "customers"} label="Kunden" count={data?.customers?.length || 0} onClick={() => setTab("customers")} />
-          <TabButton active={tab === "sites"} label="Objekte" count={data?.workSites?.length || 0} onClick={() => setTab("sites")} />
-          <TabButton active={tab === "times"} label="Zeiten" count={data?.timeEntries?.length || 0} onClick={() => setTab("times")} />
-        </div>
+        {/*
+          Die Reiterleiste steht nur, wenn man in einem der Stammdatenbereiche
+          ist — dann braucht man sie zum Wechseln und zum Zurückkommen. Auf der
+          Übersicht ist sie Ballast: dorthin führt die Seitenleiste, und was zu
+          tun ist, steht darunter.
+        */}
+        {tab !== "overview" ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {/* Nie aktiv: diese Leiste steht nur ausserhalb der Uebersicht. */}
+            <TabButton active={false} label="Übersicht" onClick={() => setTab("overview")} />
+            <TabButton active={tab === "tasks"} label="Einsätze" count={data?.tasks?.length || 0} onClick={() => setTab("tasks")} />
+            <TabButton active={tab === "employees"} label="Mitarbeiter" count={data?.employees?.length || 0} onClick={() => setTab("employees")} />
+            <TabButton active={tab === "customers"} label="Kunden" count={data?.customers?.length || 0} onClick={() => setTab("customers")} />
+            <TabButton active={tab === "sites"} label="Objekte" count={data?.workSites?.length || 0} onClick={() => setTab("sites")} />
+            <TabButton active={tab === "times"} label="Zeiten" count={data?.timeEntries?.length || 0} onClick={() => setTab("times")} />
+          </div>
+        ) : null}
 
         {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Daten…</p>}
 
@@ -585,81 +545,6 @@ export default function AdminDashboardPage() {
 
         {tab === "overview" && (
           <div className="space-y-1">
-            <div className="grid grid-cols-3 gap-3 pb-2">
-              <StatCard title="Heute" value={stats.todayTasks} caption="Einsätze" />
-              <StatCard title="Offen" value={stats.openTasks} caption="nicht erledigt" />
-              <StatCard title="Planzeit" value={hoursLabel(stats.monthMinutes)} caption="Zeitraum" />
-            </div>
-
-            {/*
-              Wie weit das Team wirklich in der App angekommen ist. Ein
-              vergebener Login, den nie jemand benutzt, sieht in einer Liste
-              aus wie Fortschritt und ist keiner — deshalb vier Schritte je
-              Person statt einer Ja-Nein-Spalte.
-            */}
-            {einrichtung && einrichtung.gesamt > 0 ? (
-              <section className="pt-3">
-                <h2 className="pb-2 text-[17px] font-bold text-ink-900">Einrichtung im Team</h2>
-
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-                  <QuoteCard titel="Mit Einsätzen" wert={einrichtung.kennzahlen.einsatz} gesamt={einrichtung.gesamt} />
-                  <QuoteCard titel="Login vergeben" wert={einrichtung.kennzahlen.login} gesamt={einrichtung.gesamt} />
-                  <QuoteCard titel="Schon angemeldet" wert={einrichtung.kennzahlen.angemeldet} gesamt={einrichtung.gesamt} />
-                  <QuoteCard titel="Schon gestempelt" wert={einrichtung.kennzahlen.gestempelt} gesamt={einrichtung.gesamt} />
-                  <QuoteCard titel="Push aktiv" wert={einrichtung.kennzahlen.push} gesamt={einrichtung.gesamt} />
-                  <QuoteCard titel="Vollständig" wert={einrichtung.kennzahlen.fertig} gesamt={einrichtung.gesamt} hervorgehoben />
-                </div>
-
-                <div className="mt-3 overflow-x-auto rounded-2xl border border-paper-200 bg-white">
-                  <table className="w-full min-w-[620px] text-left">
-                    <thead>
-                      <tr className="border-b border-paper-200 text-[12px] font-bold uppercase tracking-wide text-ink-400">
-                        <th className="px-4 py-3">Name</th>
-                        <th className="px-4 py-3">Fortschritt</th>
-                        <th className="px-3 py-3 text-center">Einsatz</th>
-                        <th className="px-3 py-3 text-center">Login</th>
-                        <th className="px-3 py-3 text-center">Angemeldet</th>
-                        <th className="px-3 py-3 text-center">Gestempelt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {einrichtung.personen.map((person) => (
-                        <tr key={person.id} className="border-b border-paper-200 last:border-0">
-                          <td className="px-4 py-3">
-                            <p className="text-[15px] font-semibold text-ink-900">{person.name}</p>
-                            {person.email ? <p className="text-[12px] text-ink-400">{person.email}</p> : null}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className="h-1.5 w-[110px] shrink-0 overflow-hidden rounded-full bg-paper-200">
-                                <span
-                                  className={`block h-1.5 rounded-full ${person.fortschritt === 100 ? "bg-success-500" : "bg-amber-500"}`}
-                                  style={{ width: `${person.fortschritt}%` }}
-                                />
-                              </span>
-                              <span className="text-[13px] font-semibold text-ink-600">{person.fortschritt}%</span>
-                            </div>
-                          </td>
-                          <Haken an={person.einsatz} />
-                          <Haken an={person.login} />
-                          <Haken an={person.angemeldet} />
-                          <Haken an={person.gestempelt} />
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {einrichtung.kennzahlen.login < einrichtung.gesamt ? (
-                  <NavRow
-                    href="/mitarbeiter/admin/aktivieren"
-                    label="Login vergeben"
-                    hint={`${einrichtung.gesamt - einrichtung.kennzahlen.login} Leute haben noch keinen Zugang`}
-                    count={einrichtung.gesamt - einrichtung.kennzahlen.login}
-                  />
-                ) : null}
-              </section>
-            ) : null}
 
             {/*
               Eine Zeile je Sache, mit eigener Zahl. Vorher stand hier eine
