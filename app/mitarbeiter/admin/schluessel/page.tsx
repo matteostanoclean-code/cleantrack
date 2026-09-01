@@ -97,6 +97,9 @@ export default function SchluesselSeite() {
   const [form, setForm] = useState<Row>({ ...leererSchluessel });
   const [uebergabe, setUebergabe] = useState<Row | null>(null);
   const [uebergabePerson, setUebergabePerson] = useState("");
+  // Nach der Übergabe steht hier der Weg zum Protokoll. Ein Fenster von selbst
+  // aufzumachen blockiert der Browser oft, ein Knopf nie.
+  const [protokollLink, setProtokollLink] = useState<string | null>(null);
 
   const load = useCallback(async (currentToken?: string) => {
     const t = currentToken || token;
@@ -210,6 +213,7 @@ export default function SchluesselSeite() {
           : welcher === "zurueck" ? "Zurück im Büro."
             : "Als verloren gemeldet."
       );
+      if (welcher === "uebergeben") setProtokollLink(`/mitarbeiter/admin/schluessel/protokoll?ids=${schluessel.id}&person=${encodeURIComponent(person || "")}`);
       setUebergabe(null);
       setUebergabePerson("");
       await load();
@@ -238,7 +242,16 @@ export default function SchluesselSeite() {
 
         {setupFehlt ? <p className="mt-4 rounded-xl bg-amber-100 px-4 py-3 text-[14px] text-amber-800">Die Schlüsseltabelle fehlt noch in der Datenbank.</p> : null}
         {error ? <p className="mt-4 rounded-xl bg-rose-100 px-4 py-3 text-[14px] text-rose-700">{error}</p> : null}
-        {message ? <p className="mt-4 rounded-xl bg-success-100 px-4 py-3 text-[14px] text-success-700">{message}</p> : null}
+        {message ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-success-100 px-4 py-3 text-[14px] text-success-700">
+            <span className="min-w-0 flex-1">{message}</span>
+            {protokollLink ? (
+              <a href={protokollLink} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg bg-success-600 px-3 py-1.5 text-[13px] font-semibold text-white">
+                Protokoll öffnen
+              </a>
+            ) : null}
+          </div>
+        ) : null}
 
         {zaehler.verloren > 0 ? (
           <p className="mt-4 rounded-xl border border-danger-500/40 bg-danger-50 px-4 py-3 text-[14px] text-danger-700">
@@ -312,6 +325,16 @@ export default function SchluesselSeite() {
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="flex justify-end gap-1.5">
+                        {/* Das Protokoll ist der Nachweis, nicht der Eintrag hier. */}
+                        <a
+                          href={`/mitarbeiter/admin/schluessel/protokoll?ids=${schluessel.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded-lg border border-paper-300 px-2.5 py-1.5 text-[12px] font-semibold text-ink-700"
+                        >
+                          Protokoll
+                        </a>
                         {zustand.code === "ausgegeben" ? (
                           <button onClick={() => vorgang(schluessel, "zurueck")} disabled={saving} className="rounded-lg border border-paper-300 px-2.5 py-1.5 text-[12px] font-semibold text-ink-700 disabled:opacity-50">Zurück</button>
                         ) : zustand.code === "im_buero" ? (
@@ -350,6 +373,14 @@ export default function SchluesselSeite() {
               </Feld>
             </div>
             <p className="mt-3 text-[13px] text-ink-400">Das Datum von heute wird gestempelt, und die Person bekommt eine Meldung.</p>
+            {/*
+              Der Eintrag hier ist die Buchhaltung, das Protokoll ist der
+              Nachweis. Deshalb steht der Weg dorthin direkt daneben und nicht
+              drei Klicks weiter.
+            */}
+            <p className="mt-1 text-[13px] text-ink-400">
+              Danach das <strong className="text-ink-600">Übergabeprotokoll</strong> ausdrucken und unterschreiben lassen — zweimal, eine Ausfertigung für die Akte.
+            </p>
             <div className="mt-4 flex gap-2">
               <button onClick={() => setUebergabe(null)} className="flex-1 rounded-xl border border-paper-300 py-2.5 text-[14px] font-semibold text-ink-700">Abbrechen</button>
               <button onClick={() => vorgang(uebergabe, "uebergeben", uebergabePerson)} disabled={saving || !uebergabePerson} className="flex-1 rounded-xl bg-brand-600 py-2.5 text-[14px] font-semibold text-white disabled:opacity-50">Übergeben</button>
