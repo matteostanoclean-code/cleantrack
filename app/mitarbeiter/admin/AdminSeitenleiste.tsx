@@ -39,10 +39,19 @@ const BLOECKE: Block[] = [
       { titel: "Dashboard", adresse: "/mitarbeiter/admin", icon: "grid" },
       { titel: "Suche", adresse: "/mitarbeiter/admin/suche", icon: "search" },
       { titel: "Chat", adresse: "/mitarbeiter/admin/chat", icon: "chat", zaehler: "chat" },
-      { titel: "Einsatzplaner", adresse: "/mitarbeiter/admin/planung", icon: "calendar", zaehler: "ohneMitarbeiter" },
+      {
+        titel: "Einsatzplaner",
+        adresse: "/mitarbeiter/admin/einsatzplaner",
+        icon: "calendar",
+        zaehler: "ohneMitarbeiter",
+        kinder: [
+          { titel: "Wochenplan", adresse: "/mitarbeiter/admin/einsatzplaner", icon: "calendar" },
+          { titel: "Serien und Verteilung", adresse: "/mitarbeiter/admin/planung", icon: "refresh", zaehler: "ohneMitarbeiter" }
+        ]
+      },
       { titel: "Tageszentrale", adresse: "/mitarbeiter/admin/tageszentrale", icon: "clock" },
       { titel: "Zeitenfreigabe", adresse: "/mitarbeiter/admin/zeiten", icon: "stopwatch", zaehler: "zeiten" },
-      { titel: "Abwesenheiten", adresse: "/mitarbeiter/admin/urlaub", icon: "plane", zaehler: "urlaub" },
+      { titel: "Abwesenheiten", adresse: "/mitarbeiter/admin/abwesenheiten", icon: "plane", zaehler: "urlaub" },
       { titel: "Lohnabrechnung", adresse: "/mitarbeiter/admin/lohnexport", icon: "euro" }
     ]
   },
