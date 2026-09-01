@@ -26,7 +26,7 @@ const ARTEN: Record<string, string> = {
 };
 
 const PRIORITAETEN = ["gering", "mittel", "hoch", "dringend"];
-const ZUSTAENDE = ["neu", "offen", "in_arbeit", "abgeschlossen"];
+const ZUSTAENDE = ["neu", "offen", "in_arbeit", "in_pruefung", "abgeschlossen"];
 
 function clean(value: unknown) {
   return String(value ?? "").trim();

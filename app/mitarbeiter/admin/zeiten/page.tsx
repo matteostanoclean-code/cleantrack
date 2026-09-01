@@ -318,45 +318,143 @@ export default function TimeApprovalPage() {
             />
           ) : null}
 
-          {records.map((record) => {
-            const tone = stateTone(record);
-            return (
-              <article key={record.id} className="rounded-2xl bg-white p-4">
-                <button onClick={() => setOpenRecord(record)} className="flex w-full items-start gap-3 text-left">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[16px] font-bold text-ink-900">{formatDateDE(record.date)}</p>
-                      {record.locationIssue ? <StatusPill tone="info">Standort stimmt nicht</StatusPill> : null}
-                      {record.incomplete ? <StatusPill tone="warn">Kein Ausstempeln</StatusPill> : null}
-                    </div>
-                    <p className="mt-1 text-[14px] text-ink-400">{record.employeeName} · {record.siteName}</p>
-                    <p className="mt-2 text-[14px] text-ink-400">Soll: {hhmm(record.plannedMinutes)}</p>
-                    {record.deviationMinutes ? (
-                      <p className={cx("text-[14px] font-semibold", record.deviationMinutes < 0 ? "text-danger-600" : "text-amber-700")}>
-                        {signedHhmm(record.deviationMinutes)}
-                      </p>
-                    ) : (
-                      <p className="text-[14px] text-ink-400">Ist: {hhmm(record.actualMinutes)}</p>
-                    )}
-                  </div>
-                  {record.state === "open" ? null : <StatusPill tone={tone.tone}>{tone.label}</StatusPill>}
-                </button>
+          {/*
+            Am Rechner eine Tabelle mit Haken und Kreuz direkt in der Zeile.
+            Der Normalfall ist "passt, freigeben" — dafür soll man das Blatt
+            nicht erst öffnen müssen. Am Handy bleiben es Karten, dort ist eine
+            Tabelle mit acht Spalten unbrauchbar.
+          */}
+          {records.length ? (
+            <div className="hidden overflow-x-auto rounded-2xl bg-white md:block">
+              <table className="w-full min-w-[900px] text-left">
+                <thead>
+                  <tr className="border-b border-paper-200 text-[12px] font-bold uppercase tracking-wide text-ink-400">
+                    <th className="px-4 py-3">Datum</th>
+                    <th className="px-3 py-3">Name</th>
+                    <th className="px-3 py-3">Einsatz</th>
+                    <th className="px-3 py-3">Fehler</th>
+                    <th className="px-3 py-3 text-right">Soll-Zeit</th>
+                    <th className="px-3 py-3 text-right">Abweichung</th>
+                    <th className="px-3 py-3 text-center">Freigeben</th>
+                    <th className="px-3 py-3 text-center">Ablehnen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((record) => {
+                    const tone = stateTone(record);
+                    const fehler: string[] = [];
+                    if (record.locationIssue) fehler.push("Standortfehler");
+                    if (record.incomplete) fehler.push("Kein Ausstempeln");
+                    if (Math.abs(record.deviationMinutes) > 5) fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
+                    return (
+                      <tr key={record.id} className="border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
+                        <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-4 py-3 text-[14px] font-semibold text-ink-900">{formatDateDE(record.date)}</td>
+                        <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3 text-[14px] text-ink-700">{record.employeeName}</td>
+                        <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3">
+                          {record.taskTitle ? <span className="block text-[12px] text-ink-400">{record.taskTitle}</span> : null}
+                          <span className="text-[14px] text-ink-700">{record.siteName}</span>
+                        </td>
+                        <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3">
+                          {fehler.length ? (
+                            <span className="rounded-md bg-brand-100 px-2 py-1 text-[12px] font-semibold text-brand-700">
+                              {fehler[0]}{fehler.length > 1 ? ` +${fehler.length - 1}` : ""}
+                            </span>
+                          ) : <span className="text-[13px] text-ink-300">–</span>}
+                        </td>
+                        <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3 text-right text-[14px] text-ink-700">{hhmm(record.plannedMinutes)} Std.</td>
+                        <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3 text-right">
+                          {record.deviationMinutes ? (
+                            <span className={cx("text-[14px] font-semibold", record.deviationMinutes < 0 ? "text-danger-600" : "text-amber-700")}>
+                              {signedHhmm(record.deviationMinutes)} Std.
+                            </span>
+                          ) : <span className="text-[14px] text-ink-400">–</span>}
+                        </td>
 
-                {record.state === "open" && !record.incomplete ? (
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      onClick={() => decide(record, "approve")}
-                      disabled={savingId === record.id}
-                      className="grid h-11 w-11 place-items-center rounded-xl bg-success-500 text-white disabled:opacity-50"
-                      aria-label="Zeit freigeben"
-                    >
-                      <UiIcon name="check" className="h-5 w-5" />
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
+                        {record.state === "open" ? (
+                          <>
+                            <td className="px-3 py-3 text-center">
+                              <button
+                                onClick={() => decide(record, "approve")}
+                                disabled={savingId === record.id || record.incomplete}
+                                title={record.incomplete ? "Erst im Blatt eine Endzeit eintragen" : "Zeit freigeben"}
+                                className="grid h-9 w-9 place-items-center rounded-lg bg-success-500 text-white disabled:opacity-30"
+                                aria-label="Zeit freigeben"
+                              >
+                                <UiIcon name="check" className="h-4 w-4" />
+                              </button>
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <button
+                                onClick={() => decide(record, "reject")}
+                                disabled={savingId === record.id}
+                                title="Nur die geplante Zeit gutschreiben"
+                                className="grid h-9 w-9 place-items-center rounded-lg bg-danger-500 text-white disabled:opacity-30"
+                                aria-label="Zeit ablehnen"
+                              >
+                                <UiIcon name="close" className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </>
+                        ) : (
+                          <td colSpan={2} className="px-3 py-3 text-center"><StatusPill tone={tone.tone}>{tone.label}</StatusPill></td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          <div className="space-y-3 md:hidden">
+            {records.map((record) => {
+              const tone = stateTone(record);
+              return (
+                <article key={record.id} className="rounded-2xl bg-white p-4">
+                  <button onClick={() => setOpenRecord(record)} className="flex w-full items-start gap-3 text-left">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[16px] font-bold text-ink-900">{formatDateDE(record.date)}</p>
+                        {record.locationIssue ? <StatusPill tone="info">Standort stimmt nicht</StatusPill> : null}
+                        {record.incomplete ? <StatusPill tone="warn">Kein Ausstempeln</StatusPill> : null}
+                      </div>
+                      <p className="mt-1 text-[14px] text-ink-400">{record.employeeName} · {record.siteName}</p>
+                      <p className="mt-2 text-[14px] text-ink-400">Soll: {hhmm(record.plannedMinutes)}</p>
+                      {record.deviationMinutes ? (
+                        <p className={cx("text-[14px] font-semibold", record.deviationMinutes < 0 ? "text-danger-600" : "text-amber-700")}>
+                          {signedHhmm(record.deviationMinutes)}
+                        </p>
+                      ) : (
+                        <p className="text-[14px] text-ink-400">Ist: {hhmm(record.actualMinutes)}</p>
+                      )}
+                    </div>
+                    {record.state === "open" ? null : <StatusPill tone={tone.tone}>{tone.label}</StatusPill>}
+                  </button>
+
+                  {record.state === "open" ? (
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        onClick={() => decide(record, "reject")}
+                        disabled={savingId === record.id}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-danger-500 text-white disabled:opacity-50"
+                        aria-label="Zeit ablehnen"
+                      >
+                        <UiIcon name="close" className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => decide(record, "approve")}
+                        disabled={savingId === record.id || record.incomplete}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-success-500 text-white disabled:opacity-50"
+                        aria-label="Zeit freigeben"
+                      >
+                        <UiIcon name="check" className="h-5 w-5" />
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
         </div>
       </div>
 

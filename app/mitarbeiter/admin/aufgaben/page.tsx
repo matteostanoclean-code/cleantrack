@@ -35,6 +35,7 @@ const ZUSTAENDE = [
   { code: "neu", label: "Neu", ton: "bg-paper-200 text-ink-600" },
   { code: "offen", label: "Offen", ton: "bg-brand-100 text-brand-700" },
   { code: "in_arbeit", label: "In Arbeit", ton: "bg-amber-100 text-amber-800" },
+  { code: "in_pruefung", label: "In Prüfung", ton: "bg-amber-100 text-amber-800" },
   { code: "abgeschlossen", label: "Abgeschlossen", ton: "bg-success-100 text-success-700" }
 ];
 
@@ -438,7 +439,7 @@ export default function AufgabenSeite() {
             </table>
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             {ZUSTAENDE.map((spalte) => {
               const eigene = gefiltert.filter((ticket) => clean(ticket.status).toLowerCase() === spalte.code);
               return (
@@ -455,12 +456,32 @@ export default function AufgabenSeite() {
                       return (
                         <div key={ticket.id} className="rounded-xl border border-paper-200 p-3">
                           <button onClick={() => bearbeiten(ticket)} className="block w-full text-left">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className={cx("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", art.ton)}>{art.label}</span>
-                              <Balken stufe={prio.balken} />
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 font-mono text-[12px] text-ink-400">{clean(ticket.identifier)}</span>
+                              <span className={cx("truncate rounded-md px-1.5 py-0.5 text-[11px] font-semibold", art.ton)}>{art.label}</span>
+                              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                <Balken stufe={prio.balken} />
+                                {clean(ticket.assigned_to) ? (
+                                  <span
+                                    title={clean(ticket.assigned_to)}
+                                    className="grid h-6 w-6 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white"
+                                  >
+                                    {clean(ticket.assigned_to).split(" ").filter(Boolean).map((teil) => teil[0]).slice(0, 2).join("").toUpperCase()}
+                                  </span>
+                                ) : null}
+                              </span>
                             </div>
-                            <p className="mt-1.5 text-[14px] font-medium text-ink-900">{clean(ticket.title)}</p>
-                            <p className="mt-0.5 font-mono text-[12px] text-ink-400">{clean(ticket.identifier)}{clean(ticket.assigned_to) ? ` · ${clean(ticket.assigned_to)}` : ""}</p>
+                            <div className="mt-2 flex items-center gap-2">
+                              <p className="min-w-0 flex-1 text-[14px] font-medium text-ink-900">{clean(ticket.title)}</p>
+                              {clean(ticket.due_date) ? (
+                                <span className={cx(
+                                  "shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+                                  clean(ticket.due_date).slice(0, 10) < heute ? "bg-danger-100 text-danger-700" : "bg-paper-200 text-ink-600"
+                                )}>
+                                  {datumText(ticket.due_date)}
+                                </span>
+                              ) : null}
+                            </div>
                           </button>
                           <div className="mt-2 flex gap-1">
                             {index > 0 ? (
