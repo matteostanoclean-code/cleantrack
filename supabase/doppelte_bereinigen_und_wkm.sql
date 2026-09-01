@@ -1,6 +1,23 @@
 -- ============================================================
--- Doppelte Kunden und Objekte bereinigen, WKM-Objekt anlegen
--- Stand 23.08.2026
+-- ERLEDIGT AM 27.08.2026 — nicht noch einmal ausführen
+-- ============================================================
+--
+-- Die Bereinigung wurde am 27.08.2026 direkt gegen die Datenbank gefahren,
+-- nicht über dieses Skript. Ergebnis:
+--
+--   26 Kunden, 28 Objekte, keine Doppelten mehr, kein Objekt ohne
+--   Koordinaten. Angelegt wurden ausserdem die Objekte für WKM
+--   (Weberstr. 52 Eisingen), St. Martin Remchingen, PWA-Projekt Karlsbad
+--   und M2 Services Pforzheim.
+--
+-- Offen bleibt nur LEC Construction International GmbH: In der Kundendatei
+-- steht dort keine Objektanschrift, nur die Rechnungsanschrift in Hamburg.
+--
+-- Das Skript bleibt als Beleg stehen, was gelöscht wurde und wohin die
+-- Verweise umgehängt wurden. Es noch einmal zu starten bringt nichts.
+--
+-- ============================================================
+-- Ursprünglicher Text
 -- ============================================================
 --
 -- Was hier passiert und warum:
