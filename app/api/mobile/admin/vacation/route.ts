@@ -191,10 +191,19 @@ export async function PATCH(request: Request) {
         clean(absence.end_date || absence.start_date)
       );
 
-      let released = 0;
-      if (action === "approve_and_unassign") {
-        released = await unassignConflicts(supabase, conflicts, `${absence.employee_name} ist vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend.`);
-      }
+      /**
+       * Einsätze immer freigeben, nicht nur auf Wunsch.
+       *
+       * Wer im Urlaub ist, macht den Termin nicht. Bliebe er auf ihm stehen,
+       * sähe die Planung besetzt aus und niemand würde nachfragen — bis der
+       * Kunde anruft. Freigegeben taucht er in "Einsätze ohne Mitarbeiter"
+       * auf und wird neu verteilt.
+       */
+      const released = await unassignConflicts(
+        supabase,
+        conflicts,
+        `${absence.employee_name} ist vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend.`
+      );
 
       const { data, error } = await supabase
         .from("absence_requests")

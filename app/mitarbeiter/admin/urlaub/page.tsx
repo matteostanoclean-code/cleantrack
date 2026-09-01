@@ -618,11 +618,12 @@ export default function AdminVacationPage() {
                   <div className="mt-3 grid gap-2">
                     {!isClosed ? (
                       <>
-                        <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve_and_unassign", admin_response: "Genehmigt. Betroffene Einsätze wurden neu zur Planung freigegeben." }, "Urlaub wurde genehmigt.")} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-ink-900 disabled:opacity-50">Genehmigen + Einsätze freigeben</button>
+                        {/* Ein Knopf statt zwei: freigegeben wird beim Genehmigen immer. */}
                         <div className="grid grid-cols-2 gap-2">
-                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve", admin_response: "Genehmigt." }, "Urlaub wurde genehmigt.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-bold text-brand-700 disabled:opacity-50">Nur genehmigen</button>
-                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "reject", admin_response: "Abgelehnt." }, "Urlaub wurde abgelehnt.")} className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-3 text-xs font-bold text-rose-700 disabled:opacity-50">Ablehnen</button>
+                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "approve", admin_response: "Genehmigt." }, "Urlaub wurde genehmigt.")} className="rounded-2xl bg-success-500 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">Genehmigen</button>
+                          <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "reject", admin_response: "Abgelehnt." }, "Urlaub wurde abgelehnt.")} className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-3 text-sm font-bold text-rose-700 disabled:opacity-50">Ablehnen</button>
                         </div>
+                        <p className="text-xs text-ink-400">Beim Genehmigen werden die Einsätze in diesem Zeitraum freigegeben und stehen danach unter „Einsätze ohne Mitarbeiter“.</p>
                       </>
                     ) : conflicts.length ? (
                       <button disabled={saving} onClick={() => patchAbsence({ id: absence.id, action: "unassign_conflicts" }, "Einsatz-Konflikte wurden freigegeben.")} className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-100 disabled:opacity-50">Konflikte jetzt freigeben</button>

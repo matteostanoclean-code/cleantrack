@@ -501,6 +501,28 @@ export default function AdminDashboardPage() {
     return { todayTasks, openTasks, monthMinutes, openRequests, unassignedTasks };
   }, [data]);
 
+  /**
+   * Wer in den nächsten zwei Wochen nicht da ist.
+   *
+   * Nur Genehmigtes: Ein Antrag, über den noch nicht entschieden ist, gehört
+   * unter "Zu erledigen", nicht in die Planung. Sonst plant man um jemanden
+   * herum, der am Ende doch da ist.
+   */
+  const abwesendDemnaechst = useMemo(() => {
+    const bis = new Date();
+    bis.setDate(bis.getDate() + 14);
+    const bisIso = bis.toISOString().slice(0, 10);
+    return (data?.absences || [])
+      .filter((eintrag) => {
+        if (!["approved", "genehmigt"].includes(clean(eintrag.status).toLowerCase())) return false;
+        const von = clean(eintrag.start_date).slice(0, 10);
+        const ende = clean(eintrag.end_date || eintrag.start_date).slice(0, 10);
+        return von && ende >= today && von <= bisIso;
+      })
+      .sort((a, b) => clean(a.start_date).localeCompare(clean(b.start_date)))
+      .slice(0, 6);
+  }, [data?.absences]);
+
   const upcomingBirthdays = useMemo(() => (data?.employees || [])
     .map((employee) => ({ employee, info: birthdayInfo(employee) }))
     .filter((item) => item.info && item.info.daysUntil <= 30)
@@ -620,6 +642,63 @@ export default function AdminDashboardPage() {
               )}
             </section>
 
+            {/*
+              Wer weg ist und wer Geburtstag hat, nebeneinander. Beides ist
+              keine Aufgabe, sondern etwas, das man wissen will, bevor man
+              plant oder jemandem gegenübersteht.
+            */}
+            {abwesendDemnaechst.length || upcomingBirthdays.length ? (
+              <div className="grid gap-3 pt-4 lg:grid-cols-2">
+                {abwesendDemnaechst.length ? (
+                  <section className="rounded-2xl border border-paper-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h2 className="text-[16px] font-bold text-ink-900">Wer ist nicht da</h2>
+                      <a href="/mitarbeiter/admin/abwesenheiten" className="text-[13px] font-semibold text-brand-700">Zeitleiste</a>
+                    </div>
+                    <div className="space-y-2">
+                      {abwesendDemnaechst.map((eintrag) => {
+                        const laeuft = clean(eintrag.start_date).slice(0, 10) <= today;
+                        return (
+                          <div key={eintrag.id} className="flex items-center gap-3 rounded-xl border border-paper-200 px-3 py-2.5">
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${clean(eintrag.request_type || eintrag.absence_type).toLowerCase().includes("krank") ? "bg-danger-500" : "bg-amber-500"}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[15px] font-semibold text-ink-900">{clean(eintrag.employee_name) || "Mitarbeiter"}</span>
+                              <span className="block truncate text-[13px] text-ink-400">
+                                {clean(eintrag.request_type || eintrag.absence_type) || "Abwesend"} · {dateText(eintrag.start_date)} bis {dateText(eintrag.end_date || eintrag.start_date)}
+                              </span>
+                            </span>
+                            <span className={`shrink-0 rounded-md px-2 py-1 text-[12px] font-semibold ${laeuft ? "bg-amber-100 text-amber-800" : "bg-paper-200 text-ink-600"}`}>
+                              {laeuft ? "läuft" : "kommt"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+
+                {upcomingBirthdays.length ? (
+                  <section className="rounded-2xl border border-paper-200 bg-white p-4">
+                    <h2 className="mb-3 text-[16px] font-bold text-ink-900">Kommende Geburtstage</h2>
+                    <div className="space-y-2">
+                      {upcomingBirthdays.map(({ employee, info }) => (
+                        <div key={employee.id} className="flex items-center gap-3 rounded-xl border border-paper-200 px-3 py-2.5">
+                          <span className="text-[18px]">{info?.isToday ? "🎉" : "🎂"}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[15px] font-semibold text-ink-900">{labelEmployee(employee)}</span>
+                            <span className="block text-[13px] text-ink-400">{info?.date || "—"}</span>
+                          </span>
+                          <span className={`shrink-0 rounded-md px-2 py-1 text-[12px] font-semibold ${info?.isToday ? "bg-brand-600 text-white" : "bg-paper-200 text-ink-600"}`}>
+                            {info?.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+
             {/* Am Rechner steht das alles in der Seitenleiste, deshalb nur am Handy zeigen. */}
             <section className="pt-3 md:hidden">
               <h2 className="pb-1 text-[17px] font-bold text-ink-900">Planen</h2>
@@ -645,21 +724,6 @@ export default function AdminDashboardPage() {
               <NavRow href="/mitarbeiter/admin/push" label="Push-Zentrale" hint="Nachricht ans Team" />
               <NavRow href="/mitarbeiter" label="Zur Mitarbeiter-App" />
             </section>
-
-            {upcomingBirthdays.length ? (
-              <section className="pt-3">
-                <h2 className="pb-1 text-[17px] font-bold text-ink-900">Geburtstage</h2>
-                {upcomingBirthdays.map(({ employee, info }) => (
-                  <div key={employee.id} className="flex items-center justify-between gap-3 border-b border-paper-200 py-3">
-                    <div className="min-w-0">
-                      <p className="text-[16px] font-semibold text-ink-900">{labelEmployee(employee)}</p>
-                      <p className="text-[13px] text-ink-400">{info?.date || "—"}</p>
-                    </div>
-                    <span className={`shrink-0 rounded-md px-2.5 py-1 text-[12px] font-semibold ${info?.isToday ? "bg-brand-600 text-white" : "bg-paper-200 text-ink-600"}`}>{info?.label}</span>
-                  </div>
-                ))}
-              </section>
-            ) : null}
 
             <section className="rounded-2xl border border-paper-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
