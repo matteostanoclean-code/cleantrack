@@ -55,6 +55,14 @@ function euro(value: unknown) {
   return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(zahl);
 }
 
+function datumText(value: unknown) {
+  const text = clean(value).slice(0, 10);
+  if (!text) return "–";
+  const datum = new Date(`${text}T12:00:00`);
+  if (Number.isNaN(datum.getTime())) return text;
+  return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(datum);
+}
+
 /**
  * Wann wurde ein Artikel zuletzt bestellt, und in welchem Abstand?
  *
@@ -119,6 +127,9 @@ export default function ArtikelSeite() {
   // Bestellzeilen, nur zum Rechnen des Rhythmus. Wer wann was bestellt hat,
   // steht in den Bestellungen — hier interessiert allein: wie oft.
   const [bestellungen, setBestellungen] = useState<Row[]>([]);
+  // Rechnungszeilen vom Lieferanten. Die Nettopreise schwanken, deshalb
+  // interessiert nicht nur der letzte Preis, sondern der Verlauf.
+  const [einkaeufe, setEinkaeufe] = useState<Row[]>([]);
   const [filter, setFilter] = useState("alle");
   const [form, setForm] = useState<Row>({ ...emptyArtikel });
   const [formOffen, setFormOffen] = useState(false);
@@ -179,6 +190,13 @@ export default function ArtikelSeite() {
       setSites(objekte.data || []);
       setArtikel(produkte.data || []);
       setBestellungen(zeilen.data || []);
+      try {
+        const rechnungen = await ruf({ action: "select", table: "material_purchases", select: "*", orderBy: "invoice_date" }, t);
+        setEinkaeufe(rechnungen.data || []);
+      } catch {
+        // Fehlt die Tabelle noch, laeuft die Seite ohne Preisverlauf weiter.
+        setEinkaeufe([]);
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Artikel konnten nicht geladen werden.");
     } finally {
@@ -415,7 +433,14 @@ export default function ArtikelSeite() {
                     <td className="px-3 py-3 text-right text-[14px] text-ink-700">
                       {row.purchase_price === null || row.purchase_price === undefined || row.purchase_price === "" ? (
                         <span className="text-[13px] text-amber-600">fehlt</span>
-                      ) : euro(row.purchase_price)}
+                      ) : (
+                        <>
+                          <span className="block">{euro(row.purchase_price)}</span>
+                          {clean(row.price_updated_at) ? (
+                            <span className="block text-[12px] text-ink-400">Stand {datumText(row.price_updated_at)}</span>
+                          ) : null}
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       {row.billable === true ? (
@@ -587,6 +612,56 @@ export default function ArtikelSeite() {
                     </span>
                   </span>
                 </label>
+
+                {/*
+                  Preisverlauf aus den Lieferantenrechnungen.
+
+                  Der Preis oben ist nur der zuletzt bekannte Stand für neue
+                  Bestellungen. Was tatsächlich gerechnet wird, steht in der
+                  jeweiligen Bestellzeile — sonst würde eine neue Rechnung die
+                  Kosten vergangener Monate rückwirkend verschieben.
+                */}
+                {form.id ? (() => {
+                  const verlauf = einkaeufe
+                    .filter((zeile) => clean(zeile.material_product_id) === clean(form.id))
+                    .sort((a, b) => clean(b.invoice_date).localeCompare(clean(a.invoice_date)))
+                    .slice(0, 6);
+                  if (!verlauf.length) {
+                    return (
+                      <p className="mt-4 border-t border-paper-200 pt-3 text-[13px] text-ink-400">
+                        Noch keine Lieferantenrechnung erfasst. Schick mir die Rechnung, dann steht der Verlauf hier.
+                      </p>
+                    );
+                  }
+                  const neuester = Number(verlauf[0].unit_price);
+                  const vorheriger = verlauf[1] ? Number(verlauf[1].unit_price) : null;
+                  return (
+                    <div className="mt-4 border-t border-paper-200 pt-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Aus den Rechnungen</p>
+                      <div className="mt-2 space-y-1">
+                        {verlauf.map((zeile) => (
+                          <div key={zeile.id} className="flex items-baseline justify-between gap-3 text-[13px]">
+                            <span className="text-ink-500">
+                              {datumText(zeile.invoice_date)}
+                              {clean(zeile.invoice_number) ? <span className="text-ink-300"> · {clean(zeile.invoice_number)}</span> : null}
+                            </span>
+                            <span className="font-medium text-ink-800">
+                              {euro(zeile.unit_price)}
+                              <span className="text-ink-400"> × {Number(zeile.quantity) || 1}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {vorheriger !== null && Number.isFinite(neuester) && Number.isFinite(vorheriger) && vorheriger > 0 ? (
+                        <p className={cx("mt-2 text-[13px] font-semibold", neuester > vorheriger ? "text-danger-600" : neuester < vorheriger ? "text-success-700" : "text-ink-400")}>
+                          {neuester === vorheriger
+                            ? "Preis unverändert."
+                            : `${neuester > vorheriger ? "Teurer" : "Günstiger"} geworden: ${(((neuester - vorheriger) / vorheriger) * 100).toFixed(0).replace("-", "")} % gegenüber der Rechnung davor.`}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })() : null}
               </div>
 
               <Field label="Beschreibung, optional"><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className={inputClass} /></Field>

@@ -52,11 +52,12 @@ export async function GET(request: Request) {
     if (!guard.ok) return guard.response;
     const supabase = guard.auth.supabase;
 
-    const [artikel, zeilen, objekte, personen] = await Promise.all([
+    const [artikel, zeilen, objekte, personen, einkaeufe] = await Promise.all([
       supabase.from("material_products").select("*").order("article_number", { ascending: false }).limit(500),
       supabase.from("material_reports").select("*").order("created_at", { ascending: false }).limit(2000),
       supabase.from("work_sites").select("id, name, address, customer_name").order("name", { ascending: true }).limit(500),
-      supabase.from("employee_profiles").select("id, name, active").order("name", { ascending: true })
+      supabase.from("employee_profiles").select("id, name, active").order("name", { ascending: true }),
+      supabase.from("material_purchases").select("*").order("invoice_date", { ascending: false }).limit(1000)
     ]);
 
     if (artikel.error) throw new Error(artikel.error.message);
@@ -65,6 +66,8 @@ export async function GET(request: Request) {
       ok: true,
       articles: artikel.data || [],
       lines: zeilen.data || [],
+      // Fehlt die Tabelle noch, laeuft die Seite ohne Preisverlauf weiter.
+      purchases: einkaeufe.error ? [] : (einkaeufe.data || []),
       sites: objekte.data || [],
       employees: ((personen.data || []) as AnyRow[]).filter((row) => clean(row.name) && row.active !== false),
       eigenerName: guard.auth.profile.name
@@ -118,6 +121,55 @@ export async function POST(request: Request) {
       });
 
       return NextResponse.json({ ok: true, item: ergebnis.data, uebersprungen: ergebnis.skipped });
+    }
+
+    /**
+     * Eine Rechnungszeile vom Lieferanten erfassen.
+     *
+     * Die Zeile wird festgeschrieben, wie sie auf der Rechnung steht. Der
+     * Preis am Artikel wird nur dann nachgezogen, wenn diese Rechnung die
+     * neueste ist — eine nachgereichte alte Rechnung darf den aktuellen Stand
+     * nicht zurueckdrehen.
+     */
+    if (art === "einkauf") {
+      const artikelId = uuidOrNull(body.material_product_id);
+      const datum = clean(body.invoice_date).slice(0, 10);
+      const preis = nullableZahl(body.unit_price);
+      const name = clean(body.article_name);
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return NextResponse.json({ ok: false, error: "Bitte ein Rechnungsdatum angeben." }, { status: 400 });
+      if (preis === null) return NextResponse.json({ ok: false, error: "Bitte einen Nettopreis je Einheit angeben." }, { status: 400 });
+
+      const artikel = artikelId ? (await supabase.from("material_products").select("*").eq("id", artikelId).maybeSingle()).data : null;
+      const menge = nullableZahl(body.quantity) ?? 1;
+
+      const ergebnis = await safeInsert(supabase, "material_purchases", {
+        material_product_id: artikelId,
+        article_name: name || clean(artikel?.name) || "Position ohne Namen",
+        supplier: nullableText(body.supplier) || clean(artikel?.supplier) || null,
+        invoice_number: nullableText(body.invoice_number),
+        invoice_date: datum,
+        quantity: menge,
+        unit_price: preis,
+        total_net: nullableZahl(body.total_net) ?? menge * preis,
+        unit: nullableText(body.unit) || clean(artikel?.unit) || null,
+        notes: nullableText(body.notes),
+        created_by: guard.auth.profile.name
+      });
+
+      let preisNachgezogen = false;
+      if (artikelId) {
+        const bisher = clean(artikel?.price_updated_at).slice(0, 10);
+        if (!bisher || datum >= bisher) {
+          await safeUpdateById(supabase, "material_products", artikelId, {
+            purchase_price: preis,
+            price_updated_at: datum
+          });
+          preisNachgezogen = true;
+        }
+      }
+
+      return NextResponse.json({ ok: true, item: ergebnis.data, preisNachgezogen });
     }
 
     if (art === "bestellung") {

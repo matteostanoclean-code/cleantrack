@@ -9,6 +9,7 @@ const allowedTables = new Set([
   "time_entries",
   "absence_requests",
   "material_products",
+  "material_purchases",
   "material_reports",
   "quality_reports",
   "admin_notifications",
