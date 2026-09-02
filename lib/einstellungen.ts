@@ -96,7 +96,12 @@ export const LISTEN = [
   "rechtegruppen",
   "lieferanten",
   "geraetetypen",
-  "aufgabentypen"
+  "aufgabentypen",
+  // Lohnkosten je Monat, als eine Zahl aus der Lohnabrechnung. Liegt hier,
+  // weil es dieselbe Form hat wie eine Stammliste: ein Name (der Monat) und
+  // ein paar Werte dahinter. Eine eigene Tabelle dafür wäre Aufwand ohne
+  // Gegenwert.
+  "monatskosten"
 ] as const;
 
 export type ListenName = (typeof LISTEN)[number];

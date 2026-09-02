@@ -52,6 +52,7 @@ type Daten = {
   summe: {
     erloes: number;
     lohnkosten: number;
+    lohnkostenGesamt: number;
     materialkosten: number;
     materialerloes: number;
     materialOhnePreis: number;
@@ -62,6 +63,9 @@ type Daten = {
     minutenOhneObjekt: number;
     objekteOhneSatz: number;
   };
+  lohnkostenMonat: number | null;
+  lohnkostenMonatDetails: { gehalt: number | null; ag_kosten: number | null; sachzuwendung: number | null; notiz: string | null };
+  monatskostenId: string | null;
   personenOhneLohn: string[];
   materialGemeldet: Array<{ objekt: string; artikel: string }>;
   hinweisKosten: string;
@@ -126,6 +130,11 @@ export default function AuswertungSeite() {
   const [monat, setMonat] = useState(() => new Date().toISOString().slice(0, 7));
   const [sortierung, setSortierung] = useState<"db" | "erloes" | "stunden" | "name">("db");
 
+  // Lohnkosten des Monats, von Hand aus der Abrechnung.
+  const [lohnOffen, setLohnOffen] = useState(false);
+  const [lohnForm, setLohnForm] = useState({ lohnkosten: "", gehalt: "", ag_kosten: "", sachzuwendung: "", notiz: "" });
+  const [lohnSpeichert, setLohnSpeichert] = useState(false);
+
   const holen = useCallback(async (aktuellerToken?: string, aktuellerMonat?: string) => {
     const t = aktuellerToken || token;
     if (!t) return;
@@ -173,6 +182,78 @@ export default function AuswertungSeite() {
     () => (daten?.zeilen || []).filter((zeile) => zeile.art === "keiner" && (zeile.aktiv || zeile.minutenFrei > 0)),
     [daten]
   );
+
+  function lohnBearbeiten() {
+    if (!daten) return;
+    const d = daten.lohnkostenMonatDetails;
+    const alsText = (wert: number | null) => (wert === null || wert === undefined ? "" : String(wert).replace(".", ","));
+    setLohnForm({
+      lohnkosten: alsText(daten.lohnkostenMonat),
+      gehalt: alsText(d.gehalt),
+      ag_kosten: alsText(d.ag_kosten),
+      sachzuwendung: alsText(d.sachzuwendung),
+      notiz: d.notiz || ""
+    });
+    setLohnOffen(true);
+  }
+
+  /**
+   * Lohnkosten des Monats speichern.
+   *
+   * Die Aufteilung in Gehalt, Arbeitgeberkosten und Sachzuwendung ist
+   * freiwillig — gerechnet wird mit der Gesamtsumme. Sind alle drei gefüllt
+   * und die Summe leer, wird sie daraus gebildet, damit man nicht dieselbe
+   * Zahl zweimal tippt.
+   */
+  async function lohnSpeichern() {
+    if (!daten) return;
+    const zahlVon = (wert: string) => {
+      const text = wert.trim().replace(/\./g, "").replace(",", ".");
+      if (!text) return null;
+      const zahl = Number(text);
+      return Number.isFinite(zahl) ? zahl : null;
+    };
+
+    const gehalt = zahlVon(lohnForm.gehalt);
+    const ag = zahlVon(lohnForm.ag_kosten);
+    const sach = zahlVon(lohnForm.sachzuwendung);
+    const summeAusTeilen = [gehalt, ag, sach].some((w) => w !== null)
+      ? (gehalt ?? 0) + (ag ?? 0) + (sach ?? 0)
+      : null;
+    const gesamt = zahlVon(lohnForm.lohnkosten) ?? summeAusTeilen;
+
+    if (gesamt === null) { setFehler("Bitte einen Betrag eintragen."); return; }
+
+    setLohnSpeichert(true);
+    setFehler(null);
+    try {
+      const antwort = await fetch("/api/admin/stammlisten", {
+        method: daten.monatskostenId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          liste: "monatskosten",
+          id: daten.monatskostenId || undefined,
+          felder: {
+            name: daten.monat,
+            aktiv: true,
+            lohnkosten: gesamt,
+            gehalt,
+            ag_kosten: ag,
+            sachzuwendung: sach,
+            notiz: lohnForm.notiz.trim() || null
+          }
+        })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Speichern fehlgeschlagen.");
+      setLohnOffen(false);
+      await holen();
+    } catch (speicherFehler) {
+      setFehler(speicherFehler instanceof Error ? speicherFehler.message : "Speichern fehlgeschlagen.");
+    } finally {
+      setLohnSpeichert(false);
+    }
+  }
 
   function csvHolen() {
     if (!daten) return;
@@ -222,7 +303,9 @@ export default function AuswertungSeite() {
 
   return (
     <main className="min-h-[100dvh] bg-paper-100 text-ink-900">
-      <div className="mx-auto max-w-[1200px] px-4 py-5 md:px-6 xl:px-8" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
+      {/* Gleicher Rahmen wie die übrigen Adminseiten: am Rechner links an der
+          Seitenleiste, nicht mittig. */}
+      <div className="mx-auto min-h-[100dvh] max-w-[520px] px-4 py-5 md:mx-0 md:max-w-[1200px] md:px-6 xl:px-8" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-brand-600">Objekte</p>
@@ -249,11 +332,18 @@ export default function AuswertungSeite() {
           <>
             <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Kennzahl titel="Erlös" wert={euro(daten.summe.erloes)} hinweis={monatName(daten.monat)} />
-              <Kennzahl
-                titel="Kosten"
-                wert={euro(daten.summe.lohnkosten + daten.summe.materialkosten)}
-                hinweis={`Lohn ${euro(daten.summe.lohnkosten)} + Material ${euro(daten.summe.materialkosten)}`}
-              />
+              <button type="button" onClick={lohnBearbeiten} className="rounded-2xl border border-paper-200 bg-white p-4 text-left transition hover:border-brand-500">
+                <p className="text-[12px] font-bold uppercase tracking-wide text-ink-400">Kosten</p>
+                <p className="mt-1 text-[26px] font-bold leading-tight text-ink-900">
+                  {euro(daten.summe.lohnkostenGesamt + daten.summe.materialkosten)}
+                </p>
+                <p className="mt-0.5 text-[13px] text-ink-400">
+                  Lohn {euro(daten.summe.lohnkostenGesamt)} + Material {euro(daten.summe.materialkosten)}
+                </p>
+                <p className={cx("mt-1 text-[12px] font-semibold", daten.lohnkostenMonat === null ? "text-amber-600" : "text-brand-700")}>
+                  {daten.lohnkostenMonat === null ? "Lohnkosten eintragen" : "Aus der Abrechnung · ändern"}
+                </p>
+              </button>
               <Kennzahl
                 titel="Deckungsbeitrag"
                 wert={euro(daten.summe.deckungsbeitrag)}
@@ -281,7 +371,10 @@ export default function AuswertungSeite() {
                   <Link href="/mitarbeiter/admin/zeiten" className="font-semibold underline">Zur Zeitenfreigabe</Link>
                 </p>
               ) : null}
-              {daten.personenOhneLohn.length ? (
+              {/* Steht die Zahl aus der Abrechnung, ist der fehlende Stundenlohn
+                  je Person kein Mangel mehr am Gesamtergebnis — nur noch
+                  daran, dass sich der Lohn nicht auf Objekte verteilen lässt. */}
+              {daten.personenOhneLohn.length && daten.lohnkostenMonat === null ? (
                 <p className="rounded-xl bg-danger-100 px-4 py-3 text-[14px] text-danger-700">
                   <strong>Ohne hinterlegten Stundenlohn:</strong> {daten.personenOhneLohn.join(", ")}. Deren Stunden fehlen in den Kosten, der Deckungsbeitrag ist dadurch zu hoch.{" "}
                   <Link href="/mitarbeiter/admin/mitarbeiter" className="font-semibold underline">Zu den Mitarbeitern</Link>
@@ -305,7 +398,10 @@ export default function AuswertungSeite() {
                 </p>
               ) : null}
               <p className="rounded-xl border border-paper-200 px-4 py-3 text-[13px] leading-relaxed text-ink-500">
-                {daten.hinweisKosten} Die Ampel steht auf Gelb unter {MARGE_GUT} % Marge — eine gesetzte Marke, keine betriebswirtschaftliche Regel.
+                {daten.lohnkostenMonat === null
+                  ? daten.hinweisKosten
+                  : "Die Lohnkosten oben sind die eingetragene Gesamtsumme aus der Abrechnung. In der Tabelle steht je Objekt nur, was sich über die gestempelten Stunden zuordnen lässt — die Spalte summiert sich deshalb nicht auf die Gesamtsumme."}{" "}
+                Die Ampel steht auf Gelb unter {MARGE_GUT} % Marge — eine gesetzte Marke, keine betriebswirtschaftliche Regel.
               </p>
             </div>
 
@@ -466,6 +562,71 @@ export default function AuswertungSeite() {
           <p className="mt-6 text-[15px] text-ink-400">Wird geladen …</p>
         ) : null}
       </div>
+
+      {/* Lohnkosten des Monats */}
+      {lohnOffen && daten ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-ink-900/40 p-0 sm:items-center sm:p-6" onClick={() => setLohnOffen(false)}>
+          <div className="max-h-[90dvh] w-full max-w-[520px] overflow-y-auto rounded-t-3xl bg-white p-6 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-[18px] font-bold">Lohnkosten {monatName(daten.monat)}</h3>
+                <p className="mt-0.5 text-[13px] text-ink-400">Die Zahl aus deiner Lohnabrechnung, als Gesamtsumme.</p>
+              </div>
+              <button type="button" onClick={() => setLohnOffen(false)} className="text-ink-400">
+                <UiIcon name="close" className="h-5 w-5" />
+              </button>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="block text-[13px] text-ink-500">Gesamtkosten<span className="text-danger-500"> *</span></span>
+              <input
+                inputMode="decimal"
+                value={lohnForm.lohnkosten}
+                onChange={(e) => setLohnForm({ ...lohnForm, lohnkosten: e.target.value })}
+                placeholder="z. B. 5338,73"
+                className="mt-1.5 w-full rounded-xl border border-paper-200 bg-white px-4 py-3 text-[17px] font-semibold text-ink-900 outline-none focus:border-brand-500"
+              />
+            </label>
+
+            <p className="mt-5 text-[13px] font-semibold text-ink-600">Aufteilung, freiwillig</p>
+            <p className="mt-0.5 text-[12px] text-ink-400">
+              Nur zum Nachschlagen. Lässt du die Gesamtsumme leer, wird sie aus diesen drei gebildet.
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              {([["gehalt", "Gehalt"], ["ag_kosten", "AG-Kosten"], ["sachzuwendung", "Sachzuwendung"]] as const).map(([schluessel, label]) => (
+                <label key={schluessel} className="block">
+                  <span className="block text-[12px] text-ink-500">{label}</span>
+                  <input
+                    inputMode="decimal"
+                    value={lohnForm[schluessel]}
+                    onChange={(e) => setLohnForm({ ...lohnForm, [schluessel]: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-paper-200 bg-white px-3 py-2.5 text-[14px] outline-none focus:border-brand-500"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <label className="mt-4 block">
+              <span className="block text-[13px] text-ink-500">Notiz</span>
+              <textarea
+                rows={2}
+                value={lohnForm.notiz}
+                onChange={(e) => setLohnForm({ ...lohnForm, notiz: e.target.value })}
+                className="mt-1.5 w-full rounded-xl border border-paper-200 bg-white px-4 py-3 text-[14px] outline-none focus:border-brand-500"
+              />
+            </label>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button type="button" disabled={lohnSpeichert} onClick={lohnSpeichern} className="rounded-xl bg-brand-600 px-5 py-3 text-[15px] font-semibold text-white disabled:opacity-40">
+                {lohnSpeichert ? "Wird gespeichert …" : "Speichern"}
+              </button>
+              <button type="button" onClick={() => setLohnOffen(false)} className="rounded-xl border border-paper-300 px-4 py-3 text-[15px] font-semibold text-ink-700">
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

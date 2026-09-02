@@ -70,7 +70,7 @@ export async function GET(request: Request) {
     const rahmenBis = new Date(`${bis}T23:59:59`);
     rahmenBis.setDate(rahmenBis.getDate() + 1);
 
-    const [objekteErgebnis, personenErgebnis, zeitenErgebnis, aufgabenErgebnis, materialErgebnis] = await Promise.all([
+    const [objekteErgebnis, personenErgebnis, zeitenErgebnis, aufgabenErgebnis, materialErgebnis, monatskostenErgebnis] = await Promise.all([
       supabase.from("work_sites").select("*").order("name", { ascending: true }).limit(500),
       supabase.from("employee_profiles").select("id, name, hourly_rate, active, role"),
       supabase
@@ -86,7 +86,8 @@ export async function GET(request: Request) {
         .gte("task_date", von)
         .lte("task_date", bis)
         .limit(4000),
-      supabase.from("material_reports").select("*").order("created_at", { ascending: false }).limit(4000)
+      supabase.from("material_reports").select("*").order("created_at", { ascending: false }).limit(4000),
+      supabase.from("settings_lists").select("*").eq("liste", "monatskosten").eq("name", monat).maybeSingle()
     ]);
 
     if (objekteErgebnis.error) throw new Error(objekteErgebnis.error.message);
@@ -279,17 +280,47 @@ export async function GET(request: Request) {
 
     const heute = new Date().toISOString().slice(0, 10);
 
+    /**
+     * Lohnkosten des Monats aus der Lohnabrechnung.
+     *
+     * Solange nicht jede Stunde einem Objekt zugeordnet ist, lässt sich der
+     * Lohn nicht sauber verteilen. Die eine Zahl aus der Abrechnung ist aber
+     * schon jetzt richtig — und eine richtige Gesamtzahl ist mehr wert als
+     * eine erfundene Aufteilung.
+     *
+     * Sie ersetzt deshalb im Gesamtergebnis die Summe der objektbezogenen
+     * Lohnkosten. Die Spalte je Objekt bleibt daneben stehen und zeigt, was
+     * sich bisher zuordnen lässt.
+     */
+    const monatskostenZeile = (monatskostenErgebnis.error ? null : monatskostenErgebnis.data) as AnyRow | null;
+    const monatsDaten = (monatskostenZeile?.daten && typeof monatskostenZeile.daten === "object" ? monatskostenZeile.daten : {}) as AnyRow;
+    const lohnkostenMonat = monatsDaten.lohnkosten === null || monatsDaten.lohnkosten === undefined ? null : zahl(monatsDaten.lohnkosten);
+
     return NextResponse.json({
       ok: true,
       monat,
       von,
       bis,
       tage,
+      lohnkostenMonat,
+      lohnkostenMonatDetails: {
+        gehalt: monatsDaten.gehalt ?? null,
+        ag_kosten: monatsDaten.ag_kosten ?? null,
+        sachzuwendung: monatsDaten.sachzuwendung ?? null,
+        notiz: monatsDaten.notiz ?? null
+      },
+      monatskostenId: monatskostenZeile?.id || null,
       // Läuft der Monat noch, steht die volle Pauschale gegen erst halb
       // erfasste Stunden. Die Marge sieht dann besser aus, als sie ist.
       laufend: heute >= von && heute <= bis,
       zeilen,
-      summe: { ...summe, deckungsbeitrag: summe.erloes - summe.lohnkosten - summe.materialkosten },
+      summe: {
+        ...summe,
+        // Die eingetragene Zahl aus der Abrechnung schlägt die aus Stunden
+        // gerechnete: sie stimmt, die andere ist noch unvollständig.
+        lohnkostenGesamt: lohnkostenMonat ?? summe.lohnkosten,
+        deckungsbeitrag: summe.erloes - (lohnkostenMonat ?? summe.lohnkosten) - summe.materialkosten
+      },
       personenOhneLohn: Array.from(personenOhneLohn).sort(),
       materialGemeldet,
       hinweisKosten: "Gerechnet mit dem Bruttostundenlohn aus dem Mitarbeiterstamm. Arbeitgeberanteile und Pauschalabgaben sind nicht enthalten — der Deckungsbeitrag ist die Obergrenze."
