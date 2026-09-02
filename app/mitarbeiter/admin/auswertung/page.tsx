@@ -31,6 +31,11 @@ type Zeile = {
   minutenGeplant: number;
   minutenOhneLohn: number;
   personen: number;
+  leistungsErloes: number;
+  materialerloes: number;
+  materialkosten: number;
+  materialZeilen: number;
+  materialOhnePreis: number;
   erloes: number;
   lohnkosten: number;
   deckungsbeitrag: number | null;
@@ -47,6 +52,9 @@ type Daten = {
   summe: {
     erloes: number;
     lohnkosten: number;
+    materialkosten: number;
+    materialerloes: number;
+    materialOhnePreis: number;
     deckungsbeitrag: number;
     minutenFrei: number;
     minutenOffen: number;
@@ -55,6 +63,7 @@ type Daten = {
     objekteOhneSatz: number;
   };
   personenOhneLohn: string[];
+  materialGemeldet: Array<{ objekt: string; artikel: string }>;
   hinweisKosten: string;
 };
 
@@ -168,7 +177,7 @@ export default function AuswertungSeite() {
   function csvHolen() {
     if (!daten) return;
     const zeilen = [
-      ["Objekt", "Kunde", "Abrechnung", "Pauschale", "Stundensatz", "Stunden freigegeben", "Stunden offen", "Erloes", "Lohnkosten", "Deckungsbeitrag", "Marge %", "Erloes je Stunde"],
+      ["Objekt", "Kunde", "Abrechnung", "Pauschale", "Stundensatz", "Stunden freigegeben", "Stunden offen", "Erloes Leistung", "Erloes Material", "Erloes gesamt", "Lohnkosten", "Materialkosten", "Deckungsbeitrag", "Marge %", "Erloes je Stunde"],
       ...gerechnet.map((zeile) => [
         zeile.name,
         zeile.kunde || "",
@@ -177,8 +186,11 @@ export default function AuswertungSeite() {
         zeile.stundensatz?.toFixed(2) || "",
         (zeile.minutenFrei / 60).toFixed(2),
         (zeile.minutenOffen / 60).toFixed(2),
+        zeile.leistungsErloes.toFixed(2),
+        zeile.materialerloes.toFixed(2),
         zeile.erloes.toFixed(2),
         zeile.lohnkosten.toFixed(2),
+        zeile.materialkosten.toFixed(2),
         zeile.deckungsbeitrag?.toFixed(2) || "",
         zeile.marge?.toFixed(1) || "",
         zeile.erloesJeStunde?.toFixed(2) || ""
@@ -237,7 +249,11 @@ export default function AuswertungSeite() {
           <>
             <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Kennzahl titel="Erlös" wert={euro(daten.summe.erloes)} hinweis={monatName(daten.monat)} />
-              <Kennzahl titel="Lohnkosten" wert={euro(daten.summe.lohnkosten)} hinweis="brutto, ohne Arbeitgeberanteil" />
+              <Kennzahl
+                titel="Kosten"
+                wert={euro(daten.summe.lohnkosten + daten.summe.materialkosten)}
+                hinweis={`Lohn ${euro(daten.summe.lohnkosten)} + Material ${euro(daten.summe.materialkosten)}`}
+              />
               <Kennzahl
                 titel="Deckungsbeitrag"
                 wert={euro(daten.summe.deckungsbeitrag)}
@@ -271,6 +287,18 @@ export default function AuswertungSeite() {
                   <Link href="/mitarbeiter/admin/mitarbeiter" className="font-semibold underline">Zu den Mitarbeitern</Link>
                 </p>
               ) : null}
+              {daten.summe.materialOhnePreis ? (
+                <p className="rounded-xl bg-danger-100 px-4 py-3 text-[14px] text-danger-700">
+                  <strong>{daten.summe.materialOhnePreis} Materialzeilen ohne Einkaufspreis.</strong> Diese Kosten fehlen. Trag den Preis am Artikel nach, dann zählt er ab der nächsten Bestellung mit.{" "}
+                  <Link href="/mitarbeiter/admin/artikel" className="font-semibold underline">Zu den Artikeln</Link>
+                </p>
+              ) : null}
+              {daten.materialGemeldet?.length ? (
+                <p className="rounded-xl bg-paper-200 px-4 py-3 text-[14px] text-ink-600">
+                  {daten.materialGemeldet.length === 1 ? "Ein Artikel ist gemeldet" : `${daten.materialGemeldet.length} Artikel sind gemeldet`}, aber noch nicht bestellt — kostet noch nichts.{" "}
+                  <Link href="/mitarbeiter/admin/bestellungen" className="font-semibold underline">Zu den Bestellungen</Link>
+                </p>
+              ) : null}
               {daten.summe.minutenOhneObjekt ? (
                 <p className="rounded-xl bg-paper-200 px-4 py-3 text-[14px] text-ink-600">
                   {stunden(daten.summe.minutenOhneObjekt)} wurden ohne Objekt gestempelt und tauchen in keiner Zeile auf.
@@ -299,7 +327,7 @@ export default function AuswertungSeite() {
             </div>
 
             <div className="mt-3 overflow-x-auto rounded-2xl border border-paper-200 bg-white">
-              <table className="w-full min-w-[900px] border-collapse text-left">
+              <table className="w-full min-w-[1040px] border-collapse text-left">
                 <thead>
                   <tr className="border-b border-paper-200 text-[11px] uppercase tracking-wide text-ink-400">
                     <th className="px-4 py-3 font-semibold">Objekt</th>
@@ -307,6 +335,7 @@ export default function AuswertungSeite() {
                     <th className="px-4 py-3 text-right font-semibold">Stunden</th>
                     <th className="px-4 py-3 text-right font-semibold">Erlös</th>
                     <th className="px-4 py-3 text-right font-semibold">Lohnkosten</th>
+                    <th className="px-4 py-3 text-right font-semibold">Material</th>
                     <th className="px-4 py-3 text-right font-semibold">Deckungsbeitrag</th>
                     <th className="px-4 py-3 text-right font-semibold">Marge</th>
                     <th className="px-4 py-3 text-right font-semibold">€ je Stunde</th>
@@ -315,7 +344,7 @@ export default function AuswertungSeite() {
                 <tbody>
                   {gerechnet.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-[15px] text-ink-400">
+                      <td colSpan={9} className="px-4 py-10 text-center text-[15px] text-ink-400">
                         Für diesen Monat gibt es keine Objekte mit hinterlegter Pauschale oder Stundensatz.
                       </td>
                     </tr>
@@ -348,6 +377,23 @@ export default function AuswertungSeite() {
                         </td>
                         <td className="px-4 py-3 text-right text-[14px] text-ink-800">{euro(zeile.erloes)}</td>
                         <td className="px-4 py-3 text-right text-[14px] text-ink-800">{euro(zeile.lohnkosten)}</td>
+                        <td className="px-4 py-3 text-right">
+                          {zeile.materialZeilen ? (
+                            <>
+                              <span className="block text-[14px] text-ink-800">{euro(zeile.materialkosten)}</span>
+                              {zeile.materialerloes ? (
+                                <span className="block text-[12px] text-success-700">+{euro(zeile.materialerloes)} berechnet</span>
+                              ) : (
+                                <span className="block text-[12px] text-ink-400">nicht berechnet</span>
+                              )}
+                              {zeile.materialOhnePreis ? (
+                                <span className="block text-[12px] text-amber-600">{zeile.materialOhnePreis} ohne Preis</span>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-[14px] text-ink-300">–</span>
+                          )}
+                        </td>
                         <td className={cx("px-4 py-3 text-right text-[14px] font-semibold", (zeile.deckungsbeitrag ?? 0) < 0 ? "text-danger-600" : "text-ink-900")}>
                           {euro(zeile.deckungsbeitrag)}
                         </td>
@@ -366,6 +412,7 @@ export default function AuswertungSeite() {
                       <td className="px-4 py-3 text-right">{stunden(gerechnet.reduce((s, z) => s + z.minutenFrei, 0))}</td>
                       <td className="px-4 py-3 text-right">{euro(gerechnet.reduce((s, z) => s + z.erloes, 0))}</td>
                       <td className="px-4 py-3 text-right">{euro(gerechnet.reduce((s, z) => s + z.lohnkosten, 0))}</td>
+                      <td className="px-4 py-3 text-right">{euro(gerechnet.reduce((s, z) => s + z.materialkosten, 0))}</td>
                       <td className="px-4 py-3 text-right">{euro(gerechnet.reduce((s, z) => s + (z.deckungsbeitrag ?? 0), 0))}</td>
                       <td className="px-4 py-3" colSpan={2} />
                     </tr>

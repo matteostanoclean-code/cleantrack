@@ -31,11 +31,59 @@ const emptyArtikel: Row = {
   supplier: "",
   description: "",
   notes: "",
-  work_site_id: ""
+  work_site_id: "",
+  purchase_price: "",
+  sale_price: "",
+  billable: false
 };
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
+}
+
+/** Leeres Preisfeld heißt "kein Preis hinterlegt", nicht "kostet nichts". */
+function preisWert(value: unknown) {
+  const text = clean(value).replace(",", ".");
+  if (!text) return null;
+  const zahl = Number(text);
+  return Number.isFinite(zahl) ? zahl : null;
+}
+
+function euro(value: unknown) {
+  const zahl = Number(value);
+  if (!Number.isFinite(zahl)) return "–";
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(zahl);
+}
+
+/**
+ * Wann wurde ein Artikel zuletzt bestellt, und in welchem Abstand?
+ *
+ * Damit lässt sich nachbestellen, bevor jemand vor leeren Spendern steht. Der
+ * Rhythmus ist der Durchschnitt der Abstände zwischen den letzten Bestellungen
+ * — er braucht mindestens zwei, sonst gibt es keinen Abstand zu mitteln, und
+ * dann steht hier auch nichts. Eine erfundene Zahl wäre schlimmer als keine.
+ */
+function rhythmus(zeilen: Row[]) {
+  const tage = zeilen
+    .map((zeile) => clean(zeile.delivered_at || zeile.ordered_at || zeile.created_at).slice(0, 10))
+    .filter(Boolean)
+    .sort();
+  // Mehrere Zeilen derselben Bestellung zählen als ein Termin.
+  const termine = Array.from(new Set(tage));
+  if (!termine.length) return { zuletzt: null as string | null, tageHer: null as number | null, abstand: null as number | null };
+
+  const zuletzt = termine[termine.length - 1];
+  const tageHer = Math.round((Date.now() - new Date(`${zuletzt}T12:00:00`).getTime()) / 86400000);
+
+  if (termine.length < 2) return { zuletzt, tageHer, abstand: null };
+  const abstaende: number[] = [];
+  for (let i = 1; i < termine.length; i++) {
+    const a = new Date(`${termine[i - 1]}T12:00:00`).getTime();
+    const b = new Date(`${termine[i]}T12:00:00`).getTime();
+    abstaende.push(Math.round((b - a) / 86400000));
+  }
+  const abstand = Math.round(abstaende.reduce((s, w) => s + w, 0) / abstaende.length);
+  return { zuletzt, tageHer, abstand };
 }
 
 const inputClass = "w-full rounded-xl border border-paper-200 bg-white px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500";
@@ -68,6 +116,9 @@ export default function ArtikelSeite() {
   const [message, setMessage] = useState<string | null>(null);
   const [sites, setSites] = useState<Row[]>([]);
   const [artikel, setArtikel] = useState<Row[]>([]);
+  // Bestellzeilen, nur zum Rechnen des Rhythmus. Wer wann was bestellt hat,
+  // steht in den Bestellungen — hier interessiert allein: wie oft.
+  const [bestellungen, setBestellungen] = useState<Row[]>([]);
   const [filter, setFilter] = useState("alle");
   const [form, setForm] = useState<Row>({ ...emptyArtikel });
   const [formOffen, setFormOffen] = useState(false);
@@ -124,8 +175,10 @@ export default function ArtikelSeite() {
     try {
       const objekte = await ruf({ action: "select", table: "work_sites", select: "id, name, customer_name", orderBy: "name" }, t);
       const produkte = await ruf({ action: "select", table: "material_products", select: "*", orderBy: "name" }, t);
+      const zeilen = await ruf({ action: "select", table: "material_reports", select: "material_product_id, material_id, created_at, ordered_at, delivered_at, quantity, status", orderBy: "created_at" }, t);
       setSites(objekte.data || []);
       setArtikel(produkte.data || []);
+      setBestellungen(zeilen.data || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Artikel konnten nicht geladen werden.");
     } finally {
@@ -186,7 +239,10 @@ export default function ArtikelSeite() {
       supplier: clean(row.supplier),
       description: clean(row.description || row.notes),
       notes: clean(row.notes),
-      work_site_id: clean(row.work_site_id)
+      work_site_id: clean(row.work_site_id),
+      purchase_price: row.purchase_price === null || row.purchase_price === undefined ? "" : String(row.purchase_price),
+      sale_price: row.sale_price === null || row.sale_price === undefined ? "" : String(row.sale_price),
+      billable: row.billable === true
     });
     setFormOffen(true);
   }
@@ -215,7 +271,10 @@ export default function ArtikelSeite() {
         supplier: clean(form.supplier) || null,
         notes: clean(form.description || form.notes) || null,
         work_site_id: clean(form.work_site_id) || null,
-        object_name: clean(form.work_site_id) ? objektName(form.work_site_id) : null
+        object_name: clean(form.work_site_id) ? objektName(form.work_site_id) : null,
+        purchase_price: preisWert(form.purchase_price),
+        sale_price: form.billable ? preisWert(form.sale_price) : null,
+        billable: form.billable === true
       };
 
       if (form.id) {
@@ -309,7 +368,7 @@ export default function ArtikelSeite() {
           bestellt werden muss.
         */}
         <div className="hidden overflow-x-auto rounded-2xl border border-paper-200 bg-white md:block">
-          <table className="w-full min-w-[860px] text-left">
+          <table className="w-full min-w-[1080px] text-left">
             <thead>
               <tr className="border-b border-paper-200 bg-paper-100/60 text-[12px] font-bold uppercase tracking-wide text-ink-400">
                 <th className="px-4 py-3">Name</th>
@@ -317,8 +376,11 @@ export default function ArtikelSeite() {
                 <th className="px-3 py-3">Artikelgruppe</th>
                 <th className="px-3 py-3">Lieferant</th>
                 <th className="px-3 py-3">Objekt</th>
+                <th className="px-3 py-3 text-right">Einkauf</th>
+                <th className="px-3 py-3">Berechnet</th>
                 <th className="px-3 py-3 text-right">Bestand</th>
                 <th className="px-3 py-3 text-right">Min. Bestand</th>
+                <th className="px-3 py-3">Nachbestellen</th>
               </tr>
             </thead>
             <tbody>
@@ -326,6 +388,10 @@ export default function ArtikelSeite() {
                 const bestand = Number(row.current_stock ?? 0);
                 const minimum = Number(row.min_stock ?? row.minimum_stock ?? 0);
                 const knapp = minimum > 0 && bestand < minimum;
+                const takt = rhythmus(bestellungen.filter((z) => clean(z.material_product_id || z.material_id) === clean(row.id)));
+                // Faellig, sobald seit der letzten Bestellung mehr Zeit vergangen
+                // ist als sonst zwischen zweien liegt.
+                const faellig = takt.abstand !== null && takt.tageHer !== null && takt.tageHer >= takt.abstand;
                 return (
                   <tr key={row.id} onClick={() => bearbeiten(row)} className="cursor-pointer border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
                     <td className="px-4 py-3">
@@ -346,15 +412,47 @@ export default function ArtikelSeite() {
                       ) : <span className="text-[13px] text-ink-300">–</span>}
                     </td>
                     <td className="px-3 py-3 text-[13px] text-ink-500">{clean(row.object_name) || objektName(row.work_site_id) || "Alle Objekte"}</td>
+                    <td className="px-3 py-3 text-right text-[14px] text-ink-700">
+                      {row.purchase_price === null || row.purchase_price === undefined || row.purchase_price === "" ? (
+                        <span className="text-[13px] text-amber-600">fehlt</span>
+                      ) : euro(row.purchase_price)}
+                    </td>
+                    <td className="px-3 py-3">
+                      {row.billable === true ? (
+                        <span className="rounded-md bg-brand-100 px-2 py-1 text-[12px] font-semibold text-brand-700">
+                          {row.sale_price ? euro(row.sale_price) : "ja"}
+                        </span>
+                      ) : (
+                        <span className="rounded-md bg-paper-200 px-2 py-1 text-[12px] font-semibold text-ink-500">nein</span>
+                      )}
+                    </td>
                     <td className={cx("px-3 py-3 text-right text-[14px] font-semibold", knapp ? "text-danger-600" : "text-ink-800")}>
                       {bestand} {clean(row.unit) || "Stk."}
                     </td>
                     <td className="px-3 py-3 text-right text-[14px] text-ink-500">{minimum || "–"}</td>
+                    <td className="px-3 py-3">
+                      {takt.zuletzt ? (
+                        <>
+                          <span className="block text-[13px] text-ink-700">
+                            vor {takt.tageHer} {takt.tageHer === 1 ? "Tag" : "Tagen"}
+                          </span>
+                          <span className={cx("block text-[12px]", faellig ? "font-semibold text-danger-600" : "text-ink-400")}>
+                            {takt.abstand
+                              ? faellig
+                                ? `fällig, sonst alle ${takt.abstand} Tage`
+                                : `alle ${takt.abstand} Tage`
+                              : "erst einmal bestellt"}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[13px] text-ink-300">noch nie</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {!gefiltert.length && !loading ? (
-                <tr><td colSpan={7} className="px-4 py-14 text-center text-[14px] text-ink-400">Keine Artikel in dieser Auswahl.</td></tr>
+                <tr><td colSpan={10} className="px-4 py-14 text-center text-[14px] text-ink-400">Keine Artikel in dieser Auswahl.</td></tr>
               ) : null}
             </tbody>
           </table>
@@ -447,6 +545,50 @@ export default function ArtikelSeite() {
                 <Field label="Nummer"><input inputMode="numeric" value={form.article_number} onChange={(event) => setForm({ ...form, article_number: event.target.value })} placeholder="wird vergeben" className={inputClass} /></Field>
                 <Field label="Externe Nummer"><input value={form.external_number} onChange={(event) => setForm({ ...form, external_number: event.target.value })} placeholder="beim Lieferanten" className={inputClass} /></Field>
               </div>
+              {/*
+                Preis und Weiterberechnung.
+
+                Der Artikel gehört ohnehin schon zu einem Objekt, deshalb darf
+                der Schalter hier stehen: Toilettenpapier bei EUROVIA ist eine
+                andere Zeile als Toilettenpapier beim Testobjekt, und nur bei
+                einem von beiden zahlt der Kunde.
+              */}
+              <div className="rounded-xl border border-paper-200 p-4">
+                <p className="text-[15px] font-semibold text-ink-900">Preis</p>
+                <p className="mt-0.5 text-[13px] text-ink-400">
+                  Der Einkaufspreis zählt als Kosten am Objekt und geht in die Auswertung ein — auch dann, wenn du ihn nicht weiterberechnest.
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <Field label="Einkauf netto je Einheit">
+                    <input inputMode="decimal" value={form.purchase_price} onChange={(event) => setForm({ ...form, purchase_price: event.target.value })} placeholder="z. B. 12,90" className={inputClass} />
+                  </Field>
+                  <Field label="Verkauf netto je Einheit">
+                    <input
+                      inputMode="decimal"
+                      value={form.sale_price}
+                      onChange={(event) => setForm({ ...form, sale_price: event.target.value })}
+                      disabled={!form.billable}
+                      placeholder={form.billable ? "z. B. 15,90" : "nicht berechnet"}
+                      className={`${inputClass} disabled:bg-paper-100 disabled:text-ink-300`}
+                    />
+                  </Field>
+                </div>
+                <label className="mt-3 flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.billable === true}
+                    onChange={(event) => setForm({ ...form, billable: event.target.checked })}
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span>
+                    <span className="block text-[15px] text-ink-800">Wird dem Kunden weiterberechnet</span>
+                    <span className="mt-0.5 block text-[13px] text-ink-400">
+                      Aus heißt: reine Kosten, wie Toiletten- und Handpapier bei MG. An heißt: steht als Position auf der Rechnung.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               <Field label="Beschreibung, optional"><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className={inputClass} /></Field>
 
               {form.id && (

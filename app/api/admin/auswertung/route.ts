@@ -70,7 +70,7 @@ export async function GET(request: Request) {
     const rahmenBis = new Date(`${bis}T23:59:59`);
     rahmenBis.setDate(rahmenBis.getDate() + 1);
 
-    const [objekteErgebnis, personenErgebnis, zeitenErgebnis, aufgabenErgebnis] = await Promise.all([
+    const [objekteErgebnis, personenErgebnis, zeitenErgebnis, aufgabenErgebnis, materialErgebnis] = await Promise.all([
       supabase.from("work_sites").select("*").order("name", { ascending: true }).limit(500),
       supabase.from("employee_profiles").select("id, name, hourly_rate, active, role"),
       supabase
@@ -85,7 +85,8 @@ export async function GET(request: Request) {
         .select("id, title, site, customer_name, employee_name, task_date, start_time, end_time, planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done, status, window_binding")
         .gte("task_date", von)
         .lte("task_date", bis)
-        .limit(4000)
+        .limit(4000),
+      supabase.from("material_reports").select("*").order("created_at", { ascending: false }).limit(4000)
     ]);
 
     if (objekteErgebnis.error) throw new Error(objekteErgebnis.error.message);
@@ -132,9 +133,14 @@ export async function GET(request: Request) {
       lohnkosten: number;
       minutenOhneLohn: number;
       personen: Set<string>;
+      materialkosten: number;
+      materialerloes: number;
+      materialZeilen: number;
+      materialOhnePreis: number;
     };
     const leererSammler = (): Sammler => ({
-      minutenFrei: 0, minutenOffen: 0, minutenGeplant: 0, lohnkosten: 0, minutenOhneLohn: 0, personen: new Set<string>()
+      minutenFrei: 0, minutenOffen: 0, minutenGeplant: 0, lohnkosten: 0, minutenOhneLohn: 0, personen: new Set<string>(),
+      materialkosten: 0, materialerloes: 0, materialZeilen: 0, materialOhnePreis: 0
     });
 
     const jeObjekt = new Map<string, Sammler>();
@@ -165,6 +171,43 @@ export async function GET(request: Request) {
       }
     }
 
+    /**
+     * Material je Objekt.
+     *
+     * Gezählt wird ab dem Moment, in dem tatsächlich bestellt wurde — was nur
+     * gemeldet ist, hat noch nichts gekostet. Als Datum gilt die Lieferung,
+     * ersatzweise die Bestellung, ersatzweise die Meldung.
+     *
+     * Nicht weiterberechnetes Material ist reine Kosten. Genau darum geht es:
+     * Toiletten- und Handpapier, das im Objekt verschwindet, ohne je auf einer
+     * Rechnung aufzutauchen.
+     */
+    const materialGemeldet: AnyRow[] = [];
+    for (const zeile of ((materialErgebnis.data || []) as AnyRow[])) {
+      const zustand = clean(zeile.status).toLowerCase();
+      const datum = clean(zeile.delivered_at || zeile.ordered_at || zeile.created_at).slice(0, 10);
+      if (datum < von || datum > bis) continue;
+
+      if (!["ordered", "done", "billed"].includes(zustand)) {
+        // Gemeldet, aber noch nicht bestellt. Kostet noch nichts, ist aber
+        // ein offener Punkt.
+        if (zustand === "open") materialGemeldet.push({ objekt: clean(zeile.object_name), artikel: clean(zeile.material_name || zeile.product_name) });
+        continue;
+      }
+
+      const objektId = clean(zeile.work_site_id);
+      if (!objektId) continue;
+      const topf = jeObjekt.get(objektId) || leererSammler();
+      jeObjekt.set(objektId, topf);
+
+      const menge = Math.max(1, zahl(zeile.quantity ?? zeile.quantity_requested ?? zeile.amount) || 1);
+      const einkauf = zahl(zeile.unit_price);
+      topf.materialZeilen += 1;
+      if (einkauf > 0) topf.materialkosten += menge * einkauf;
+      else topf.materialOhnePreis += 1;
+      if (zeile.billable === true) topf.materialerloes += menge * zahl(zeile.sale_unit_price);
+    }
+
     // Planzeit je Objekt aus den Einsätzen des Monats.
     for (const aufgabe of aufgaben) {
       const objektId = clean(aufgabe.work_site_id);
@@ -184,9 +227,13 @@ export async function GET(request: Request) {
       // vereinbart und der Satz nur eine Notiz für Zusatzarbeiten.
       const art: "pauschale" | "stundensatz" | "keiner" =
         pauschale > 0 ? "pauschale" : stundensatz > 0 ? "stundensatz" : "keiner";
-      const erloes = art === "pauschale" ? pauschale : art === "stundensatz" ? stunden * stundensatz : 0;
+      const leistungsErloes = art === "pauschale" ? pauschale : art === "stundensatz" ? stunden * stundensatz : 0;
 
-      const deckungsbeitrag = erloes - topf.lohnkosten;
+      // Weiterberechnetes Material steht als eigene Position auf der Rechnung
+      // und kommt deshalb oben drauf, nicht in die Pauschale hinein.
+      const erloes = leistungsErloes + topf.materialerloes;
+      const kosten = topf.lohnkosten + topf.materialkosten;
+      const deckungsbeitrag = erloes - kosten;
 
       return {
         id: objekt.id,
@@ -203,6 +250,11 @@ export async function GET(request: Request) {
         minutenGeplant: Math.round(topf.minutenGeplant),
         minutenOhneLohn: Math.round(topf.minutenOhneLohn),
         personen: topf.personen.size,
+        leistungsErloes,
+        materialerloes: topf.materialerloes,
+        materialkosten: topf.materialkosten,
+        materialZeilen: topf.materialZeilen,
+        materialOhnePreis: topf.materialOhnePreis,
         erloes,
         lohnkosten: topf.lohnkosten,
         deckungsbeitrag: art === "keiner" ? null : deckungsbeitrag,
@@ -215,6 +267,9 @@ export async function GET(request: Request) {
     const summe = {
       erloes: gerechnet.reduce((s, z) => s + z.erloes, 0),
       lohnkosten: gerechnet.reduce((s, z) => s + z.lohnkosten, 0),
+      materialkosten: zeilen.reduce((s, z) => s + z.materialkosten, 0),
+      materialerloes: zeilen.reduce((s, z) => s + z.materialerloes, 0),
+      materialOhnePreis: zeilen.reduce((s, z) => s + z.materialOhnePreis, 0),
       minutenFrei: zeilen.reduce((s, z) => s + z.minutenFrei, 0),
       minutenOffen: zeilen.reduce((s, z) => s + z.minutenOffen, 0),
       minutenGeplant: zeilen.reduce((s, z) => s + z.minutenGeplant, 0),
@@ -234,8 +289,9 @@ export async function GET(request: Request) {
       // erfasste Stunden. Die Marge sieht dann besser aus, als sie ist.
       laufend: heute >= von && heute <= bis,
       zeilen,
-      summe: { ...summe, deckungsbeitrag: summe.erloes - summe.lohnkosten },
+      summe: { ...summe, deckungsbeitrag: summe.erloes - summe.lohnkosten - summe.materialkosten },
       personenOhneLohn: Array.from(personenOhneLohn).sort(),
+      materialGemeldet,
       hinweisKosten: "Gerechnet mit dem Bruttostundenlohn aus dem Mitarbeiterstamm. Arbeitgeberanteile und Pauschalabgaben sind nicht enthalten — der Deckungsbeitrag ist die Obergrenze."
     });
   } catch (fehler) {

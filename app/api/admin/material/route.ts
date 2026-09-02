@@ -111,6 +111,9 @@ export async function POST(request: Request) {
         image_url: nullableText(body.image_url),
         work_site_id: objektId,
         object_name: objekt?.data?.name || null,
+        purchase_price: nullableZahl(body.purchase_price),
+        sale_price: body.billable === true ? nullableZahl(body.sale_price) : null,
+        billable: body.billable === true,
         active: true
       });
 
@@ -163,6 +166,12 @@ export async function POST(request: Request) {
           material_product_id: p.id,
           material_name: p.name || clean(artikel?.name) || "Material",
           product_name: p.name || clean(artikel?.name) || "Material",
+          // Preise werden abgeschrieben, nicht verwiesen. Steigt der Einkauf
+          // im Dezember, darf die Novemberbestellung sich nicht ruecklaeufig
+          // aendern.
+          unit_price: nullableZahl(artikel?.purchase_price),
+          sale_unit_price: artikel?.billable === true ? nullableZahl(artikel?.sale_price) : null,
+          billable: artikel?.billable === true,
           supplier: clean(artikel?.supplier) || null,
           work_site_id: objektId,
           object_name: objektName,
@@ -231,7 +240,10 @@ export async function PATCH(request: Request) {
         notes: nullableText(body.description),
         image_url: nullableText(body.image_url),
         work_site_id: objektId,
-        object_name: objekt?.data?.name || null
+        object_name: objekt?.data?.name || null,
+        purchase_price: nullableZahl(body.purchase_price),
+        sale_price: body.billable === true ? nullableZahl(body.sale_price) : null,
+        billable: body.billable === true
       });
 
       return NextResponse.json({ ok: true, item: ergebnis.data, uebersprungen: ergebnis.skipped });
