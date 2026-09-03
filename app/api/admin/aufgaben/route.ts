@@ -44,12 +44,13 @@ export async function GET(request: Request) {
     const heute = tagVersetzt(0);
     const von = tagVersetzt(-45);
 
-    const [absencesResult, materialResult, qualityResult, tasksResult, chatResult, entriesResult] = await Promise.all([
+    const [absencesResult, materialResult, qualityResult, tasksResult, chatResult, notizenResult, entriesResult] = await Promise.all([
       supabase.from("absence_requests").select("id, status").limit(500),
       supabase.from("material_reports").select("id, status").limit(500),
       supabase.from("quality_reports").select("id, status").limit(500),
       supabase.from("tasks").select("id, task_date, employee_name, status, done").gte("task_date", heute).limit(2000),
       supabase.from("chat_messages").select("id, sender_role, read_by_admin").limit(500),
+      supabase.from("notes").select("id, faellig_am, erledigt").eq("erledigt", false).limit(500),
       supabase
         .from("time_entries")
         .select("*")
@@ -88,7 +89,12 @@ export async function GET(request: Request) {
     const ohneMitarbeiter = tasks.filter((task) => !text(task.employee_name) && text(task.status || "open").toLowerCase() !== "cancelled" && !task.done).length;
     const chatUngelesen = chat.filter((row) => text(row.sender_role).toLowerCase() !== "admin" && row.read_by_admin !== true).length;
 
-    const gesamt = zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen;
+    // Notizen zaehlen erst, wenn sie faellig sind. Was naechsten Monat
+    // ansteht, gehoert nicht als rote Zahl in die Leiste.
+    const notizenFaellig = ((notizenResult.data || []) as AnyRow[])
+      .filter((notiz) => { const tag = text(notiz.faellig_am).slice(0, 10); return tag && tag <= heute; }).length;
+
+    const gesamt = zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen + notizenFaellig;
 
     return NextResponse.json({
       ok: true,
@@ -101,6 +107,7 @@ export async function GET(request: Request) {
       qualitaet: qualitaetOffen,
       ohneMitarbeiter,
       chat: chatUngelesen,
+      notizen: notizenFaellig,
       // Für die Sammelzeile in der Seitenleiste.
       meldungen: urlaub + materialOffen + qualitaetOffen
     });

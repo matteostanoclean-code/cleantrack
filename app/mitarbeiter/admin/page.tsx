@@ -18,6 +18,7 @@ type Aufgaben = {
   qualitaet: number;
   ohneMitarbeiter: number;
   chat: number;
+  notizen: number;
   meldungen: number;
 };
 
@@ -590,6 +591,14 @@ export default function AdminDashboardPage() {
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <AufgabenKachel
+                    zahl={aufgaben.notizen}
+                    titel="Notizen fällig"
+                    hinweis="Was heute oder früher dran war"
+                    icon="note"
+                    href="/mitarbeiter/admin/notizen"
+                    dringend
+                  />
                   <AufgabenKachel
                     zahl={aufgaben.zeiten}
                     titel="Zeiten prüfen"

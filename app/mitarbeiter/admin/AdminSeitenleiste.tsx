@@ -37,6 +37,7 @@ const BLOECKE: Block[] = [
   {
     eintraege: [
       { titel: "Dashboard", adresse: "/mitarbeiter/admin", icon: "grid" },
+      { titel: "Notizen", adresse: "/mitarbeiter/admin/notizen", icon: "note", zaehler: "notizen" },
       { titel: "Suche", adresse: "/mitarbeiter/admin/suche", icon: "search" },
       { titel: "Chat", adresse: "/mitarbeiter/admin/chat", icon: "chat", zaehler: "chat" },
       {
@@ -170,6 +171,7 @@ export default function AdminSeitenleiste() {
         if (aktiv && ergebnis?.ok) {
           setZahlen({
             chat: Number(ergebnis.chat) || 0,
+        notizen: Number(ergebnis.notizen) || 0,
             zeiten: Number(ergebnis.zeiten) || 0,
             urlaub: Number(ergebnis.urlaub) || 0,
             material: Number(ergebnis.material) || 0,
