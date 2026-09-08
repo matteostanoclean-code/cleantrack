@@ -330,43 +330,74 @@ export function namenSuchen(satz: string, kandidaten: Treffer[]): Treffer[] {
     if (text.includes(name)) gefunden.push(kandidat);
   }
 
-  if (!gefunden.length) {
+  if (gefunden.length) {
+    // Wörtlich gefunden. Hier ist der längere Name der richtige: steht
+    // "Kindergarten Nöttingen" im Satz, ist nicht auch "Nöttingen" gemeint,
+    // sondern es ist derselbe Name.
+    gefunden.sort((a, b) => normal(b.name).length - normal(a.name).length);
+    return gefunden.filter((eintrag, stelle) =>
+      !gefunden.some((anderer, andereStelle) =>
+        andereStelle < stelle && normal(anderer.name).includes(normal(eintrag.name))
+      )
+    );
+  }
+
+  {
     const woerter = text.split(" ").filter(Boolean);
 
     for (const kandidat of kandidaten) {
       const name = normal(kandidat.name);
       if (name.length < 4) continue;
-      const gesucht = phonetikFolge(name);
-      // Kurze Codes treffen zu leicht daneben. Unter vier Stellen wird nicht
-      // nach Klang gesucht, sonst passt jedes zweite Wort.
-      if (gesucht.length < 4) continue;
+
+      // Gesucht wird der ganze Name und zusätzlich jeder lange Wortteil.
+      // "Königsbach-Stein" hätte gegen ein gesprochenes "Königsbach" sonst
+      // nie eine Chance, weil das Ende fehlt.
+      const namensteile = name.split(" ").filter((teil) => teil.length >= 7);
+      const ziele = [
+        { text: name, code: phonetikFolge(name) },
+        ...namensteile.map((teil) => ({ text: teil, code: phonetik(teil) }))
+      ].filter((ziel) => ziel.code.length >= 4);
+
+      if (!ziele.length) continue;
 
       const teile = name.split(" ").length;
       let treffer = false;
-      for (const breite of [teile, teile + 1, Math.max(1, teile - 1)]) {
+
+      for (const breite of [teile, teile + 1, Math.max(1, teile - 1), 1]) {
         for (let start = 0; start + breite <= woerter.length; start += 1) {
           const fenster = woerter.slice(start, start + breite).join("");
-          if (phonetik(fenster) === gesucht) {
-            treffer = true;
-            break;
+          const gehoert = phonetik(fenster);
+
+          for (const ziel of ziele) {
+            if (gehoert === ziel.code) {
+              treffer = true;
+              break;
+            }
+            // Gleicher Anfang zählt auch. Bei verstümmelten Ortsnamen sitzt
+            // der Anfang und das Ende zerfällt: aus "Königsbach" wird
+            // "königs machen". Beide beginnen mit 4648.
+            const langGenug = fenster.length >= 8 && ziel.text.length >= 8;
+            const codesLangGenug = gehoert.length >= 5 && ziel.code.length >= 5;
+            if (langGenug && codesLangGenug && gehoert.slice(0, 4) === ziel.code.slice(0, 4)) {
+              treffer = true;
+              break;
+            }
           }
+          if (treffer) break;
         }
         if (treffer) break;
       }
+
       if (treffer) gefunden.push(kandidat);
     }
   }
 
-  // Längere Namen zuerst: "baeckerei maier" schlägt "maier".
+  // Nach Klang gefunden. Hier wird **nicht** aussortiert: Wenn "na dingen"
+  // sowohl auf "Nöttingen" als auch auf "Kindergarten Nöttingen" passt, sind
+  // das zwei echte Möglichkeiten. Die stillschweigend zu einer zu machen
+  // hieße raten — es wird stattdessen zurückgefragt.
   gefunden.sort((a, b) => normal(b.name).length - normal(a.name).length);
-
-  // Enthält ein längerer Treffer einen kürzeren vollständig, ist der kürzere
-  // nur ein Teil desselben Namens und keine echte Mehrdeutigkeit.
-  return gefunden.filter((eintrag, stelle) =>
-    !gefunden.some((anderer, andereStelle) =>
-      andereStelle < stelle && normal(anderer.name).includes(normal(eintrag.name))
-    )
-  );
+  return gefunden;
 }
 
 // Für die halben Stunden: "2einhalb" liest sich niemand vor.
