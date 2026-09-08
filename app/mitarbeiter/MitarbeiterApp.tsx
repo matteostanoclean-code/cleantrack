@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
+import InstallHinweis from "@/components/InstallHinweis";
 import {
   ActionBar,
   Banner,
@@ -4734,6 +4735,7 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     >
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
+      {!loading && !error && active === "home" ? <InstallHinweis /> : null}
       {!loading && !error && siteHinweis ? (
         <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <p className="text-[14px] leading-relaxed text-amber-900">{siteHinweis}</p>

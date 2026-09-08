@@ -107,6 +107,7 @@ const BLOECKE: Block[] = [
   },
   {
     eintraege: [
+      { titel: "Brutus", adresse: "/mitarbeiter/admin/brutus", icon: "key" },
       { titel: "Hilfe", adresse: "/mitarbeiter/admin/hilfe", icon: "help" },
       { titel: "Einstellungen", adresse: "/mitarbeiter/admin/einstellungen", icon: "settings" }
     ]
