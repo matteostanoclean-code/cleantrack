@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import InstallHinweis from "@/components/InstallHinweis";
+import LiveKamera from "@/components/LiveKamera";
 import {
   ActionBar,
   Banner,
@@ -2509,23 +2510,15 @@ function QualityScreen({ data, authToken, onBack, onReload, selectedTaskId }: { 
               className="w-full rounded-xl border border-paper-200 px-4 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
               placeholder="z. B. Schaden, Zugang war verschlossen, Zusatzarbeit erledigt"
             />
-            <label className="block rounded-xl border border-dashed border-paper-300 p-4">
-              <span className="text-[13px] text-ink-400">Bis zu 6 Fotos, z. B. vorher und nachher</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                onChange={(event) => {
-                  const selected = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/")).slice(0, 6);
-                  setPhotos(selected);
-                }}
-                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
-              />
-              {photos.length ? (
-                <p className="mt-3 text-[13px] text-ink-600">{photos.length} Foto{photos.length === 1 ? "" : "s"} ausgewählt</p>
-              ) : null}
-            </label>
+            {/* Nur live aus der App, damit das Foto die Zeit belegt. */}
+            <LiveKamera
+              titel="Fotos, z. B. vorher und nachher"
+              fotos={photos}
+              onChange={setPhotos}
+              max={6}
+              objekt={selectedTask?.site || selectedTask?.customer_name || null}
+              person={data?.employee?.name || null}
+            />
             {message && <Banner tone="info">{message}</Banner>}
             <Button variant="primary" full type="submit" disabled={saving || !selectedTask}>
               {saving ? "Speichere…" : "Nachweis senden und abschließen"}
@@ -3027,22 +3020,14 @@ function MaterialScreen({ data, authToken, onBack, onReload, initialSiteId = "",
               </div>
             </div>
 
-            <label className="block rounded-xl border border-dashed border-paper-300 p-4">
-              <span className="text-[13px] text-ink-400">Foto optional</span>
-              <input
-                key={photoInputKey}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
-                className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
-              />
-              {photos.length ? (
-                <div className="mt-3 space-y-1">
-                  {photos.map((photo) => <p key={`${photo.name}-${photo.size}`} className="truncate rounded-lg bg-paper-100 px-3 py-2 text-xs text-brand-700">{photo.name}</p>)}
-                </div>
-              ) : null}
-            </label>
+            <LiveKamera
+              titel="Foto, optional"
+              fotos={photos}
+              onChange={setPhotos}
+              max={6}
+              objekt={sites[siteIndex]?.siteName || null}
+              person={data?.employee?.name || null}
+            />
 
             {message && <Banner tone="danger">{message}</Banner>}
           </form>
@@ -3892,18 +3877,14 @@ function IssueScreen({ data, authToken, onBack, onReload }: { data: AppData | nu
           />
         </label>
 
-        <label className="block rounded-xl border border-dashed border-paper-300 p-4">
-          <span className={labelClass}>Fotos (optional, bis zu 6)</span>
-          <input
-            key={photoInputKey}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(event) => setPhotos(Array.from(event.target.files || []).slice(0, 6))}
-            className="mt-3 block w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
-          />
-          {photos.length ? <p className="mt-3 text-[13px] text-ink-600">{photos.length} Foto{photos.length === 1 ? "" : "s"} ausgewählt</p> : null}
-        </label>
+        <LiveKamera
+          titel="Fotos, optional"
+          fotos={photos}
+          onChange={setPhotos}
+          max={6}
+          objekt={sites[siteIndex]?.siteName || null}
+          person={data?.employee?.name || null}
+        />
 
         {message && <Banner tone="info">{message}</Banner>}
         <Button variant="primary" full type="submit" disabled={saving || !description.trim()}>{saving ? "Sende…" : "Meldung senden"}</Button>
