@@ -52,7 +52,16 @@ const BLOECKE: Block[] = [
       },
       { titel: "Tageszentrale", adresse: "/mitarbeiter/admin/tageszentrale", icon: "clock" },
       { titel: "Zeitenfreigabe", adresse: "/mitarbeiter/admin/zeiten", icon: "stopwatch", zaehler: "zeiten" },
-      { titel: "Abwesenheiten", adresse: "/mitarbeiter/admin/abwesenheiten", icon: "plane", zaehler: "urlaub" },
+      {
+        titel: "Abwesenheiten",
+        adresse: "/mitarbeiter/admin/abwesenheiten",
+        icon: "plane",
+        zaehler: "urlaub",
+        kinder: [
+          { titel: "Übersicht", adresse: "/mitarbeiter/admin/abwesenheiten", icon: "plane", zaehler: "urlaub" },
+          { titel: "Urlaubsplaner", adresse: "/mitarbeiter/admin/urlaubsplaner", icon: "calendar" }
+        ]
+      },
       { titel: "Lohnabrechnung", adresse: "/mitarbeiter/admin/lohnexport", icon: "euro" }
     ]
   },
