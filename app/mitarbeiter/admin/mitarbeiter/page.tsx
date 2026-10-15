@@ -149,6 +149,8 @@ export default function MitarbeiterSeite() {
   const [bereich, setBereich] = useState("informationen");
   const [abschnitt, setAbschnitt] = useState("allgemein");
   const [form, setForm] = useState<Row>({});
+  // Das kleine Formular zum Anlegen. null heißt zu.
+  const [neu, setNeu] = useState<Row | null>(null);
 
   const load = useCallback(async (currentToken?: string) => {
     const t = currentToken || token;
@@ -179,6 +181,18 @@ export default function MitarbeiterSeite() {
     init();
   }, [load]);
 
+  /**
+   * Von "Login vergeben" kommt man mit ?neu=1 hierher. Dann geht das Formular
+   * von allein auf — sonst landet man auf einer Liste und sucht den Knopf.
+   */
+  const [neuGeprueft, setNeuGeprueft] = useState(false);
+  useEffect(() => {
+    if (neuGeprueft || authLoading) return;
+    setNeuGeprueft(true);
+    if (new URLSearchParams(window.location.search).get("neu")) neuOeffnen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, neuGeprueft]);
+
   const alle = daten?.employees || [];
 
   const gefiltert = useMemo(() => {
@@ -207,6 +221,59 @@ export default function MitarbeiterSeite() {
       last_name: clean(person.last_name) || teile.slice(1).join(" ") || "",
       country: clean(person.country) || "DE Deutschland"
     });
+  }
+
+  /**
+   * Neuen Mitarbeiter anlegen.
+   *
+   * Bewusst ein kleines Formular statt der ganzen Akte: Beim Anlegen weiß man
+   * den Namen und wann es losgeht, selten schon die Bankverbindung. Der Rest
+   * wird danach in der Akte nachgetragen, die sich gleich öffnet.
+   */
+  function neuOeffnen() {
+    setNeu({
+      first_name: "",
+      last_name: "",
+      email: "",
+      phone: "",
+      employment_type: "Minijob",
+      hourly_rate: "15",
+      weekly_hours: "",
+      contract_start: "",
+      annual_vacation_days: "30",
+      active: true,
+      role: "employee"
+    });
+    setError(null);
+    setMessage(null);
+  }
+
+  async function neuAnlegen() {
+    if (!neu) return;
+    if (!clean(neu.first_name) || !clean(neu.last_name)) {
+      setError("Bitte Vor- und Nachnamen eintragen.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const antwort = await fetch("/api/admin/mitarbeiter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(neu)
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Anlegen fehlgeschlagen.");
+      setNeu(null);
+      setMessage(`${clean(neu.first_name)} ${clean(neu.last_name)} angelegt. Den Login vergibst du unter „Login vergeben".`);
+      await load();
+      // Direkt die Akte aufmachen, damit der Rest gleich nachgetragen wird.
+      if (ergebnis.item?.id) oeffnen(ergebnis.item);
+    } catch (anlegeFehler) {
+      setError(anlegeFehler instanceof Error ? anlegeFehler.message : "Anlegen fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function bewegen(richtung: -1 | 1) {
@@ -285,9 +352,18 @@ export default function MitarbeiterSeite() {
             </span>
             <h1 className="text-[26px] font-bold">Mitarbeiter</h1>
           </div>
-          <button onClick={() => load()} disabled={loading} className="rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] font-semibold text-ink-700 disabled:opacity-50">
-            {loading ? "Lade…" : "Aktualisieren"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => load()} disabled={loading} className="rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] font-semibold text-ink-700 disabled:opacity-50">
+              {loading ? "Lade…" : "Aktualisieren"}
+            </button>
+            <button
+              onClick={() => neuOeffnen()}
+              className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-[14px] font-semibold text-white"
+            >
+              <UiIcon name="plus" className="h-4 w-4" />
+              Neuer Mitarbeiter
+            </button>
+          </div>
         </header>
 
         <div className="mt-4 flex gap-6 border-b border-paper-200">
@@ -747,6 +823,51 @@ export default function MitarbeiterSeite() {
                 </button>
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Neuer Mitarbeiter: nur das Nötige, der Rest kommt in der Akte */}
+      {neu ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/40 p-0 sm:items-center sm:p-6" onClick={() => setNeu(null)}>
+          <div className="max-h-[90dvh] w-full max-w-[520px] overflow-y-auto rounded-t-3xl bg-white p-6 sm:rounded-3xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-[18px] font-bold">Neuer Mitarbeiter</h3>
+                <p className="mt-0.5 text-[13px] text-ink-400">Alles Weitere trägst du gleich danach in der Akte nach.</p>
+              </div>
+              <button onClick={() => setNeu(null)} className="text-ink-400" aria-label="Schließen">
+                <UiIcon name="close" className="h-5 w-5" />
+              </button>
+            </div>
+
+            {error ? <p className="mt-4 rounded-xl bg-rose-100 px-4 py-3 text-[14px] text-rose-700">{error}</p> : null}
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Feld label="Vorname"><input value={clean(neu.first_name)} onChange={(e) => setNeu({ ...neu, first_name: e.target.value })} className={feldClass} /></Feld>
+              <Feld label="Nachname"><input value={clean(neu.last_name)} onChange={(e) => setNeu({ ...neu, last_name: e.target.value })} className={feldClass} /></Feld>
+              <Feld label="E-Mail" hinweis="Braucht es später für den Login."><input type="email" value={clean(neu.email)} onChange={(e) => setNeu({ ...neu, email: e.target.value })} className={feldClass} /></Feld>
+              <Feld label="Telefon"><input value={clean(neu.phone)} onChange={(e) => setNeu({ ...neu, phone: e.target.value })} className={feldClass} /></Feld>
+              <Feld label="Beschäftigung">
+                <select value={clean(neu.employment_type)} onChange={(e) => setNeu({ ...neu, employment_type: e.target.value })} className={feldClass}>
+                  {["Minijob", "Teilzeit", "Vollzeit", "Aushilfe"].map((art) => <option key={art} value={art}>{art}</option>)}
+                </select>
+              </Feld>
+              <Feld label="Stundenlohn" hinweis="Lohngruppe 1 liegt 2026 bei 15,00 €.">
+                <input inputMode="decimal" value={clean(neu.hourly_rate)} onChange={(e) => setNeu({ ...neu, hourly_rate: e.target.value })} className={feldClass} />
+              </Feld>
+              <Feld label="Eintritt"><input type="date" value={clean(neu.contract_start)} onChange={(e) => setNeu({ ...neu, contract_start: e.target.value })} className={feldClass} /></Feld>
+              <Feld label="Urlaubstage im Jahr" hinweis="30 bei Fünf-Tage-Woche, sonst anteilig.">
+                <input inputMode="numeric" value={clean(neu.annual_vacation_days)} onChange={(e) => setNeu({ ...neu, annual_vacation_days: e.target.value })} className={feldClass} />
+              </Feld>
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button onClick={neuAnlegen} disabled={saving} className="rounded-xl bg-brand-600 px-5 py-3 text-[15px] font-semibold text-white disabled:opacity-50">
+                {saving ? "Lege an…" : "Anlegen"}
+              </button>
+              <button onClick={() => setNeu(null)} className="rounded-xl border border-paper-300 px-4 py-3 text-[15px] font-semibold text-ink-700">Abbrechen</button>
+            </div>
           </div>
         </div>
       ) : null}

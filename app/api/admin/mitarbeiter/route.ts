@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { safeUpdateById } from "@/lib/safeWrite";
+import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
 
 export const dynamic = "force-dynamic";
 
@@ -80,16 +80,11 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
-  try {
-    const guard = await requireAdmin(request);
-    if (!guard.ok) return guard.response;
-    const supabase = guard.auth.supabase;
-
-    const body = await request.json();
-    const id = clean(body.id);
-    if (!id) return NextResponse.json({ ok: false, error: "Mitarbeiter-ID fehlt." }, { status: 400 });
-
+/**
+ * Die Akte aus dem Formular. Einmal geschrieben, von POST und PATCH benutzt —
+ * sonst kennt das Anlegen irgendwann andere Felder als das Ändern.
+ */
+function aktenDaten(body: AnyRow) {
     const vorname = clean(body.first_name);
     const nachname = clean(body.last_name);
     // Der Anzeigename hängt an vielen Stellen (Einsätze, Zeiten, Chat) am
@@ -145,6 +140,77 @@ export async function PATCH(request: Request) {
     };
 
     if (anzeigename) payload.name = anzeigename;
+    return { payload, anzeigename };
+}
+
+/** Einen neuen Mitarbeiter anlegen. */
+export async function POST(request: Request) {
+  try {
+    const guard = await requireAdmin(request);
+    if (!guard.ok) return guard.response;
+    const supabase = guard.auth.supabase;
+
+    const body = await request.json();
+    const { payload, anzeigename } = aktenDaten(body);
+
+    if (!anzeigename) {
+      return NextResponse.json({ ok: false, error: "Bitte Vor- und Nachnamen eintragen." }, { status: 400 });
+    }
+
+    // Zwei Leute mit demselben Namen wären nicht mehr auseinanderzuhalten:
+    // Einsätze, Zeiten und Chat hängen am Text des Namens.
+    const vorhanden = await supabase.from("employee_profiles").select("id, name").ilike("name", anzeigename).limit(1);
+    if ((vorhanden.data || []).length) {
+      return NextResponse.json(
+        { ok: false, error: `${anzeigename} steht schon in der Liste. Einsätze und Zeiten hängen am Namen, zweimal derselbe ginge schief.` },
+        { status: 409 }
+      );
+    }
+
+    // Nächste Personalnummer, wenn keine angegeben wurde.
+    if (!payload.employee_number) {
+      const letzte = await supabase
+        .from("employee_profiles")
+        .select("employee_number")
+        .order("employee_number", { ascending: false })
+        .limit(50);
+      const hoechste = ((letzte.data || []) as AnyRow[])
+        .reduce((max, zeile) => Math.max(max, Number(clean(zeile.employee_number)) || 0), 0);
+      payload.employee_number = String(hoechste + 1);
+    }
+
+    const ergebnis = await safeInsert(supabase, "employee_profiles", {
+      ...payload,
+      name: anzeigename,
+      active: body.active !== false,
+      created_at: new Date().toISOString()
+    });
+
+    return NextResponse.json({
+      ok: true,
+      item: ergebnis.data,
+      uebersprungen: ergebnis.skipped,
+      hinweis: ergebnis.skipped.length
+        ? `${ergebnis.skipped.length} Felder konnten nicht gespeichert werden, die Spalten fehlen noch. Bitte supabase/mitarbeiter_felder.sql ausführen.`
+        : null
+    });
+  } catch (fehler) {
+    const text = fehler instanceof Error ? fehler.message : "Mitarbeiter konnte nicht angelegt werden.";
+    return NextResponse.json({ ok: false, error: text }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const guard = await requireAdmin(request);
+    if (!guard.ok) return guard.response;
+    const supabase = guard.auth.supabase;
+
+    const body = await request.json();
+    const id = clean(body.id);
+    if (!id) return NextResponse.json({ ok: false, error: "Mitarbeiter-ID fehlt." }, { status: 400 });
+
+    const { payload } = aktenDaten(body);
 
     const ergebnis = await safeUpdateById(supabase, "employee_profiles", id, payload);
 

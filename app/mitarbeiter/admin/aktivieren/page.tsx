@@ -203,11 +203,11 @@ export default function ActivateEmployeesPage() {
               <section className="rounded-2xl border border-paper-200 bg-white p-4">
                 <p className="font-bold text-ink-900">Zwei Schritte bis zum Zugang</p>
                 <ol className="mt-2 space-y-1 text-sm leading-6 text-ink-600">
-                  <li><span className="font-semibold text-ink-900">1.</span> Mitarbeiter anlegen — Name, E-Mail, Stundensatz. Passiert im Admin-Dashboard.</li>
+                  <li><span className="font-semibold text-ink-900">1.</span> Mitarbeiter anlegen — Name, E-Mail, Stundenlohn. Passiert in der Mitarbeiterliste.</li>
                   <li><span className="font-semibold text-ink-900">2.</span> Hier den Login vergeben. E-Mail und Startpasswort weitergeben, fertig.</li>
                 </ol>
                 <Link
-                  href="/mitarbeiter/admin/mitarbeiter"
+                  href="/mitarbeiter/admin/mitarbeiter?neu=1"
                   className="mt-4 block rounded-xl bg-brand-600 px-4 py-3.5 text-center text-[16px] font-semibold text-white"
                 >
                   Neuen Mitarbeiter anlegen
