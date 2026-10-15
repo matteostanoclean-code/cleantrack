@@ -137,6 +137,8 @@ export async function PATCH(request: Request) {
     if (type === "series_update") {
       if (!groupId) return NextResponse.json({ ok: false, error: "Serien-ID fehlt." }, { status: 400 });
       const patch: AnyRow = {};
+      if (body.title !== undefined) patch.title = nullableText(body.title);
+      if (body.site !== undefined) patch.site = nullableText(body.site);
       if (body.start_time !== undefined) patch.start_time = nullableText(body.start_time);
       if (body.end_time !== undefined) patch.end_time = nullableText(body.end_time);
       if (body.planned_minutes !== undefined) {
@@ -173,6 +175,44 @@ export async function PATCH(request: Request) {
       const { data, error } = await updateQuery.select("id, title, site, employee_name, task_date, status");
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, items: data || [], count: Array.isArray(data) ? data.length : 0 });
+    }
+
+    /**
+     * Eine falsch angelegte Serie wieder loswerden.
+     *
+     * Geloescht wird nur, was noch vor uns liegt und noch nicht erledigt
+     * ist. Erledigte Einsaetze sind Arbeitszeitaufzeichnungen: nach
+     * § 17 Abs. 1 MiLoG sind sie mindestens zwei Jahre aufzubewahren.
+     * Sie bleiben deshalb stehen, auch wenn der Rest der Serie faellt,
+     * und werden in der Antwort gezaehlt.
+     */
+    if (type === "series_delete") {
+      if (!groupId) return NextResponse.json({ ok: false, error: "Serien-ID fehlt." }, { status: 400 });
+
+      let schutzQuery = supabase
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("recurrence_group_id", groupId)
+        .eq("done", true);
+      if (scope !== "all") schutzQuery = schutzQuery.gte("task_date", fromDate || todayIso());
+      const { count: geschuetzt } = await schutzQuery;
+
+      let deleteQuery = supabase
+        .from("tasks")
+        .delete()
+        .eq("recurrence_group_id", groupId)
+        .eq("done", false);
+      if (scope !== "all") deleteQuery = deleteQuery.gte("task_date", fromDate || todayIso());
+      const { data, error } = await deleteQuery.select("id, title, site, task_date");
+      if (error) throw new Error(error.message);
+
+      const count = Array.isArray(data) ? data.length : 0;
+      return NextResponse.json({
+        ok: true,
+        items: data || [],
+        count,
+        protected_count: geschuetzt || 0
+      });
     }
 
     return NextResponse.json({ ok: false, error: "Unbekannte Planungs-Aktion." }, { status: 400 });

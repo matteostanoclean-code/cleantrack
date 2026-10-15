@@ -511,13 +511,42 @@ export async function POST(request: Request) {
 
     if (action === "end") {
       const checklist = Array.isArray(task.quality_checklist) ? task.quality_checklist : [];
-      const needsQualityReport = Boolean(task.quality_required || task.quality_photo_required || checklist.length > 0);
+
+      /**
+       * Die Punkte aus dem Reinigungsplan zaehlen genauso.
+       *
+       * Vorher sah diese Pruefung nur in task.quality_checklist nach. Wo ein
+       * Objekt einen Reinigungsplan hat, die Liste am Einsatz aber leer ist,
+       * liess sich ausstempeln, ohne irgendetwas abzuhaken. Die App zeigt in
+       * der Qualitaetskontrolle laengst beide Quellen zusammen, der Server
+       * muss dieselbe Liste pruefen.
+       */
+      let planItemCount = 0;
+      if (task.work_site_id) {
+        const { data: plan } = await supabaseAdmin
+          .from("cleaning_plans")
+          .select("id")
+          .eq("work_site_id", task.work_site_id)
+          .limit(1)
+          .maybeSingle();
+        if (plan?.id) {
+          const { count } = await supabaseAdmin
+            .from("cleaning_plan_items")
+            .select("id", { count: "exact", head: true })
+            .eq("plan_id", plan.id)
+            .neq("active", false);
+          planItemCount = count || 0;
+        }
+      }
+
+      const pflichtpunkte = checklist.length + planItemCount;
+      const needsQualityReport = Boolean(task.quality_required || task.quality_photo_required || pflichtpunkte > 0);
       const isAutomaticEnd = body.reason === "left_geofence" || body.reason === "max_time_reached";
 
       if (needsQualityReport && !isAutomaticEnd) {
         const { data: qualityReport } = await supabaseAdmin
           .from("quality_reports")
-          .select("id, photo_url, status, passed_items, total_items")
+          .select("id, photo_url, photo_urls, status, passed_items, total_items, checked_items")
           .eq("task_id", task.id)
           .eq("employee_name", profile.name)
           .order("created_at", { ascending: false })
@@ -531,16 +560,34 @@ export async function POST(request: Request) {
           );
         }
 
-        if (task.quality_photo_required && !qualityReport.photo_url) {
+        const hatFoto = Boolean(qualityReport.photo_url)
+          || (Array.isArray(qualityReport.photo_urls) && qualityReport.photo_urls.length > 0);
+        if (task.quality_photo_required && !hatFoto) {
           return NextResponse.json(
             { error: "Für diesen Einsatz ist ein Foto erforderlich. Bitte Qualitätsnachweis mit Foto speichern." },
             { status: 400 }
           );
         }
 
-        if (checklist.length > 0 && Number(qualityReport.passed_items || 0) < checklist.length) {
+        /**
+         * Wie viele Punkte abgehakt wurden.
+         *
+         * Die Handy-App schreibt beim Nachweis nur die Liste checked_items,
+         * die Spalte passed_items bleibt leer. Wer sich allein auf
+         * passed_items verliess, bekam deshalb nie eine Freigabe. Zuerst
+         * also die Liste zaehlen, passed_items nur als Rueckfall.
+         */
+        const abgehakt = Array.isArray(qualityReport.checked_items)
+          ? qualityReport.checked_items.filter(Boolean).length
+          : Number(qualityReport.passed_items || 0);
+
+        if (pflichtpunkte > 0 && abgehakt < pflichtpunkte) {
+          const offen = pflichtpunkte - abgehakt;
           return NextResponse.json(
-            { error: "Bitte alle erforderlichen Checklistenpunkte abhaken, bevor du ausstempelst." },
+            {
+              error: `Noch ${offen} von ${pflichtpunkte} Punkten aus dem Reinigungsplan sind nicht abgehakt. `
+                + "Bitte alle Tätigkeiten bestätigen, bevor du ausstempelst."
+            },
             { status: 400 }
           );
         }

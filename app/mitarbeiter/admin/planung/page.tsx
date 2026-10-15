@@ -822,16 +822,23 @@ export default function AdminPlanningPage() {
                   <details className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 p-3">
                     <summary className="cursor-pointer text-sm font-bold text-brand-700">Serie bearbeiten</summary>
                     <div className="mt-3 space-y-3">
+                      <Field label="Tätigkeit"><input type="text" value={edit.title ?? clean(series.first.title)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, title: event.target.value } })} className={inputClass} /></Field>
+                      <Field label="Objekt"><input type="text" value={edit.site ?? clean(series.first.site)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, site: event.target.value } })} className={inputClass} /></Field>
                       <div className="grid grid-cols-2 gap-2">
                         <Field label="Start"><input type="time" value={edit.start_time ?? clean(series.first.start_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></Field>
                         <Field label="Ende"><input type="time" value={edit.end_time ?? clean(series.first.end_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></Field>
                       </div>
                       <Field label="Planminuten"><input type="number" value={edit.planned_minutes ?? String(series.minutes || "")} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, planned_minutes: event.target.value } })} className={inputClass} /></Field>
-                      <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-bold text-white disabled:opacity-50">Änderungen ab heute speichern</button>
+                      <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, title: edit.title ?? series.first.title, site: edit.site ?? series.first.site, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-bold text-white disabled:opacity-50">Änderungen ab heute speichern</button>
                       <div className="grid grid-cols-2 gap-2">
                         <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "paused", done: true }, "Serie wurde ab heute pausiert.")} className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-3 text-xs font-bold text-amber-700 disabled:opacity-50">Pausieren</button>
-                        <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "open", done: false }, "Serie wurde ab heute geöffnet.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-bold text-brand-700 disabled:opacity-50">Öffnen</button>
+                        {/* Hiess frueher "Öffnen". Das las sich wie "Maske aufklappen",
+                            gemeint war aber das Gegenstueck zu Pausieren. */}
+                        <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "open", done: false }, "Serie läuft ab heute wieder.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-bold text-brand-700 disabled:opacity-50">Wieder aufnehmen</button>
                       </div>
+                      {/* Loeschen trennt bewusst: kuenftige offene Einsaetze fallen weg,
+                          erledigte bleiben als Arbeitszeitnachweis stehen. */}
+                      <button disabled={saving} onClick={() => { if (window.confirm(`Serie "${clean(series.first.title) || "ohne Titel"}" wirklich löschen?\n\nAlle noch offenen Einsätze ab heute werden entfernt. Bereits erledigte Einsätze bleiben als Arbeitszeitnachweis erhalten.`)) patch({ type: "series_delete", recurrence_group_id: series.id, scope: "future", from_date: today }, "Serie wurde ab heute gelöscht."); }} className="w-full rounded-2xl border border-rose-300 bg-rose-50 px-3 py-3 text-xs font-bold text-rose-700 disabled:opacity-50">Serie löschen</button>
                     </div>
                   </details>
                 </div>
