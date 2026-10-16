@@ -178,6 +178,114 @@ export async function PATCH(request: Request) {
     }
 
     /**
+     * Die Wochentage einer Serie ändern.
+     *
+     * Ein Wochentag ist keine Eigenschaft der Serie, sondern ergibt sich
+     * daraus, an welchen Tagen Einsätze liegen. Deshalb wird hier beides
+     * gemacht: Tage, die wegfallen, werden gelöscht, Tage, die dazukommen,
+     * werden angelegt.
+     *
+     * Angefasst wird nur, was noch offen ist und vor uns liegt. Erledigte
+     * Einsätze sind Arbeitszeitaufzeichnungen (§ 17 Abs. 1 MiLoG) und
+     * bleiben stehen, auch wenn ihr Wochentag nicht mehr vorgesehen ist.
+     */
+    if (type === "series_weekdays") {
+      if (!groupId) return NextResponse.json({ ok: false, error: "Serien-ID fehlt." }, { status: 400 });
+      const tage = Array.isArray(body.weekdays)
+        ? Array.from(new Set(body.weekdays.map(Number).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6)))
+        : [];
+      if (!tage.length) {
+        return NextResponse.json({ ok: false, error: "Bitte mindestens einen Wochentag wählen." }, { status: 400 });
+      }
+
+      const start = fromDate || todayIso();
+      const { data: alle, error: leseFehler } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("recurrence_group_id", groupId)
+        .order("task_date", { ascending: true });
+      if (leseFehler) throw new Error(leseFehler.message);
+      if (!alle?.length) return NextResponse.json({ ok: false, error: "Serie nicht gefunden." }, { status: 404 });
+
+      const wochentag = (datum: string) => new Date(`${datum}T12:00:00Z`).getUTCDay();
+      const kuenftig = alle.filter((t: AnyRow) => String(t.task_date) >= start);
+
+      // Weg: offene Einsätze an Tagen, die nicht mehr vorgesehen sind.
+      const zuLoeschen = kuenftig
+        .filter((t: AnyRow) => !t.done && !tage.includes(wochentag(String(t.task_date))))
+        .map((t: AnyRow) => t.id);
+      if (zuLoeschen.length) {
+        const { error } = await supabase.from("tasks").delete().in("id", zuLoeschen);
+        if (error) throw new Error(error.message);
+      }
+
+      // Dazu: fehlende Tage im Zeitraum der Serie anlegen. Vorlage ist ein
+      // vorhandener Einsatz, damit Titel, Objekt und Zeiten stimmen.
+      const vorlage: AnyRow = kuenftig[0] || alle[alle.length - 1];
+      const vorhanden = new Set(
+        kuenftig.map((t: AnyRow) => String(t.task_date))
+      );
+      const letzter = String(
+        vorlage.recurrence_end_date || alle[alle.length - 1].task_date
+      ).slice(0, 10);
+
+      // Bewusst nur diese Felder und nicht die ganze Zeile: eine Vorlage kann
+      // Stempelzeiten, Fotos und gesetzte Haken mitbringen, die zu einem neuen
+      // Einsatz nicht gehören.
+      const UEBERNEHMEN = [
+        "title", "site", "employee_name", "start_time", "end_time", "window_binding",
+        "max_minutes", "planned_minutes", "paid_minutes", "wage_minutes",
+        "work_site_id", "customer_id", "customer_name", "priority",
+        "task_type", "item_type", "notes", "repeat_mode", "recurrence_unit",
+        "recurrence_interval", "recurrence_end_date"
+      ];
+
+      const neue: AnyRow[] = [];
+      const cursor = new Date(`${start}T12:00:00Z`);
+      const ende = new Date(`${letzter}T12:00:00Z`);
+      while (cursor <= ende && neue.length < 400) {
+        const datum = cursor.toISOString().slice(0, 10);
+        if (tage.includes(cursor.getUTCDay()) && !vorhanden.has(datum)) {
+          const zeile: AnyRow = {};
+          for (const spalte of UEBERNEHMEN) {
+            if (vorlage[spalte] !== undefined) zeile[spalte] = vorlage[spalte];
+          }
+          zeile.recurrence_group_id = groupId;
+          zeile.recurrence_days = tage;
+          zeile.task_date = datum;
+          zeile.due_date = datum;
+          zeile.done = false;
+          zeile.status = "open";
+          neue.push(zeile);
+        }
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      if (neue.length) {
+        const { error } = await supabase.from("tasks").insert(neue);
+        if (error) throw new Error(error.message);
+      }
+
+      // Die verbliebenen Einsätze führen die neue Tagesliste mit.
+      const { error: merkFehler } = await supabase
+        .from("tasks")
+        .update({ recurrence_days: tage })
+        .eq("recurrence_group_id", groupId)
+        .gte("task_date", start);
+      if (merkFehler) throw new Error(merkFehler.message);
+
+      const geschuetzt = kuenftig.filter(
+        (t: AnyRow) => t.done && !tage.includes(wochentag(String(t.task_date)))
+      ).length;
+
+      return NextResponse.json({
+        ok: true,
+        removed: zuLoeschen.length,
+        added: neue.length,
+        protected_count: geschuetzt
+      });
+    }
+
+    /**
      * Eine falsch angelegte Serie wieder loswerden.
      *
      * Geloescht wird nur, was noch vor uns liegt und noch nicht erledigt

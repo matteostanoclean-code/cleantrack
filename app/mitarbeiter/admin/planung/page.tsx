@@ -639,6 +639,16 @@ export default function AdminPlanningPage() {
         to: sorted[sorted.length - 1]?.task_date,
         employees,
         days: dayLabelsFromTasks(sorted),
+        // Welche Wochentage die Serie künftig belegt. Vergangene Einsätze
+        // zählen nicht mit, sonst zeigt die Maske Tage an, die längst weg sind.
+        weekdays: Array.from(
+          new Set(
+            (sorted.filter((task) => clean(task.task_date) >= today).length
+              ? sorted.filter((task) => clean(task.task_date) >= today)
+              : sorted
+            ).map((task) => parseIso(clean(task.task_date || today)).getDay())
+          )
+        ).sort((a, b) => a - b),
         minutes: minutesFromTask(first)
       };
     }).filter((group) => group.count > 1 || clean(group.first.repeat_mode) === "customer_year_plan").sort((a, b) => `${a.from || ""}-${a.first.start_time || ""}`.localeCompare(`${b.from || ""}-${b.first.start_time || ""}`));
@@ -793,55 +803,99 @@ export default function AdminPlanningPage() {
             <p className="font-bold">Serienverwaltung</p>
             <p className="text-xs text-ink-400">Hier ändere ich ganze Jahresplanungen oder Serien ab heute.</p>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          {/* Eine Serie je Zeile, untereinander. Anklicken klappt die Maske auf.
+              Vorher standen die Serien als grosse Karten in zwei Spalten; bei
+              30 Objekten findet man darin nichts mehr. */}
+          <div className="space-y-2">
             {filteredSeries.map((series) => {
               const edit = edits[series.id] || {};
               const assigned = assignments[series.id] ?? (series.employees.length === 1 ? series.employees[0] : "");
+              const zeit = clean(series.first.start_time)
+                ? `${clean(series.first.start_time).slice(0, 5)} - ${clean(series.first.end_time).slice(0, 5)}`
+                : hoursLabel(series.minutes);
+              // Wochentage: Vorgabe sind die Tage, die die Serie heute belegt.
+              const tage: string[] = edit.weekdays ?? series.weekdays.map(String);
+              const tagUmschalten = (wert: string) => {
+                const neu = tage.includes(wert) ? tage.filter((t) => t !== wert) : [...tage, wert];
+                setEdits({ ...edits, [series.id]: { ...edit, weekdays: neu } });
+              };
+              const tageGeaendert =
+                tage.length > 0 &&
+                JSON.stringify([...tage].map(Number).sort((a, b) => a - b)) !== JSON.stringify(series.weekdays);
               return (
-                <div key={series.id} className="rounded-3xl border border-brand-500/20 bg-brand-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
+                <details key={series.id} className="group overflow-hidden rounded-2xl border border-paper-200 bg-white open:border-brand-500/40 open:bg-brand-50">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold">
+                        {series.first.title || "Einsatz-Serie"}
+                        <span className="font-normal text-ink-400"> · {taskPlace(series.first)}</span>
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-ink-400">
+                        {series.days || "Tage offen"} · {zeit} · {series.employees.join(", ") || "ohne Mitarbeiter"}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-paper-100 px-2.5 py-1 text-[11px] font-bold text-brand-700">{series.open} offen</span>
+                    <span className="shrink-0 text-xs font-bold text-brand-600 group-open:hidden">Ändern</span>
+                  </summary>
+                  <div className="space-y-3 border-t border-paper-200 bg-paper-100 px-4 py-3">
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-2xl bg-white p-2"><p className="text-ink-400">Von</p><p className="font-bold">{dateText(series.from)}</p></div>
+                      <div className="rounded-2xl bg-white p-2"><p className="text-ink-400">Bis</p><p className="font-bold">{dateText(series.to)}</p></div>
+                      <div className="rounded-2xl bg-white p-2"><p className="text-ink-400">Termine</p><p className="font-bold">{series.count}</p></div>
+                    </div>
+                    {/* Wochentage sind keine Eigenschaft der Serie, sondern ergeben
+                        sich aus den Einsaetzen. Darum eigener Knopf: weggefallene
+                        Tage werden geloescht, neue angelegt. */}
                     <div>
-                      <p className="font-bold">{series.first.title || "Einsatz-Serie"}</p>
-                      <p className="mt-1 text-xs text-brand-700/80">{taskPlace(series.first)}</p>
-                      <p className="mt-1 text-xs text-ink-400">{series.days || "Tage offen"} · {clean(series.first.start_time) ? `${clean(series.first.start_time).slice(0, 5)} - ${clean(series.first.end_time).slice(0, 5)}` : hoursLabel(series.minutes)}</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-paper-100 px-3 py-1 text-[11px] font-bold text-brand-700">{series.count} Termine</span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-2xl bg-paper-100 p-2"><p className="text-ink-400">Von</p><p className="font-bold">{dateText(series.from)}</p></div>
-                    <div className="rounded-2xl bg-paper-100 p-2"><p className="text-ink-400">Bis</p><p className="font-bold">{dateText(series.to)}</p></div>
-                    <div className="rounded-2xl bg-paper-100 p-2"><p className="text-ink-400">Offen</p><p className="font-bold">{series.open}</p></div>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    <select value={assigned} onChange={(event) => setAssignments({ ...assignments, [series.id]: event.target.value })} className={inputClass}>
-                      <option value="">Ohne Mitarbeiter</option>
-                      {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
-                    </select>
-                    <button disabled={saving} onClick={() => patch({ type: "series_assign", recurrence_group_id: series.id, employee_name: assigned, scope: "future", from_date: today }, "Serie wurde ab heute zugewiesen.")} className="w-full rounded-2xl bg-brand-600 py-3 text-sm font-bold text-white disabled:opacity-50">Serie ab heute zuweisen</button>
-                  </div>
-                  <details className="mt-3 rounded-2xl border border-paper-300 bg-paper-100 p-3">
-                    <summary className="cursor-pointer text-sm font-bold text-brand-700">Serie bearbeiten</summary>
-                    <div className="mt-3 space-y-3">
-                      <Field label="Tätigkeit"><input type="text" value={edit.title ?? clean(series.first.title)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, title: event.target.value } })} className={inputClass} /></Field>
-                      <Field label="Objekt"><input type="text" value={edit.site ?? clean(series.first.site)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, site: event.target.value } })} className={inputClass} /></Field>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Start"><input type="time" value={edit.start_time ?? clean(series.first.start_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></Field>
-                        <Field label="Ende"><input type="time" value={edit.end_time ?? clean(series.first.end_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></Field>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-400">An diesen Tagen</p>
+                      <div className="grid grid-cols-7 gap-1">
+                        {weekdayOptions.map((day) => {
+                          const aktiv = tage.includes(day.value);
+                          return (
+                            <button key={day.value} type="button" onClick={() => tagUmschalten(day.value)} className={`rounded-xl border px-2 py-2 text-xs font-bold ${aktiv ? "border-brand-500 bg-brand-600 text-white" : "border-paper-300 bg-white text-ink-600"}`}>
+                              {day.label}
+                            </button>
+                          );
+                        })}
                       </div>
-                      <Field label="Planminuten"><input type="number" value={edit.planned_minutes ?? String(series.minutes || "")} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, planned_minutes: event.target.value } })} className={inputClass} /></Field>
-                      <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, title: edit.title ?? series.first.title, site: edit.site ?? series.first.site, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-bold text-white disabled:opacity-50">Änderungen ab heute speichern</button>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "paused", done: true }, "Serie wurde ab heute pausiert.")} className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-3 text-xs font-bold text-amber-700 disabled:opacity-50">Pausieren</button>
-                        {/* Hiess frueher "Öffnen". Das las sich wie "Maske aufklappen",
-                            gemeint war aber das Gegenstueck zu Pausieren. */}
-                        <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "open", done: false }, "Serie läuft ab heute wieder.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-bold text-brand-700 disabled:opacity-50">Wieder aufnehmen</button>
-                      </div>
-                      {/* Loeschen trennt bewusst: kuenftige offene Einsaetze fallen weg,
-                          erledigte bleiben als Arbeitszeitnachweis stehen. */}
-                      <button disabled={saving} onClick={() => { if (window.confirm(`Serie "${clean(series.first.title) || "ohne Titel"}" wirklich löschen?\n\nAlle noch offenen Einsätze ab heute werden entfernt. Bereits erledigte Einsätze bleiben als Arbeitszeitnachweis erhalten.`)) patch({ type: "series_delete", recurrence_group_id: series.id, scope: "future", from_date: today }, "Serie wurde ab heute gelöscht."); }} className="w-full rounded-2xl border border-rose-300 bg-rose-50 px-3 py-3 text-xs font-bold text-rose-700 disabled:opacity-50">Serie löschen</button>
+                      <button
+                        disabled={saving || !tageGeaendert}
+                        onClick={() => {
+                          const namen = weekdayOptions.filter((d) => tage.includes(d.value)).map((d) => d.label).join(", ");
+                          if (window.confirm(`Serie läuft ab heute nur noch: ${namen}.\n\nOffene Einsätze an wegfallenden Tagen werden gelöscht, an neuen Tagen angelegt. Bereits erledigte Einsätze bleiben unverändert.`)) {
+                            patch({ type: "series_weekdays", recurrence_group_id: series.id, weekdays: tage.map(Number), from_date: today }, "Wochentage wurden ab heute geändert.");
+                          }
+                        }}
+                        className="mt-2 w-full rounded-2xl bg-brand-600 py-3 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        Wochentage ab heute übernehmen
+                      </button>
                     </div>
-                  </details>
-                </div>
+                    <Field label="Tätigkeit"><input type="text" value={edit.title ?? clean(series.first.title)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, title: event.target.value } })} className={inputClass} /></Field>
+                    <Field label="Objekt"><input type="text" value={edit.site ?? clean(series.first.site)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, site: event.target.value } })} className={inputClass} /></Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Start"><input type="time" value={edit.start_time ?? clean(series.first.start_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></Field>
+                      <Field label="Ende"><input type="time" value={edit.end_time ?? clean(series.first.end_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></Field>
+                    </div>
+                    <Field label="Planminuten"><input type="number" value={edit.planned_minutes ?? String(series.minutes || "")} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, planned_minutes: event.target.value } })} className={inputClass} /></Field>
+                    <Field label="Mitarbeiter">
+                      <select value={assigned} onChange={(event) => setAssignments({ ...assignments, [series.id]: event.target.value })} className={inputClass}>
+                        <option value="">Ohne Mitarbeiter</option>
+                        {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
+                      </select>
+                    </Field>
+                    <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, title: edit.title ?? series.first.title, site: edit.site ?? series.first.site, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-bold text-white disabled:opacity-50">Änderungen ab heute speichern</button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "paused", done: true }, "Serie wurde ab heute pausiert.")} className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-3 text-xs font-bold text-amber-700 disabled:opacity-50">Pausieren</button>
+                      {/* Hiess frueher "Öffnen". Das las sich wie "Maske aufklappen",
+                          gemeint war aber das Gegenstueck zu Pausieren. */}
+                      <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "open", done: false }, "Serie läuft ab heute wieder.")} className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-3 text-xs font-bold text-brand-700 disabled:opacity-50">Wieder aufnehmen</button>
+                    </div>
+                    {/* Loeschen trennt bewusst: kuenftige offene Einsaetze fallen weg,
+                        erledigte bleiben als Arbeitszeitnachweis stehen. */}
+                    <button disabled={saving} onClick={() => { if (window.confirm(`Serie "${clean(series.first.title) || "ohne Titel"}" wirklich löschen?\n\nAlle noch offenen Einsätze ab heute werden entfernt. Bereits erledigte Einsätze bleiben als Arbeitszeitnachweis erhalten.`)) patch({ type: "series_delete", recurrence_group_id: series.id, scope: "future", from_date: today }, "Serie wurde ab heute gelöscht."); }} className="w-full rounded-2xl border border-rose-300 bg-rose-50 px-3 py-3 text-xs font-bold text-rose-700 disabled:opacity-50">Serie löschen</button>
+                  </div>
+                </details>
               );
             })}
             {!filteredSeries.length && <EmptyCard title="Keine Serien gefunden" text="Sobald Jahresplanungen oder wiederkehrende Einsätze vorhanden sind, erscheinen sie hier." />}
