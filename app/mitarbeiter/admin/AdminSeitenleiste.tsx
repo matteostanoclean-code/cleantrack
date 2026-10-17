@@ -182,7 +182,8 @@ export default function AdminSeitenleiste() {
           setZahlen({
             chat: Number(ergebnis.chat) || 0,
         notizen: Number(ergebnis.notizen) || 0,
-            zeiten: Number(ergebnis.zeiten) || 0,
+            // Fehlende Zeiten sind genauso Arbeit in der Zeitenfreigabe.
+            zeiten: (Number(ergebnis.zeiten) || 0) + (Number(ergebnis.zeitenFehlend) || 0),
             urlaub: Number(ergebnis.urlaub) || 0,
             material: Number(ergebnis.material) || 0,
             ohneMitarbeiter: Number(ergebnis.ohneMitarbeiter) || 0,

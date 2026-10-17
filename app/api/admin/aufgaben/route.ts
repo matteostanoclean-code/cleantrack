@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { buildRecords } from "@/lib/zeiten";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { fehlendeZeitenLaden } from "@/lib/fehlendeZeiten";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,13 @@ export async function GET(request: Request) {
     const zeitenOffen = records.filter((record: AnyRow) => record.state === "open").length;
     const zeitenProblem = records.filter((record: AnyRow) => record.locationIssue || record.incomplete).length;
 
+    // Einsätze ganz ohne Zeit. Ohne diese Zahl fällt erst bei der Lohnabrechnung
+    // auf, dass jemand seine Zeiten nie gemeldet hat — und dann ist die
+    // Aufzeichnungsfrist längst vorbei. Ein Fehler hier darf die Übersicht nicht kippen.
+    const fehlend = await fehlendeZeitenLaden(supabase).catch(() => []);
+    const zeitenFehlend = fehlend.length;
+    const zeitenFehlendDringend = fehlend.filter((zeile) => zeile.dringend).length;
+
     const urlaub = absences.filter(istOffen).length;
     const materialOffen = material.filter(istOffen).length;
     const qualitaetOffen = quality.filter(istOffen).length;
@@ -94,7 +102,7 @@ export async function GET(request: Request) {
     const notizenFaellig = ((notizenResult.data || []) as AnyRow[])
       .filter((notiz) => { const tag = text(notiz.faellig_am).slice(0, 10); return tag && tag <= heute; }).length;
 
-    const gesamt = zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen + notizenFaellig;
+    const gesamt = zeitenOffen + zeitenFehlend + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen + notizenFaellig;
 
     return NextResponse.json({
       ok: true,
@@ -102,6 +110,8 @@ export async function GET(request: Request) {
       gesamt,
       zeiten: zeitenOffen,
       zeitenProblem,
+      zeitenFehlend,
+      zeitenFehlendDringend,
       urlaub,
       material: materialOffen,
       qualitaet: qualitaetOffen,

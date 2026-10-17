@@ -8,6 +8,18 @@ Chat und Adminbereich.
 
 ---
 
+## Stand 17.10.2026
+
+- **Zeitenfreigabe „Nicht erfasst“:** vergangene Einsätze ohne jeden Stempel
+  (letzte 90 Tage) mit der 7-Tage-Frist nach § 17 MiLoG. Das Büro trägt die
+  Zeit ein (Von/Bis mit der Planung vorbelegt, „Wie geplant“ mit einem Klick),
+  fragt per Chat und Push beim Mitarbeiter nach oder markiert den Einsatz als
+  ausgefallen.
+- **Startseite:** Kachel „Zeiten nicht erfasst“, rot, sobald bei einem Einsatz
+  nur noch zwei Tage Frist bleiben oder sie abgelaufen ist.
+- Büro-Nachträge legen jetzt auch den Beginn an und rechnen die Uhrzeit in
+  deutscher Zeit statt in der Serverzeit (vorher zwei Stunden daneben).
+
 ## Stand 11.08.2026
 
 ### Reparaturen

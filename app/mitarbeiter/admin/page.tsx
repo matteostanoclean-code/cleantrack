@@ -13,6 +13,8 @@ type Aufgaben = {
   gesamt: number;
   zeiten: number;
   zeitenProblem: number;
+  zeitenFehlend: number;
+  zeitenFehlendDringend: number;
   urlaub: number;
   material: number;
   qualitaet: number;
@@ -606,6 +608,16 @@ export default function AdminDashboardPage() {
                     icon="stopwatch"
                     href="/mitarbeiter/admin/zeiten"
                     dringend={aufgaben.zeitenProblem > 0}
+                  />
+                  <AufgabenKachel
+                    zahl={aufgaben.zeitenFehlend}
+                    titel="Zeiten nicht erfasst"
+                    hinweis={aufgaben.zeitenFehlendDringend > 0
+                      ? `${aufgaben.zeitenFehlendDringend} mit Frist in 2 Tagen oder schon abgelaufen`
+                      : "Einsätze vorbei, aber noch keine Zeit eingetragen"}
+                    icon="clock"
+                    href="/mitarbeiter/admin/zeiten?ansicht=fehlt"
+                    dringend={aufgaben.zeitenFehlendDringend > 0}
                   />
                   <AufgabenKachel zahl={aufgaben.chat} titel="Nachrichten vom Team" hinweis="Ungelesen im Chat" icon="chat" href="/mitarbeiter/admin/chat" />
                   <AufgabenKachel zahl={aufgaben.urlaub} titel="Urlaub und Abwesenheit" hinweis="Anträge ohne Entscheidung" icon="plane" href="/mitarbeiter/admin/urlaub" />

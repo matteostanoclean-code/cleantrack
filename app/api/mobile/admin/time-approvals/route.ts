@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
 import { localDayIso, minutesBetweenHm, minutesToHm, parseHm } from "@/lib/format";
-import { AnyRow, TOLERANCE_MINUTES, buildRecords, numberOrNull, plannedMinutesFromTask, text } from "@/lib/zeiten";
+import { AnyRow, berlinZeitpunkt, buildRecords, numberOrNull, plannedMinutesFromTask, text } from "@/lib/zeiten";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { fehlendeZeitenLaden } from "@/lib/fehlendeZeiten";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,10 @@ export async function GET(request: Request) {
       .order("name", { ascending: true });
 
     const records = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
+    const missing = await fehlendeZeitenLaden(supabase);
     const summary = {
+      missing: missing.length,
+      missingUrgent: missing.filter((row) => row.dringend).length,
       open: records.filter((record) => record.state === "open").length,
       approved: records.filter((record) => record.state === "approved").length,
       rejected: records.filter((record) => record.state === "rejected").length,
@@ -75,9 +79,10 @@ export async function GET(request: Request) {
       from,
       to,
       records,
+      missing,
       summary,
       employees: (employeesResult.data || []).filter((row: AnyRow) => row.name),
-      sites: Array.from(new Map(records.map((record) => [record.siteName, { id: record.workSiteId, name: record.siteName }])).values())
+      sites: Array.from(new Map([...records, ...missing].map((record) => [record.siteName, { id: record.workSiteId, name: record.siteName }])).values())
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Zeiten konnten nicht geladen werden.";
@@ -172,18 +177,60 @@ export async function PATCH(request: Request) {
       if (!startTime || !endTime) {
         return NextResponse.json({ ok: false, error: "Für einen Nachtrag bitte Von- und Bis-Zeit angeben." }, { status: 400 });
       }
-      const createdAt = new Date(`${date}T${endTime}:00`);
-      if (Number.isNaN(createdAt.getTime())) {
-        return NextResponse.json({ ok: false, error: "Datum oder Uhrzeit für den Nachtrag ist ungültig." }, { status: 400 });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return NextResponse.json({ ok: false, error: "Datum für den Nachtrag ist ungültig." }, { status: 400 });
       }
-      const result = await safeInsert(supabase, "time_entries", {
+      if (grossMinutes <= 0) {
+        return NextResponse.json({ ok: false, error: "Die Endzeit muss nach der Startzeit liegen." }, { status: 400 });
+      }
+
+      // Doppelt geklickt oder der Mitarbeiter war schneller: dann nicht noch einmal buchen.
+      let hasClockIn = false;
+      if (taskIdForLookup) {
+        const existing = await supabase
+          .from("time_entries")
+          .select("id, action")
+          .eq("task_id", taskIdForLookup)
+          .in("action", ["clock_in", "clock_out"])
+          .neq("success", false);
+        if (!existing.error && existing.data?.some((row: AnyRow) => row.action === "clock_out")) {
+          return NextResponse.json({ ok: false, error: "Für diesen Einsatz ist inzwischen eine Zeit erfasst. Bitte neu laden." }, { status: 409 });
+        }
+        hasClockIn = Boolean(existing.data?.some((row: AnyRow) => row.action === "clock_in"));
+      }
+
+      // Über Mitternacht endet die Arbeit am Folgetag.
+      const endDay = (parseHm(endTime) ?? 0) <= (parseHm(startTime) ?? 0)
+        ? new Date(Date.parse(`${date}T12:00:00Z`) + 86400000).toISOString().slice(0, 10)
+        : date;
+
+      const common = {
         task_id: taskIdForLookup || null,
         employee_name: employeeName || task?.employee_name || null,
         work_site_id: task?.work_site_id || null,
         work_site_name: task?.site || task?.customer_name || null,
-        action: "clock_out",
         success: true,
-        created_at: createdAt.toISOString(),
+        // Optional, werden übersprungen solange die Spalten fehlen
+        entry_type: "manual",
+        source: "buero"
+      };
+
+      // Ganz ohne Stempel auch den Beginn anlegen, damit die Freigabe den
+      // Zeitraum zeigt. Wer nur das Ausstempeln vergessen hat, behält seinen
+      // echten Startstempel.
+      if (!hasClockIn) {
+        await safeInsert(supabase, "time_entries", {
+          ...common,
+          action: "clock_in",
+          created_at: berlinZeitpunkt(date, startTime),
+          error_message: "Vom Büro nachgetragen."
+        });
+      }
+
+      const result = await safeInsert(supabase, "time_entries", {
+        ...common,
+        action: "clock_out",
+        created_at: berlinZeitpunkt(endDay, endTime),
         actual_minutes: grossMinutes,
         overtime_minutes: plannedMinutes ? Math.max(0, grossMinutes - plannedMinutes) : 0,
         error_message: "Vom Büro nachgetragen.",

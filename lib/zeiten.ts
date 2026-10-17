@@ -266,3 +266,124 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
 
   return records.sort((a, b) => `${b.date}${b.actualStart || ""}`.localeCompare(`${a.date}${a.actualStart || ""}`));
 }
+
+/**
+ * Frist für die Aufzeichnung nach § 17 MiLoG: bis zum Ablauf des siebten
+ * Kalendertages nach dem Einsatz. Die Pflicht bleibt beim Arbeitgeber, auch
+ * wenn der Mitarbeiter seine Zeiten selbst melden soll.
+ */
+export const AUFZEICHNUNG_FRIST_TAGE = 7;
+
+/** Ab so vielen verbleibenden Tagen wird ein fehlender Eintrag dringend. */
+export const FRIST_WARNUNG_TAGE = 2;
+
+/** Heutiges Datum und Uhrzeit in Deutschland, unabhängig von der Serverzeit. */
+export function berlinJetzt(datum = new Date()) {
+  const teile = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(datum);
+  const teil = (typ: string) => teile.find((eintrag) => eintrag.type === typ)?.value || "00";
+  return {
+    tag: `${teil("year")}-${teil("month")}-${teil("day")}`,
+    minuten: (Number(teil("hour")) % 24) * 60 + Number(teil("minute"))
+  };
+}
+
+function tageZwischen(von: string, bis: string) {
+  const a = Date.UTC(Number(von.slice(0, 4)), Number(von.slice(5, 7)) - 1, Number(von.slice(8, 10)));
+  const b = Date.UTC(Number(bis.slice(0, 4)), Number(bis.slice(5, 7)) - 1, Number(bis.slice(8, 10)));
+  return Math.round((b - a) / 86400000);
+}
+
+export type FehlendeZeit = {
+  id: string;
+  taskId: string;
+  employeeName: string;
+  siteName: string;
+  workSiteId: string | null;
+  customerName: string | null;
+  taskTitle: string | null;
+  date: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  plannedMinutes: number;
+  /** Letzter Tag, an dem die Zeit noch fristgerecht aufgezeichnet werden kann. */
+  fristBis: string;
+  /** Verbleibende Tage bis Fristende, 0 = heute letzter Tag, negativ = abgelaufen. */
+  tageUebrig: number;
+  dringend: boolean;
+};
+
+/**
+ * Vergangene Einsätze, zu denen gar nichts erfasst ist.
+ *
+ * Die Zeitenfreigabe baut auf den Stempeln auf. Wer nicht stempelt, taucht dort
+ * nie auf — genau diese Einsätze fehlen dann in der Aufzeichnung. Ein Einsatz
+ * von heute zählt erst, wenn sein geplantes Ende vorbei ist.
+ *
+ * `gebuchteTaskIds` sind alle Einsätze mit mindestens einem gültigen Stempel.
+ * Wer nur eingestempelt hat, steht schon als „Kein Ausstempeln“ in der Freigabe.
+ */
+export function fehlendeZeitenAus(tasks: AnyRow[], gebuchteTaskIds: Set<string>, jetzt = berlinJetzt()): FehlendeZeit[] {
+  return tasks
+    .filter((task) => {
+      if (!task?.id || gebuchteTaskIds.has(String(task.id))) return false;
+      if (!text(task.employee_name)) return false;
+      if (text(task.status).toLowerCase() === "cancelled") return false;
+      // Eigenständige Aufgaben sind keine Arbeitszeit an einem Objekt.
+      if (task.item_type === "task" || task.task_type === "task") return false;
+      const tag = text(task.task_date).slice(0, 10);
+      if (!tag || tag > jetzt.tag) return false;
+      if (tag === jetzt.tag) {
+        const ende = parseHm(text(task.end_time).slice(0, 5));
+        return ende !== null && ende <= jetzt.minuten;
+      }
+      return true;
+    })
+    .map((task) => {
+      const tag = text(task.task_date).slice(0, 10);
+      const fristBis = (() => {
+        const datum = new Date(`${tag}T12:00:00Z`);
+        datum.setUTCDate(datum.getUTCDate() + AUFZEICHNUNG_FRIST_TAGE);
+        return datum.toISOString().slice(0, 10);
+      })();
+      const tageUebrig = tageZwischen(jetzt.tag, fristBis);
+      return {
+        id: `fehlt:${task.id}`,
+        taskId: String(task.id),
+        employeeName: text(task.employee_name),
+        siteName: text(task.site || task.customer_name) || "Ohne Objekt",
+        workSiteId: task.work_site_id || null,
+        customerName: task.customer_name || null,
+        taskTitle: task.title || null,
+        date: tag,
+        plannedStart: task.start_time ? text(task.start_time).slice(0, 5) : null,
+        plannedEnd: task.end_time ? text(task.end_time).slice(0, 5) : null,
+        plannedMinutes: plannedMinutesFromTask(task),
+        fristBis,
+        tageUebrig,
+        dringend: tageUebrig <= FRIST_WARNUNG_TAGE
+      };
+    })
+    .sort((a, b) => a.tageUebrig - b.tageUebrig || a.date.localeCompare(b.date) || a.employeeName.localeCompare(b.employeeName));
+}
+
+/**
+ * Datum und Uhrzeit, wie sie in Deutschland gemeint sind, als Zeitpunkt.
+ *
+ * `new Date("2026-10-17T08:00")` liest die Zeit in der Zeitzone des Servers.
+ * Auf Vercel ist das UTC, die Buchung läge dann zwei Stunden daneben.
+ */
+export function berlinZeitpunkt(tag: string, hm: string) {
+  const minuten = parseHm(hm) ?? 0;
+  const geschaetzt = Date.UTC(Number(tag.slice(0, 4)), Number(tag.slice(5, 7)) - 1, Number(tag.slice(8, 10)), Math.floor(minuten / 60), minuten % 60);
+  const wand = berlinJetzt(new Date(geschaetzt));
+  const wandZeit = Date.UTC(Number(wand.tag.slice(0, 4)), Number(wand.tag.slice(5, 7)) - 1, Number(wand.tag.slice(8, 10)), Math.floor(wand.minuten / 60), wand.minuten % 60);
+  return new Date(geschaetzt - (wandZeit - geschaetzt)).toISOString();
+}

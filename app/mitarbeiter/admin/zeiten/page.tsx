@@ -6,6 +6,10 @@
  * Zeigt jede erfasste Arbeitszeit gegen die Vorgabe, macht Abweichungen und
  * Standortfehler sichtbar und lässt Zeiten vor der Freigabe korrigieren.
  * Vergessenes Ausstempeln kann direkt nachgetragen werden.
+ *
+ * Unter „Nicht erfasst“ stehen vergangene Einsätze ganz ohne Stempel, mit der
+ * 7-Tage-Frist nach § 17 MiLoG. Dort trägt das Büro die Zeit selbst ein oder
+ * fragt beim Mitarbeiter nach.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -89,17 +93,37 @@ type TimeRecord = {
   log: LogRow[];
 };
 
+type MissingRecord = {
+  id: string;
+  taskId: string;
+  employeeName: string;
+  siteName: string;
+  workSiteId: string | null;
+  customerName: string | null;
+  taskTitle: string | null;
+  date: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  plannedMinutes: number;
+  fristBis: string;
+  tageUebrig: number;
+  dringend: boolean;
+};
+
+type Correction = { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string };
+
 type ApiResponse = {
   ok: boolean;
   error?: string;
   records: TimeRecord[];
-  summary: { open: number; approved: number; rejected: number; issues: number };
+  missing?: MissingRecord[];
+  summary: { open: number; approved: number; rejected: number; issues: number; missing?: number; missingUrgent?: number };
   employees: Array<{ id: string; name: string; active?: boolean | null }>;
   sites: Array<{ id: string | null; name: string }>;
 };
 
 type RangeKey = "today" | "week" | "month" | "all";
-type StateKey = "open" | "approved" | "rejected" | "all";
+type StateKey = "missing" | "open" | "approved" | "rejected" | "all";
 
 const RANGE_LABEL: Record<RangeKey, string> = {
   today: "Heute",
@@ -120,6 +144,20 @@ function stateTone(record: TimeRecord) {
   if (record.state === "approved") return { tone: "success" as const, label: "Freigegeben" };
   if (record.state === "rejected") return { tone: "danger" as const, label: "Abgelehnt" };
   return { tone: "pending" as const, label: "Ausstehend" };
+}
+
+function fristTone(row: MissingRecord) {
+  if (row.tageUebrig < 0) {
+    const tage = Math.abs(row.tageUebrig);
+    return { tone: "danger" as const, label: `Frist seit ${tage} ${tage === 1 ? "Tag" : "Tagen"} vorbei` };
+  }
+  if (row.tageUebrig === 0) return { tone: "danger" as const, label: "Heute letzter Tag" };
+  if (row.dringend) return { tone: "warn" as const, label: `Noch ${row.tageUebrig} ${row.tageUebrig === 1 ? "Tag" : "Tage"}` };
+  return { tone: "neutral" as const, label: `Frist bis ${formatDateDE(row.fristBis)}` };
+}
+
+function plannedLabel(row: MissingRecord) {
+  return row.plannedStart && row.plannedEnd ? `${row.plannedStart} - ${row.plannedEnd}` : `${hhmm(row.plannedMinutes)} Std.`;
 }
 
 function deviationLabel(minutes: number) {
@@ -143,6 +181,7 @@ export default function TimeApprovalPage() {
   const [query, setQuery] = useState("");
 
   const [openRecord, setOpenRecord] = useState<TimeRecord | null>(null);
+  const [openMissing, setOpenMissing] = useState<MissingRecord | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   const load = useCallback(async (tokenOverride?: string, rangeOverride?: RangeKey) => {
@@ -174,6 +213,8 @@ export default function TimeApprovalPage() {
         const { data: sessionData } = await supabase.auth.getSession();
         const accessToken = sessionData.session?.access_token || "";
         if (!mounted) return;
+        // Von der Startseite kommt man mit ?ansicht=fehlt direkt in die Liste.
+        if (new URLSearchParams(window.location.search).get("ansicht") === "fehlt") setStateFilter("missing");
         setToken(accessToken);
         setAuthLoading(false);
         if (accessToken) await load(accessToken);
@@ -204,7 +245,23 @@ export default function TimeApprovalPage() {
     });
   }, [data?.records, employeeFilter, onlyIssues, query, siteFilter, stateFilter]);
 
-  async function decide(record: TimeRecord, action: "approve" | "reject", correction?: { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string }) {
+  const missing = useMemo(() => {
+    const rows = data?.missing || [];
+    const search = query.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (employeeFilter && row.employeeName !== employeeFilter) return false;
+      if (siteFilter && row.siteName !== siteFilter) return false;
+      if (search) {
+        const haystack = `${row.employeeName} ${row.siteName} ${row.customerName || ""} ${row.taskTitle || ""}`.toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      return true;
+    });
+  }, [data?.missing, employeeFilter, query, siteFilter]);
+
+  const showMissing = stateFilter === "missing";
+
+  async function decide(record: TimeRecord, action: "approve" | "reject", correction?: Correction) {
     setSavingId(record.id);
     setError(null);
     setNotice(null);
@@ -230,6 +287,84 @@ export default function TimeApprovalPage() {
       await load();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Freigabe konnte nicht gespeichert werden.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  /** Büro trägt die Zeit für einen Einsatz ohne Stempel selbst ein und gibt sie frei. */
+  async function enterMissing(row: MissingRecord, correction: Correction) {
+    setSavingId(row.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/mobile/admin/time-approvals", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: "approve",
+          taskId: row.taskId,
+          employeeName: row.employeeName,
+          date: row.date,
+          ...correction
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Zeit konnte nicht eingetragen werden.");
+      setNotice(`${row.employeeName}, ${formatDateDE(row.date)}: ${hoursLabel(result.approvedMinutes)} eingetragen und freigegeben.`);
+      setOpenMissing(null);
+      await load();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Zeit konnte nicht eingetragen werden.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  /**
+   * Beim Mitarbeiter nachfragen. Geht als Chat mit Push raus — die Nachricht
+   * bleibt im Verlauf stehen und belegt, dass das Büro sich gekümmert hat.
+   */
+  async function askEmployee(row: MissingRecord) {
+    setSavingId(row.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const message = `Bitte teile mir deine Arbeitszeit für ${row.siteName} am ${formatDateDE(row.date)} mit (Von, Bis, Pause). Du kannst sie auch selbst im Stundenzettel unter „Nicht erfasst“ nachtragen.`;
+      const response = await fetch("/api/mobile/admin/chat-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ employeeName: row.employeeName, message })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Nachfrage konnte nicht gesendet werden.");
+      setNotice(`Nachfrage an ${row.employeeName} gesendet.`);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Nachfrage konnte nicht gesendet werden.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  /** Einsatz hat gar nicht stattgefunden: absagen, dann fehlt auch keine Zeit. */
+  async function cancelMissing(row: MissingRecord) {
+    if (!window.confirm(`Einsatz bei ${row.siteName} am ${formatDateDE(row.date)} als ausgefallen markieren? Es wird dann keine Zeit gebucht.`)) return;
+    setSavingId(row.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/mobile/admin/dashboard", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: "task_status", id: row.taskId, status: "cancelled", done: true })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Einsatz konnte nicht abgesagt werden.");
+      setNotice(`Einsatz am ${formatDateDE(row.date)} als ausgefallen markiert.`);
+      setOpenMissing(null);
+      await load();
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "Einsatz konnte nicht abgesagt werden.");
     } finally {
       setSavingId(null);
     }
@@ -270,17 +405,29 @@ export default function TimeApprovalPage() {
 
         <div className="border-b border-paper-200 bg-white">
           <ChipRow>
-            <Chip label={RANGE_LABEL[range]} icon="calendar" active onClick={() => {
-              const order: RangeKey[] = ["today", "week", "month", "all"];
-              const next = order[(order.indexOf(range) + 1) % order.length];
-              setRange(next);
-              load(undefined, next);
-            }} />
+            {/* Fehlende Zeiten kommen immer aus den letzten 90 Tagen, der Zeitraum gilt dort nicht. */}
+            {showMissing ? null : (
+              <Chip label={RANGE_LABEL[range]} icon="calendar" active onClick={() => {
+                const order: RangeKey[] = ["today", "week", "month", "all"];
+                const next = order[(order.indexOf(range) + 1) % order.length];
+                setRange(next);
+                load(undefined, next);
+              }} />
+            )}
+            <Chip
+              label="Nicht erfasst"
+              icon={data?.summary.missingUrgent ? "warning" : undefined}
+              active={showMissing}
+              count={data?.summary.missing}
+              onClick={() => setStateFilter("missing")}
+            />
             <Chip label="Offen" active={stateFilter === "open"} count={data?.summary.open} onClick={() => setStateFilter("open")} />
             <Chip label="Freigegeben" active={stateFilter === "approved"} onClick={() => setStateFilter("approved")} />
             <Chip label="Abgelehnt" active={stateFilter === "rejected"} onClick={() => setStateFilter("rejected")} />
             <Chip label="Alle" active={stateFilter === "all"} onClick={() => setStateFilter("all")} />
-            <Chip label="Nur Fehler" icon="warning" active={onlyIssues} count={data?.summary.issues} onClick={() => setOnlyIssues((value) => !value)} />
+            {showMissing ? null : (
+              <Chip label="Nur Fehler" icon="warning" active={onlyIssues} count={data?.summary.issues} onClick={() => setOnlyIssues((value) => !value)} />
+            )}
           </ChipRow>
 
           {(data?.employees?.length || data?.sites?.length) ? (
@@ -311,7 +458,23 @@ export default function TimeApprovalPage() {
 
           {loading && !data ? <Spinner label="Lade Zeiten…" /> : null}
 
-          {!loading && !records.length ? (
+          {showMissing ? (
+            <MissingList
+              rows={missing}
+              total={data?.missing?.length || 0}
+              loading={loading}
+              savingId={savingId}
+              onOpen={setOpenMissing}
+              onAsk={askEmployee}
+              onEnterAsPlanned={(row) => enterMissing(row, {
+                startTime: row.plannedStart || "",
+                endTime: row.plannedEnd || "",
+                adminResponse: "Vom Büro nach Plan erfasst."
+              })}
+            />
+          ) : null}
+
+          {!showMissing && !loading && !records.length ? (
             <EmptyState
               icon="clock"
               title={data?.records.length ? "Keine Zeiten in dieser Auswahl" : `Keine Zeiten im Zeitraum „${RANGE_LABEL[range]}“`}
@@ -327,7 +490,7 @@ export default function TimeApprovalPage() {
             nicht erst öffnen müssen. Am Handy bleiben es Karten, dort ist eine
             Tabelle mit acht Spalten unbrauchbar.
           */}
-          {records.length ? (
+          {!showMissing && records.length ? (
             <div className="hidden overflow-x-auto rounded-2xl bg-white md:block">
               <table className="w-full min-w-[900px] text-left">
                 <thead>
@@ -410,7 +573,7 @@ export default function TimeApprovalPage() {
             </div>
           ) : null}
 
-          <div className="space-y-3 md:hidden">
+          <div className={cx("space-y-3 md:hidden", showMissing && "hidden")}>
             {records.map((record) => {
               const tone = stateTone(record);
               return (
@@ -470,6 +633,17 @@ export default function TimeApprovalPage() {
           onDecide={decide}
         />
       ) : null}
+
+      {openMissing ? (
+        <MissingSheet
+          row={openMissing}
+          saving={savingId === openMissing.id}
+          onClose={() => setOpenMissing(null)}
+          onEnter={enterMissing}
+          onAsk={askEmployee}
+          onCancel={cancelMissing}
+        />
+      ) : null}
     </main>
   );
 }
@@ -478,7 +652,7 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
   record: TimeRecord;
   saving: boolean;
   onClose: () => void;
-  onDecide: (record: TimeRecord, action: "approve" | "reject", correction?: { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string }) => Promise<void>;
+  onDecide: (record: TimeRecord, action: "approve" | "reject", correction?: Correction) => Promise<void>;
 }) {
   const [tab, setTab] = useState<"details" | "log">("details");
   const [startTime, setStartTime] = useState(record.actualStart ? formatTimeDE(record.actualStart) : record.plannedStart || "");
@@ -638,6 +812,218 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
           ) : null}
         </div>
       )}
+    </DetailSheet>
+  );
+}
+
+function MissingList({ rows, total, loading, savingId, onOpen, onAsk, onEnterAsPlanned }: {
+  rows: MissingRecord[];
+  total: number;
+  loading: boolean;
+  savingId: string | null;
+  onOpen: (row: MissingRecord) => void;
+  onAsk: (row: MissingRecord) => void;
+  onEnterAsPlanned: (row: MissingRecord) => void;
+}) {
+  if (loading && !total) return <Spinner label="Suche Einsätze ohne Zeit…" />;
+
+  if (!rows.length) {
+    return (
+      <EmptyState
+        icon="check"
+        title={total ? "Keine Einsätze in dieser Auswahl" : "Alles erfasst"}
+        text={total ? "Mitarbeiter- oder Objektfilter oben zurücksetzen." : "Zu jedem Einsatz der letzten 90 Tage liegt eine Zeit vor."}
+      />
+    );
+  }
+
+  return (
+    <>
+      <Banner tone="info">
+        Hier fehlt die Arbeitszeit ganz. Die Aufzeichnung muss bis zum 7. Tag nach dem Einsatz vorliegen, auch wenn der
+        Mitarbeiter sie melden sollte. Trag die Zeit ein oder frag nach.
+      </Banner>
+
+      {/* Am Rechner als Tabelle, am Handy als Karten — wie die übrigen Zeiten. */}
+      <div className="hidden overflow-x-auto rounded-2xl bg-white md:block">
+        <table className="w-full min-w-[900px] text-left">
+          <thead>
+            <tr className="border-b border-paper-200 text-[12px] font-bold uppercase tracking-wide text-ink-400">
+              <th className="px-4 py-3">Datum</th>
+              <th className="px-3 py-3">Name</th>
+              <th className="px-3 py-3">Einsatz</th>
+              <th className="px-3 py-3">Geplant</th>
+              <th className="px-3 py-3">Frist</th>
+              <th className="px-3 py-3 text-right">Aktion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const frist = fristTone(row);
+              const busy = savingId === row.id;
+              return (
+                <tr key={row.id} className="border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
+                  <td onClick={() => onOpen(row)} className="cursor-pointer px-4 py-3 text-[14px] font-semibold text-ink-900">{formatDateDE(row.date)}</td>
+                  <td onClick={() => onOpen(row)} className="cursor-pointer px-3 py-3 text-[14px] text-ink-700">{row.employeeName}</td>
+                  <td onClick={() => onOpen(row)} className="cursor-pointer px-3 py-3">
+                    {row.taskTitle ? <span className="block text-[12px] text-ink-400">{row.taskTitle}</span> : null}
+                    <span className="text-[14px] text-ink-700">{row.siteName}</span>
+                  </td>
+                  <td onClick={() => onOpen(row)} className="cursor-pointer px-3 py-3 text-[14px] text-ink-700">{plannedLabel(row)}</td>
+                  <td onClick={() => onOpen(row)} className="cursor-pointer px-3 py-3"><StatusPill tone={frist.tone}>{frist.label}</StatusPill></td>
+                  <td className="px-3 py-3">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => onAsk(row)}
+                        disabled={busy}
+                        title="Per Chat und Push beim Mitarbeiter nachfragen"
+                        className="rounded-lg border border-paper-300 px-3 py-2 text-[13px] font-semibold text-ink-700 disabled:opacity-40"
+                      >
+                        Nachfragen
+                      </button>
+                      {row.plannedStart && row.plannedEnd ? (
+                        <button
+                          onClick={() => onEnterAsPlanned(row)}
+                          disabled={busy}
+                          title={`${row.plannedStart} - ${row.plannedEnd} eintragen und freigeben`}
+                          className="rounded-lg bg-success-500 px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+                        >
+                          Wie geplant
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => onOpen(row)}
+                        disabled={busy}
+                        className="rounded-lg bg-brand-600 px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+                      >
+                        Eintragen
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="space-y-3 md:hidden">
+        {rows.map((row) => {
+          const frist = fristTone(row);
+          return (
+            <article key={row.id} className="rounded-2xl bg-white p-4">
+              <button onClick={() => onOpen(row)} className="flex w-full items-start gap-3 text-left">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[16px] font-bold text-ink-900">{formatDateDE(row.date)}</p>
+                  <p className="mt-1 text-[14px] text-ink-400">{row.employeeName} · {row.siteName}</p>
+                  <p className="mt-2 text-[14px] text-ink-400">Geplant: {plannedLabel(row)}</p>
+                </div>
+                <StatusPill tone={frist.tone}>{frist.label}</StatusPill>
+              </button>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button variant="neutral" disabled={savingId === row.id} onClick={() => onAsk(row)}>Nachfragen</Button>
+                <Button disabled={savingId === row.id} onClick={() => onOpen(row)}>Eintragen</Button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function MissingSheet({ row, saving, onClose, onEnter, onAsk, onCancel }: {
+  row: MissingRecord;
+  saving: boolean;
+  onClose: () => void;
+  onEnter: (row: MissingRecord, correction: Correction) => Promise<void>;
+  onAsk: (row: MissingRecord) => Promise<void>;
+  onCancel: (row: MissingRecord) => Promise<void>;
+}) {
+  const [startTime, setStartTime] = useState(row.plannedStart || "");
+  const [endTime, setEndTime] = useState(row.plannedEnd || "");
+  const [breakMinutes, setBreakMinutes] = useState("0");
+  const [travelMinutes, setTravelMinutes] = useState("0");
+  const [note, setNote] = useState("");
+
+  const gross = minutesBetweenHm(startTime, endTime);
+  const netMinutes = Math.max(0, gross - Number(breakMinutes || 0)) + Number(travelMinutes || 0);
+  const frist = fristTone(row);
+  const asPlanned = startTime === row.plannedStart && endTime === row.plannedEnd && !Number(breakMinutes || 0) && !Number(travelMinutes || 0);
+
+  function submit() {
+    onEnter(row, {
+      startTime,
+      endTime,
+      breakMinutes: Number(breakMinutes || 0),
+      travelMinutes: Number(travelMinutes || 0),
+      // Ohne eigenen Hinweis festhalten, woher die Zahl kommt.
+      adminResponse: note.trim() || (asPlanned ? "Vom Büro nach Plan erfasst." : "Vom Büro erfasst.")
+    });
+  }
+
+  return (
+    <DetailSheet
+      title={row.siteName}
+      subtitle={`${row.employeeName} · ${formatDateDE(row.date)}`}
+      status={<StatusPill tone={frist.tone}>{frist.label}</StatusPill>}
+      onClose={onClose}
+      footer={
+        <ActionBar>
+          <Button variant="neutral" disabled={saving} onClick={() => onAsk(row)}>Nachfragen</Button>
+          <Button variant="success" disabled={saving || !startTime || !endTime} onClick={submit}>{saving ? "Speichere…" : "Eintragen"}</Button>
+        </ActionBar>
+      }
+    >
+      <SectionHeading>Vorgabe</SectionHeading>
+      <DetailRow icon="pin" label="Objekt" value={row.siteName} hint={row.customerName || undefined} />
+      <DetailRow icon="calendar" label="Datum" value={formatDateDE(row.date)} />
+      <DetailRow icon="clock" label="Zeitraum" value={row.plannedStart && row.plannedEnd ? `${row.plannedStart} - ${row.plannedEnd}` : "Keine feste Vorgabe"} />
+      <DetailRow icon="target" label="Soll-Zeit" value={hhmm(row.plannedMinutes)} />
+      <DetailRow icon="flag" label="Aufzeichnen bis" value={formatDateDE(row.fristBis)} hint="7 Tage nach dem Einsatz (§ 17 MiLoG)" />
+
+      <div className="px-4 py-3">
+        <Banner tone="warn">Zu diesem Einsatz wurde nichts gestempelt. Von und Bis sind mit der Planung vorbelegt. Ändere sie, wenn der Mitarbeiter andere Zeiten genannt hat.</Banner>
+      </div>
+
+      <SectionHeading>Zeit eintragen</SectionHeading>
+      <div className="grid grid-cols-2 gap-3 px-4 pb-3">
+        <TileInput icon="login" label="Von" value={startTime} onChange={setStartTime} placeholder="08:00" />
+        <TileInput icon="logout" label="Bis" value={endTime} onChange={setEndTime} placeholder="16:30" />
+        <TileInput icon="coffee" label="Pause" value={breakMinutes} onChange={setBreakMinutes} inputMode="numeric" suffix="min" />
+        <TileInput icon="car" label="Fahrzeit" value={travelMinutes} onChange={setTravelMinutes} inputMode="numeric" suffix="min" />
+      </div>
+
+      <div className="px-4 pb-3">
+        <div className="flex items-center justify-between rounded-xl bg-paper-100 px-3.5 py-3">
+          <span className="flex items-center gap-2 text-ink-600">
+            <UiIcon name="euro" className="h-[18px] w-[18px]" />
+            <UiIcon name="clock" className="h-[18px] w-[18px]" />
+            <span className="text-[17px] font-semibold text-ink-900">{minutesToHm(netMinutes)}</span>
+          </span>
+          <span className="text-[13px] text-ink-400">wird gebucht</span>
+        </div>
+      </div>
+
+      <div className="px-4 pb-3">
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          rows={2}
+          placeholder="Woher stammt die Zeit? z. B. „Telefonisch vom Mitarbeiter am …“"
+          className="w-full rounded-xl border border-paper-200 px-3.5 py-3 text-[15px] text-ink-900 outline-none placeholder:text-ink-200 focus:border-brand-500"
+        />
+      </div>
+
+      <div className="px-4 pb-4">
+        <button
+          onClick={() => onCancel(row)}
+          disabled={saving}
+          className="text-[14px] font-semibold text-danger-600 disabled:opacity-40"
+        >
+          Einsatz hat nicht stattgefunden
+        </button>
+      </div>
     </DetailSheet>
   );
 }
