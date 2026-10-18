@@ -293,7 +293,14 @@ export default function UrlaubsplanerSeite() {
     return (
       <div className="flex">
         {monate.map((monat) => (
-          <div key={monat.index} className="flex border-r border-paper-300 last:border-r-0">
+          /*
+            Kein Rand am Monatsblock: ohne feste Breite käme er zur Breite dazu,
+            im Kopf liegt er dagegen innerhalb der gesetzten Breite. Das hat die
+            Spalten um ein Pixel je Monat auseinanderlaufen lassen. Der
+            Monatstrenner sitzt deshalb auf der ersten Zelle, dort liegt er
+            innen und kostet keine Breite.
+          */
+          <div key={monat.index} className="flex">
             {Array.from({ length: monat.tage }, (_, index) => {
               const datum = isoVon(jahr, monat.index, index + 1);
               const tag = wochentag(datum);
@@ -313,6 +320,8 @@ export default function UrlaubsplanerSeite() {
                   style={{ width: ZELLE }}
                   className={cx(
                     "h-6 border-r border-white/70 last:border-r-0",
+                    // Monatstrenner, innen gezeichnet: kostet keine Breite.
+                    index === 0 && monat.index > 0 && "border-l-2 border-l-paper-400",
                     eintrag ? farbeVon(eintrag) : feiertag ? "bg-brand-100" : wochenende ? "bg-paper-200" : "bg-paper-100 hover:bg-brand-100",
                     istAnfang && "ring-2 ring-inset ring-ink-900"
                   )}
@@ -391,7 +400,11 @@ export default function UrlaubsplanerSeite() {
                   <div
                     key={monat.index}
                     style={{ width: monat.tage * ZELLE }}
-                    className="overflow-hidden border-r border-paper-300 px-1 py-2 text-[11px] font-semibold text-ink-500 last:border-r-0"
+                    className={cx(
+                      "overflow-hidden px-1 py-2 text-[11px] font-semibold text-ink-500",
+                      // Derselbe Trenner wie in den Zeilen, ebenfalls innen.
+                      monat.index > 0 && "border-l-2 border-l-paper-400"
+                    )}
                   >
                     {monat.name.slice(0, 3)}
                   </div>
