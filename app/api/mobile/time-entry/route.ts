@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { berlinJetzt, berlinZeitpunkt } from "@/lib/zeiten";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 
 export const dynamic = "force-dynamic";
@@ -166,11 +167,11 @@ async function insertTimeEntry(auth: any, payload: Record<string, any>) {
 }
 
 /** Lokales Datum eines Zeitstempels als "YYYY-MM-DD" (nicht UTC). */
+/** Kalendertag in Deutschland. Die Serverzeit (auf Vercel UTC) liegt nachts einen Tag daneben. */
 function localDay(value?: string | null) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return "";
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return berlinJetzt(date).tag;
 }
 
 /**
@@ -215,8 +216,8 @@ async function closeStaleClock(auth: any, openEntry: Record<string, any>, employ
     .from("time_entries")
     .select("*")
     .eq("employee_name", employeeName)
-    .gte("created_at", `${localDay(openEntry.created_at)}T00:00:00`)
-    .lte("created_at", `${localDay(openEntry.created_at)}T23:59:59`)
+    .gte("created_at", berlinZeitpunkt(localDay(openEntry.created_at), "00:00"))
+    .lt("created_at", new Date(Date.parse(berlinZeitpunkt(localDay(openEntry.created_at), "00:00")) + 86400000).toISOString())
     .neq("success", false)
     .order("created_at", { ascending: true });
 
@@ -267,7 +268,9 @@ async function closeStaleClock(auth: any, openEntry: Record<string, any>, employ
 function taskExpectedEnd(task: Record<string, any> | null, day: string) {
   const end = clean(task?.end_time);
   if (!task || !end || !day) return null;
-  const parsed = new Date(`${day}T${end.length === 5 ? `${end}:00` : end}`);
+  const match = end.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const parsed = new Date(berlinZeitpunkt(day, `${match[1]}:${match[2]}`));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

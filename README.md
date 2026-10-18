@@ -17,8 +17,10 @@ Chat und Adminbereich.
   ausgefallen.
 - **Startseite:** Kachel „Zeiten nicht erfasst“, rot, sobald bei einem Einsatz
   nur noch zwei Tage Frist bleiben oder sie abgelaufen ist.
-- Büro-Nachträge legen jetzt auch den Beginn an und rechnen die Uhrzeit in
-  deutscher Zeit statt in der Serverzeit (vorher zwei Stunden daneben).
+- Büro-Nachträge legen jetzt auch den Beginn an.
+- **Zeitzone:** Nachträge von Büro und Mitarbeiter und das automatische
+  Schließen einer vergessenen Uhr rechnen in deutscher Zeit statt in der
+  Serverzeit (auf Vercel UTC, vorher zwei Stunden daneben).
 
 ## Stand 11.08.2026
 

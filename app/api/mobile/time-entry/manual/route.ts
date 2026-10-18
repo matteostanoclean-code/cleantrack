@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert } from "@/lib/safeWrite";
 import { minutesBetweenHm, parseHm } from "@/lib/format";
-import { NACHTRAG_ERKLAERUNG } from "@/lib/zeiten";
+import { NACHTRAG_ERKLAERUNG, berlinZeitpunkt } from "@/lib/zeiten";
 
 export const dynamic = "force-dynamic";
 
@@ -104,8 +104,13 @@ export async function POST(request: Request) {
 
     const workedMinutes = grossMinutes - breakMinutes;
     const plannedMinutes = plannedMinutesFromTask(task);
-    const startIso = new Date(`${day}T${startTime}:00`).toISOString();
-    const endIso = new Date(`${day}T${endTime}:00`).toISOString();
+    // In deutscher Zeit, nicht in der Serverzeit (auf Vercel UTC). Über
+    // Mitternacht endet die Arbeit am Folgetag.
+    const endDay = (parseHm(endTime) ?? 0) <= (parseHm(startTime) ?? 0)
+      ? new Date(Date.parse(`${day}T12:00:00Z`) + 86400000).toISOString().slice(0, 10)
+      : day;
+    const startIso = berlinZeitpunkt(day, startTime);
+    const endIso = berlinZeitpunkt(endDay, endTime);
     const siteName = clean(task.site || task.customer_name) || null;
 
     const erklaertAm = new Date().toISOString();
