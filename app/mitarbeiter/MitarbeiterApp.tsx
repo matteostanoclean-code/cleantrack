@@ -5,6 +5,7 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import InstallHinweis from "@/components/InstallHinweis";
 import LiveKamera from "@/components/LiveKamera";
 import { pushAnmelden } from "@/lib/pushAnmeldung";
+import { absenderName } from "@/lib/absender";
 import {
   ActionBar,
   Banner,
@@ -2176,8 +2177,9 @@ function NotificationsScreen({ data, authToken, onBack, onReload }: { data: AppD
     for (const item of chatReplies) {
       rows.push({
         id: `c-${item.id}`,
-        sender: item.sender_name || "Büro",
-        title: "Nachricht vom Büro",
+        // Derselbe Absender wie in der Push-Nachricht: der Mensch, nicht "das Büro".
+        sender: absenderName(item.sender_name),
+        title: `Nachricht von ${absenderName(item.sender_name)}`,
         body: item.message || item.body || item.text || "",
         at: item.created_at || "",
         unread: item.read_by_employee !== true

@@ -1,4 +1,7 @@
 import webpush from "web-push";
+// Liegt getrennt, damit die App den Namen benutzen kann, ohne die
+// Versand-Bibliothek in den Browser zu ziehen.
+export { absenderName } from "@/lib/absender";
 
 /**
  * Push-Nachrichten an Mitarbeiter oder an das Büro.

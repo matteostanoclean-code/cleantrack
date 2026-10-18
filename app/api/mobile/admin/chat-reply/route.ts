@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { pushAnMitarbeiter } from "@/lib/push";
+import { absenderName, pushAnMitarbeiter } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     await pushAnMitarbeiter(
       auth.supabase,
       employeeName,
-      "Nachricht vom Büro",
+      `Nachricht von ${absenderName(auth.profile.name)}`,
       message,
       "/mitarbeiter/chat"
     );
