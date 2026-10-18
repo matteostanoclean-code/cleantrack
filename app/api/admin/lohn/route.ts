@@ -125,9 +125,20 @@ export async function GET(request: Request) {
         const eigene = saetze.filter((satz: AnyRow) => clean(satz.employeeName) === name);
 
         const offen = eigene.filter((satz: AnyRow) => satz.state === "open").length;
+
+        /**
+         * Bezahlt wird die Stempelzeit — außer es ist eine feste Zeit
+         * vereinbart. Dann zählt die eingeplante Zeit, und wer länger
+         * gebraucht hat, bekommt die Mehrarbeit zusätzlich. Gekürzt wird nie.
+         */
+        const festeZeit = person.fixed_paid_time === true;
         const arbeitszeit = eigene
           .filter((satz: AnyRow) => satz.state === "approved")
-          .reduce((summe: number, satz: AnyRow) => summe + Number(satz.approvedMinutes ?? satz.actualMinutes ?? 0), 0);
+          .reduce((summe: number, satz: AnyRow) => {
+            const gestempelt = Number(satz.approvedMinutes ?? satz.actualMinutes ?? 0) || 0;
+            const geplant = Number(satz.plannedMinutes || 0);
+            return summe + (festeZeit && geplant > 0 ? Math.max(gestempelt, geplant) : gestempelt);
+          }, 0);
 
         const soll = aufgaben
           .filter((aufgabe) => clean(aufgabe.employee_name) === name && clean(aufgabe.status).toLowerCase() !== "cancelled")

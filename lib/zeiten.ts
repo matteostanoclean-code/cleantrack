@@ -157,6 +157,8 @@ export type Zeitgrenzen = {
   fehler_freie_zeit: boolean;
   /** Ob eine nachgetragene Zeit zur Vorlage führt. */
   fehler_nachtrag: boolean;
+  /** Ist die Standortprüfung aus, zählt kein Standortfehler mehr. */
+  gps_aktiv: boolean;
 };
 
 export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
@@ -166,7 +168,8 @@ export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
   fehler_standort: true,
   fehler_standort_freigabe: true,
   fehler_freie_zeit: true,
-  fehler_nachtrag: true
+  fehler_nachtrag: true,
+  gps_aktiv: true
 };
 
 /**
@@ -256,8 +259,11 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
        * Prüfung liefe er ungeprüft in Lohn und Auswertung.
        */
       const gruende = [
-        grenzen.fehler_standort && ausserRadius,
-        grenzen.fehler_standort_freigabe && standortFehlt,
+        // Ohne Standortprüfung gibt es auch keinen Standortfehler. Sonst läge
+        // nach dem Abschalten alles in der Freigabe, was man gerade
+        // losgeworden ist.
+        grenzen.gps_aktiv && grenzen.fehler_standort && ausserRadius,
+        grenzen.gps_aktiv && grenzen.fehler_standort_freigabe && standortFehlt,
         grenzen.fehler_freie_zeit && !task,
         grenzen.fehler_nachtrag && nachgetragen,
         abweichungVorlegen(deviationMinutes, plannedMinutes, grenzen)

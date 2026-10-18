@@ -629,6 +629,20 @@ export default function MitarbeiterSeite() {
                               <input type="checkbox" checked={form.travel_time_allowed === true} onChange={(e) => setForm({ ...form, travel_time_allowed: e.target.checked })} className="h-5 w-5 accent-brand-600" />
                               <span className="text-[14px] text-ink-600">Fahrzeiterfassung in der App erlauben</span>
                             </label>
+                            {/*
+                              Normalfall ist die Stempelzeit. Dieser Haken ist
+                              die Ausnahme für feste Vereinbarungen — und er
+                              kürzt nie: Mehrarbeit wird zusätzlich bezahlt.
+                            */}
+                            <label className="flex cursor-pointer items-start gap-3">
+                              <input type="checkbox" checked={form.fixed_paid_time === true} onChange={(e) => setForm({ ...form, fixed_paid_time: e.target.checked })} className="mt-0.5 h-5 w-5 accent-brand-600" />
+                              <span>
+                                <span className="block text-[14px] text-ink-700">Feste bezahlte Zeit vereinbart</span>
+                                <span className="mt-0.5 block text-[13px] text-ink-400">
+                                  Bezahlt wird die eingeplante Zeit, auch wenn kürzer gestempelt wurde. Wer länger braucht, bekommt die Mehrarbeit zusätzlich. Ohne Haken zählt die Stempelzeit.
+                                </span>
+                              </span>
+                            </label>
                           </Abschnitt>
 
                           <Abschnitt titel="Urlaubsanspruch" text="Jährlicher Anspruch, unabhängig vom Startdatum.">

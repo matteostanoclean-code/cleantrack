@@ -371,7 +371,9 @@ export async function POST(request: Request) {
     const siteLat = pickNumber(site, ["latitude", "lat", "gps_latitude", "object_latitude"]);
     const siteLng = pickNumber(site, ["longitude", "lng", "lon", "gps_longitude", "object_longitude"]);
     // Ohne eigenen Radius am Objekt gilt die Toleranz aus den Einstellungen.
-    const standardRadius = (await zeitgrenzenLaden(auth.supabase)).gps_toleranz_m;
+    const zeitgrenzen = await zeitgrenzenLaden(auth.supabase);
+    const standardRadius = zeitgrenzen.gps_toleranz_m;
+    const gpsPflicht = zeitgrenzen.gps_aktiv;
     const allowedRadius = Math.round(pickNumber(site, ["allowed_radius_m", "radius_m", "gps_radius_m", "geofence_radius_m"]) ?? standardRadius);
     const gpsRequired = pickBoolean(site, ["gps_required", "geofence_required", "location_required"], false);
     const hasSiteGps = siteLat !== null && siteLng !== null;
@@ -405,22 +407,36 @@ export async function POST(request: Request) {
       expected_start_time: taskExpectedStart(task) || body.expectedStartTime || null
     };
 
-    if (!hasSiteGps) {
-      const errorMessage = "Für dieses Objekt fehlen GPS-Koordinaten. Bitte im Admin-Dashboard beim Objekt den Standort speichern. Stempeln ist bis dahin gesperrt.";
-      return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 409 });
-    }
+    /**
+     * Die GPS-Prüfung lässt sich in den Einstellungen abschalten.
+     *
+     * Wer ausschließlich über NFC stempelt, steht ohnehin am Objekt — der
+     * Aufkleber klebt dort. Dann ist der Standort eine zweite Hürde, die nur
+     * Fehlalarme erzeugt: in Kellern und Treppenhäusern findet kein Handy
+     * zuverlässig seine Position.
+     *
+     * Aus heißt wirklich aus: keine Sperre, kein Fehler, keine Vorlage in der
+     * Zeitenfreigabe. Aufgezeichnet wird der Standort trotzdem, wenn das Handy
+     * ihn liefert — er steht dann als Angabe da, nicht als Urteil.
+     */
+    if (gpsPflicht) {
+      if (!hasSiteGps) {
+        const errorMessage = "Für dieses Objekt fehlen GPS-Koordinaten. Bitte im Admin-Dashboard beim Objekt den Standort speichern. Stempeln ist bis dahin gesperrt.";
+        return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 409 });
+      }
 
-    if (gpsStatus === "missing_employee_position") {
-      const errorMessage = "GPS-Standort konnte nicht gelesen werden. Bitte Standortfreigabe erlauben und erneut stempeln.";
-      return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 400 });
-    }
+      if (gpsStatus === "missing_employee_position") {
+        const errorMessage = "GPS-Standort konnte nicht gelesen werden. Bitte Standortfreigabe erlauben und erneut stempeln.";
+        return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 400 });
+      }
 
-    // Einstempeln und Pausen sind an das Objekt gebunden. Ausstempeln nicht:
-    // wer erst zu Hause merkt, dass er vergessen hat, muss es trotzdem können.
-    // Der Eintrag wird dann markiert und geht zur Prüfung ins Büro.
-    if (gpsStatus === "outside_radius" && action !== "clock_out") {
-      const errorMessage = `Du bist ca. ${distance} m vom Objekt entfernt. Erlaubt sind ${allowedRadius} m. Bitte erst zum Objekt gehen.`;
-      return NextResponse.json({ ok: false, error: errorMessage, gpsStatus, distanceM: distance, allowedRadiusM: allowedRadius }, { status: 403 });
+      // Einstempeln und Pausen sind an das Objekt gebunden. Ausstempeln nicht:
+      // wer erst zu Hause merkt, dass er vergessen hat, muss es trotzdem können.
+      // Der Eintrag wird dann markiert und geht zur Prüfung ins Büro.
+      if (gpsStatus === "outside_radius" && action !== "clock_out") {
+        const errorMessage = `Du bist ca. ${distance} m vom Objekt entfernt. Erlaubt sind ${allowedRadius} m. Bitte erst zum Objekt gehen.`;
+        return NextResponse.json({ ok: false, error: errorMessage, gpsStatus, distanceM: distance, allowedRadiusM: allowedRadius }, { status: 403 });
+      }
     }
 
     let approvalPayload: Record<string, any> = {};

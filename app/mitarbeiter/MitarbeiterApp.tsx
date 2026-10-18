@@ -942,15 +942,13 @@ function Dashboard({ data, assignments, setActive, employeeName, onEmployeeChang
               {todayTasks.map((assignment) => (
                 <article key={assignment.id} className="w-[85%] shrink-0 snap-start rounded-2xl border border-paper-200 p-4">
                   <button onClick={() => onOpenAssignment(assignment)} className="block w-full text-left">
+                    {/* Oben die Leistung, fett der Kunde: danach sucht man. */}
                     <p className="flex items-center gap-2 text-[14px] font-medium text-amber-700">
                       <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-                      <span className="truncate">{assignment.tag}</span>
+                      <span className="truncate">{assignment.title}</span>
                     </p>
-                    <p className="mt-1.5 text-[18px] font-bold text-ink-900">{assignment.title}</p>
-                    <p className="mt-1 text-[14px] text-ink-400">
-                      {assignment.time}
-                      {plannedMinutesOf(assignment.raw) ? ` · ${hhmm(plannedMinutesOf(assignment.raw))} h` : ""}
-                    </p>
+                    <p className="mt-1.5 text-[18px] font-bold text-ink-900">{assignment.address}</p>
+                    <p className="mt-1 text-[14px] text-ink-400">{assignment.time}</p>
                   </button>
                   <div className="mt-3 flex items-center justify-between">
                     <StatusPill tone={assignment.done ? "success" : "neutral"}>{assignment.done ? "Erledigt" : "Offen"}</StatusPill>
@@ -1222,13 +1220,12 @@ function TaskRow({ assignment, onOpenAssignment, onStart }: { assignment: Assign
       <button onClick={() => onOpenAssignment?.(assignment)} className="min-w-0 flex-1 text-left">
         <p className="flex items-center gap-2 text-[14px] font-medium text-amber-700">
           <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-          <span className="truncate">{assignment.tag}</span>
+          <span className="truncate">{assignment.title}</span>
         </p>
-        <p className="mt-1.5 text-[17px] font-bold text-ink-900">{assignment.title}</p>
+        <p className="mt-1.5 text-[17px] font-bold text-ink-900">{assignment.address}</p>
         <p className="mt-1 text-[14px] text-ink-400">
           {formatDayMonthDE(assignment.date)}
           {start !== "—" ? `  ${start}${end !== "—" ? ` → ${end}` : ""} Uhr` : "  Zeit offen"}
-          {minutes ? ` · ${hhmm(minutes)} h` : ""}
         </p>
         {overdue ? <p className="mt-1 text-[13px] font-medium text-danger-600">Überfällig</p> : null}
       </button>
@@ -1323,7 +1320,6 @@ function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQualit
   }
 
   const priority = normalizePriority(task);
-  const priorityLabel = priority === "urgent" ? "Hoch" : priority === "overdue" ? "Überfällig" : "Mittel";
   const planned = plannedMinutesOf(task);
 
   return (
@@ -1354,7 +1350,15 @@ function TaskDetail({ data, authToken, taskId, onBack, onOpenClock, onOpenQualit
           <DetailRow icon="pin" label="Objekt" value={task.site || "Ohne Objekt"} hint={task.customer_name || undefined} />
           <DetailRow icon="list" label="Auftrag" value={task.task_category || task.task_type || "Reinigung"} />
           <DetailRow icon="user" label="Mitarbeiter" value={task.employee_name || "Nicht zugewiesen"} />
-          <DetailRow icon="priority" label="Priorität" value={priorityLabel} tone={priority === "overdue" ? "danger" : "default"} />
+          {/*
+            Keine Priorität am Einsatz. Eine Reinigung ist nicht "mittel
+            wichtig" — sie steht an oder nicht. Prioritäten gehören zu den
+            Aufgaben (Reklamation, Personal), dort entscheiden sie wirklich
+            etwas. Überfällig bleibt, das ist eine Tatsache und keine Stufe.
+          */}
+          {priority === "overdue" ? (
+            <DetailRow icon="warning" label="Hinweis" value="Dieser Einsatz ist überfällig" tone="danger" />
+          ) : null}
 
           <SectionHeading>Zeitangaben</SectionHeading>
           <DetailRow icon="calendar" label="Datum" value={formatDateDE(task.task_date)} />

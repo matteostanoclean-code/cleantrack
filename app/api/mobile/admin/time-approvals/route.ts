@@ -148,8 +148,20 @@ export async function PATCH(request: Request) {
      * Hat der Satz keine Zeitvorgabe, gibt es nichts zum Aufrunden.
      */
     const grenzen = await zeitgrenzenLaden(supabase);
+
+    /**
+     * Feste bezahlte Zeit ist eine Abmachung mit einer einzelnen Person, kein
+     * Betriebsgrundsatz. Deshalb zählt zuerst der Haken am Mitarbeiter, und
+     * erst danach der betriebsweite Schalter.
+     */
+    const personName = text(entry?.employee_name || employeeName);
+    const person = personName
+      ? (await supabase.from("employee_profiles").select("fixed_paid_time").eq("name", personName).maybeSingle()).data
+      : null;
+    const festeZeit = person?.fixed_paid_time === true;
+
     const aufgerundet =
-      grenzen.auf_soll_aufrunden && plannedMinutes > 0 && netMinutes < plannedMinutes;
+      (festeZeit || grenzen.auf_soll_aufrunden) && plannedMinutes > 0 && netMinutes < plannedMinutes;
     const approvedMinutes =
       action === "approve" ? (aufgerundet ? plannedMinutes : netMinutes) : Math.max(0, plannedMinutes);
     const statusValue = action === "approve" ? "approved" : "rejected";
