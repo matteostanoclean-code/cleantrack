@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeUpdateById } from "@/lib/safeWrite";
 import { urlaubsGutschrift } from "@/lib/urlaub";
+import { pushAnBuero, pushAnMitarbeiter, pushKlartext } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,7 @@ async function loadConflicts(supabase: any, absence: AnyRow) {
 
   const { data, error } = await supabase
     .from("tasks")
-    .select("id, title, site, employee_name, task_date, start_time, end_time, status, done, recurrence_group_id")
+    .select("id, title, site, employee_name, task_date, start_time, end_time, status, done, recurrence_group_id, notes, planned_minutes")
     .eq("employee_name", employeeName)
     .gte("task_date", startDate)
     .lte("task_date", endDate)
@@ -73,16 +74,91 @@ async function loadConflicts(supabase: any, absence: AnyRow) {
   return (data || []).filter(isActiveTask);
 }
 
-async function unassignConflicts(supabase: any, conflicts: AnyRow[], reason: string) {
-  const ids = conflicts.map((task) => clean(task.id)).filter(Boolean);
-  if (!ids.length) return 0;
-  const note = reason ? `Urlaubsplanung: ${reason}` : "Urlaubsplanung: Mitarbeiter wegen Abwesenheit entfernt.";
-  const { error } = await supabase
-    .from("tasks")
-    .update({ employee_name: null, notify_employee: false, notes: note })
-    .in("id", ids);
-  if (error) throw new Error(error.message);
-  return ids.length;
+/**
+ * Die Einsätze eines Abwesenden übernehmen.
+ *
+ * Vorher wurden sie nur freigegeben: Mitarbeiter raus, Einsatz steht ohne
+ * Namen da. Das ist ehrlich, aber niemand wird darauf gestoßen — der Einsatz
+ * liegt in einer Liste, die man ansehen muss. Jetzt landet er bei dem, der den
+ * Urlaub genehmigt, und der bekommt eine Nachricht aufs Handy. Wer ihn nicht
+ * selbst macht, verteilt ihn weiter; dafür ist der Planer da.
+ *
+ * Die vorhandene Notiz bleibt stehen, der Hinweis kommt dahinter. Deshalb wird
+ * Zeile für Zeile geschrieben statt alle auf einmal.
+ */
+async function einsaetzeUebernehmen(supabase: any, conflicts: AnyRow[], uebernehmer: string, hinweis: string) {
+  const ziel = clean(uebernehmer);
+  let zahl = 0;
+  for (const task of conflicts) {
+    const id = clean(task.id);
+    if (!id) continue;
+    const alteNotiz = clean(task.notes);
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        // Ohne Übernehmer bleibt es beim bisherigen Verhalten: Einsatz
+        // freigeben, damit er in "Einsätze ohne Mitarbeiter" auftaucht.
+        employee_name: ziel || null,
+        notify_employee: false,
+        notes: [alteNotiz, hinweis].filter(Boolean).join(" · ")
+      })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    zahl += 1;
+  }
+  return zahl;
+}
+
+/**
+ * Dem Übernehmer sagen, was jetzt auf ihm steht.
+ *
+ * Erzwungener Push: Die Nachricht geht immer raus, und wenn sie es nicht tut,
+ * sagt der Bericht warum. Eine Übergabe, von der man erst beim nächsten
+ * Öffnen der App erfährt, ist keine Übergabe.
+ */
+async function uebergabeMelden(supabase: any, uebernehmer: string, absence: AnyRow, conflicts: AnyRow[]) {
+  const ziel = clean(uebernehmer);
+  if (!ziel || !conflicts.length) return null;
+
+  const zeitraum = `${absence.start_date} bis ${absence.end_date || absence.start_date}`;
+  const liste = conflicts
+    .slice(0, 6)
+    .map((task) => `${clean(task.task_date).slice(0, 10)} ${clean(task.site) || clean(task.title) || "Einsatz"}`)
+    .join(", ");
+  const text = `${conflicts.length === 1 ? "Ein Einsatz" : `${conflicts.length} Einsätze`} von ${clean(absence.employee_name)} (${zeitraum}) stehen jetzt auf dir: ${liste}${conflicts.length > 6 ? " …" : ""}`;
+
+  await supabase.from("admin_notifications").insert({
+    title: "Einsätze übernommen",
+    message: text,
+    employee_name: ziel,
+    notification_type: "einsatz_uebernommen",
+    status: "open",
+    read: false,
+    created_at: todayIso()
+  });
+
+  let bericht = await pushAnMitarbeiter(
+    supabase,
+    ziel,
+    "Einsätze übernommen",
+    text,
+    "/mitarbeiter/admin/einsatzplaner",
+    "einsatz_uebernommen"
+  );
+
+  /**
+   * Hat der Name kein Gerät, geht die Nachricht ans Büro.
+   *
+   * Grund: Login- und Anzeigename können auseinanderlaufen — ein Gerät lag
+   * jahrelang unter "Matteo" statt "Matteo Stano" und hat deshalb nie etwas
+   * bekommen. Eine Übergabe darf nicht an einer Schreibweise scheitern.
+   */
+  if (bericht.grund === "kein_geraet" || bericht.grund === "kein_empfaenger") {
+    const ersatz = await pushAnBuero(supabase, "Einsätze übernommen", text, "/mitarbeiter/admin/einsatzplaner", "einsatz_uebernommen");
+    if (ersatz.zugestellt > 0) bericht = ersatz;
+  }
+
+  return { anzahl: conflicts.length, push: bericht, hinweis: pushKlartext(bericht, ziel) };
 }
 
 export async function POST(request: Request) {
@@ -139,6 +215,25 @@ export async function POST(request: Request) {
       }
     }
 
+    /**
+     * Gleich genehmigt eingetragen heißt: die Einsätze in dem Zeitraum macht
+     * niemand mehr. Sie gehen auf den, der den Urlaub einträgt — sonst stünden
+     * sie weiter auf dem Abwesenden und die Planung sähe besetzt aus.
+     */
+    let uebergabe = null;
+    if (clean(payload.status).toLowerCase() === "approved") {
+      const conflicts = await loadConflicts(supabase, data);
+      if (conflicts.length) {
+        await einsaetzeUebernehmen(
+          supabase,
+          conflicts,
+          guard.auth.profile.name,
+          `Übernommen von ${guard.auth.profile.name}, weil ${employeeName} vom ${startDate} bis ${endDate} abwesend ist.`
+        );
+        uebergabe = await uebergabeMelden(supabase, guard.auth.profile.name, data, conflicts);
+      }
+    }
+
     await notifyEmployee(
       supabase,
       data,
@@ -146,7 +241,7 @@ export async function POST(request: Request) {
       `Für dich wurde eine Abwesenheit vom ${startDate} bis ${endDate} eingetragen.`
     );
 
-    return NextResponse.json({ ok: true, item: data, gutschrift });
+    return NextResponse.json({ ok: true, item: data, gutschrift, uebergabe });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Abwesenheit konnte nicht erstellt werden.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
@@ -199,11 +294,13 @@ export async function PATCH(request: Request) {
        * Kunde anruft. Freigegeben taucht er in "Einsätze ohne Mitarbeiter"
        * auf und wird neu verteilt.
        */
-      const released = await unassignConflicts(
+      const released = await einsaetzeUebernehmen(
         supabase,
         conflicts,
-        `${absence.employee_name} ist vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend.`
+        profile.name,
+        `Übernommen von ${profile.name}, weil ${absence.employee_name} vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend ist.`
       );
+      const uebergabe = await uebergabeMelden(supabase, profile.name, absence, conflicts);
 
       const { data, error } = await supabase
         .from("absence_requests")
@@ -239,7 +336,7 @@ export async function PATCH(request: Request) {
           gutschrift.minuten > 0
             ? `Dir werden ${gutschrift.tage} Tage mit zusammen ${Math.floor(gutschrift.minuten / 60)}:${String(gutschrift.minuten % 60).padStart(2, "0")} Stunden gutgeschrieben.`
             : "",
-          released ? `${released} Einsätze wurden neu zur Planung freigegeben.` : ""
+          released ? `${released} Einsätze hat ${profile.name} übernommen.` : ""
         ].filter(Boolean).join(" ")
       );
 
@@ -248,6 +345,7 @@ export async function PATCH(request: Request) {
         item: { ...data, ...(gespeicherteZeile || {}) },
         conflicts: conflicts.length,
         conflictsReleased: released,
+        uebergabe,
         gutschrift,
         hinweis: gutschriftGespeichert
           ? null
@@ -306,8 +404,9 @@ export async function PATCH(request: Request) {
 
     if (action === "unassign_conflicts") {
       const conflicts = await loadConflicts(supabase, absence);
-      const released = await unassignConflicts(supabase, conflicts, `${absence.employee_name} ist vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend.`);
-      return NextResponse.json({ ok: true, conflicts: conflicts.length, conflictsReleased: released });
+      const released = await einsaetzeUebernehmen(supabase, conflicts, profile.name, `Übernommen von ${profile.name}, weil ${absence.employee_name} vom ${absence.start_date} bis ${absence.end_date || absence.start_date} abwesend ist.`);
+      const uebergabe = await uebergabeMelden(supabase, profile.name, absence, conflicts);
+      return NextResponse.json({ ok: true, conflicts: conflicts.length, conflictsReleased: released, uebergabe });
     }
 
     return NextResponse.json({ ok: false, error: "Unbekannte Urlaubs-Aktion." }, { status: 400 });

@@ -27,6 +27,11 @@ type Row = Record<string, any>;
 type Mitarbeiter = { id: string; name: string; rolle: string; anspruch: number };
 type Objekt = { id: string; name: string; customer_name: string | null };
 type Feiertag = { name: string; datum: string };
+type AnyFrei = {
+  datum: string;
+  objekte: Array<{ name: string; grund: string; einsaetze: number }>;
+  personen: Array<{ name: string; entfallen: number; bleibt: number; objekte: string[] }>;
+};
 
 const ZELLE = 9;
 
@@ -110,6 +115,9 @@ export default function UrlaubsplanerSeite() {
   const [objekte, setObjekte] = useState<Objekt[]>([]);
   const [schliessungen, setSchliessungen] = useState<Row[]>([]);
   const [feiertage, setFeiertage] = useState<Feiertag[]>([]);
+  const [kunden, setKunden] = useState<Array<{ name: string }>>([]);
+  const [freigestellt, setFreigestellt] = useState<AnyFrei[]>([]);
+  const [pushHinweis, setPushHinweis] = useState<string | null>(null);
 
   // Zwei Klicks ergeben einen Zeitraum: erst der Anfang, dann das Ende.
   const [auswahl, setAuswahl] = useState<{ zeile: string; art: "person" | "objekt"; von: string } | null>(null);
@@ -135,6 +143,8 @@ export default function UrlaubsplanerSeite() {
       setObjekte(ergebnis.objekte || []);
       setSchliessungen(ergebnis.schliessungen || []);
       setFeiertage(ergebnis.feiertage || []);
+      setKunden(ergebnis.kunden || []);
+      setFreigestellt(ergebnis.freigestellt || []);
     } catch (ladeFehler) {
       setFehler(ladeFehler instanceof Error ? ladeFehler.message : "Der Planer konnte nicht geladen werden.");
     } finally {
@@ -218,7 +228,14 @@ export default function UrlaubsplanerSeite() {
       const ergebnis = await antwort.json();
       if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Konnte nicht angelegt werden.");
       setPersonBlatt(null);
-      setMeldung("Abwesenheit eingetragen.");
+      const uebergabe = ergebnis.uebergabe;
+      setMeldung(
+        uebergabe?.anzahl
+          ? `Abwesenheit eingetragen. ${uebergabe.anzahl === 1 ? "Ein Einsatz steht" : `${uebergabe.anzahl} Einsätze stehen`} jetzt auf dir.`
+          : "Abwesenheit eingetragen."
+      );
+      // Ging der Push nicht raus, steht hier warum — statt still zu scheitern.
+      setPushHinweis(uebergabe?.hinweis || null);
       await holen();
     } catch (speicherFehler) {
       setFehler(speicherFehler instanceof Error ? speicherFehler.message : "Konnte nicht angelegt werden.");
@@ -240,7 +257,11 @@ export default function UrlaubsplanerSeite() {
       const ergebnis = await antwort.json();
       if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Konnte nicht gespeichert werden.");
       setObjektBlatt(null);
-      setMeldung("Kundenurlaub eingetragen.");
+      setMeldung(
+        Number(ergebnis.anzahl) > 1
+          ? `Kundenurlaub für ${ergebnis.anzahl} Objekte eingetragen: ${(ergebnis.objekte || []).join(", ")}.`
+          : "Kundenurlaub eingetragen."
+      );
       await holen();
     } catch (speicherFehler) {
       setFehler(speicherFehler instanceof Error ? speicherFehler.message : "Konnte nicht gespeichert werden.");
@@ -381,6 +402,7 @@ export default function UrlaubsplanerSeite() {
         ) : null}
         {fehler ? <div className="mt-4 rounded-xl bg-danger-100 px-4 py-3 text-[14px] text-danger-700">{fehler}</div> : null}
         {meldung ? <div className="mt-4 rounded-xl bg-success-100 px-4 py-3 text-[14px] text-success-700">{meldung}</div> : null}
+        {pushHinweis ? <div className="mt-2 rounded-xl bg-amber-100 px-4 py-3 text-[14px] text-amber-800">{pushHinweis}</div> : null}
 
         <p className="mt-4 text-[13px] text-ink-400">
           {auswahl
@@ -475,6 +497,56 @@ export default function UrlaubsplanerSeite() {
           </div>
         </div>
 
+        {/*
+          Wer wird frei. Das ist der eigentliche Zweck des Kundenurlaubs:
+          nicht zu wissen, dass zu ist, sondern wen man an dem Tag wegschicken
+          kann, ohne dass ein Kunde es merkt.
+        */}
+        {freigestellt.length ? (
+          <div className="mt-6 rounded-2xl border border-paper-200 bg-white p-5">
+            <p className="text-[15px] font-semibold">Wer durch Kundenurlaub frei wird</p>
+            <p className="mt-0.5 text-[13px] text-ink-400">
+              Tage, an denen Einsätze ausfallen, weil beim Kunden zu ist. „Ganz frei" heißt: an dem Tag steht sonst nichts mehr an.
+            </p>
+            <div className="mt-4 space-y-3">
+              {freigestellt.map((tag) => (
+                <div key={tag.datum} className="rounded-xl border border-paper-200 p-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-[14px] font-semibold text-ink-900">{datumText(tag.datum)}</span>
+                    <span className="text-[12px] text-ink-400">
+                      {tag.objekte.map((objekt) => `${objekt.name} (${objekt.grund})`).join(" · ")}
+                    </span>
+                  </div>
+                  {tag.personen.length ? (
+                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                      {tag.personen.map((person) => (
+                        <div key={person.name} className="flex items-center justify-between gap-3 rounded-lg bg-paper-100 px-3 py-2">
+                          <span className="min-w-0">
+                            <span className="block truncate text-[14px] font-medium text-ink-800">{person.name}</span>
+                            <span className="block text-[12px] text-ink-400">
+                              {(person.entfallen / 60).toFixed(1).replace(".", ",")} Std. fallen weg
+                            </span>
+                          </span>
+                          <span
+                            className={cx(
+                              "shrink-0 rounded-md px-2 py-1 text-[12px] font-semibold",
+                              person.bleibt > 0 ? "bg-amber-100 text-amber-800" : "bg-success-100 text-success-700"
+                            )}
+                          >
+                            {person.bleibt > 0 ? `noch ${(person.bleibt / 60).toFixed(1).replace(".", ",")} Std.` : "ganz frei"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[13px] text-ink-400">An dem Tag war dort niemand eingeteilt.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {/* Legende */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-ink-500">
           {ARTEN.map((art) => (
@@ -560,14 +632,35 @@ export default function UrlaubsplanerSeite() {
             </div>
 
             <div className="mt-4 space-y-4">
+              {/*
+                Kunde oder einzelnes Objekt. Macht der Kunde Betriebsferien,
+                macht er an allen seinen Objekten zu — MG hat Nobel und Carl,
+                die Kirchengemeinde St. Martin und den Kindergarten. Das
+                einzeln einzutragen vergisst man beim zweiten.
+              */}
               <label className="block">
-                <span className="block text-[13px] text-ink-500">Objekt</span>
-                <select value={clean(objektBlatt.work_site_id)} onChange={(e) => setObjektBlatt({ ...objektBlatt, work_site_id: e.target.value })} className={`${feldClass} mt-1.5`}>
+                <span className="block text-[13px] text-ink-500">Wer macht zu</span>
+                <select
+                  value={clean(objektBlatt.customer_name) ? `k:${clean(objektBlatt.customer_name)}` : clean(objektBlatt.work_site_id) ? `o:${clean(objektBlatt.work_site_id)}` : ""}
+                  onChange={(e) => {
+                    const wert = e.target.value;
+                    if (wert.startsWith("k:")) setObjektBlatt({ ...objektBlatt, customer_name: wert.slice(2), work_site_id: "" });
+                    else setObjektBlatt({ ...objektBlatt, customer_name: "", work_site_id: wert.slice(2) });
+                  }}
+                  className={`${feldClass} mt-1.5`}
+                  disabled={Boolean(objektBlatt.id)}
+                >
                   <option value="">Bitte wählen</option>
-                  {objekte.map((objekt) => (
-                    <option key={objekt.id} value={objekt.id}>{objekt.name}{objekt.customer_name ? ` · ${objekt.customer_name}` : ""}</option>
-                  ))}
+                  <optgroup label="Ganzer Kunde, alle Objekte">
+                    {kunden.map((kunde) => <option key={kunde.name} value={`k:${kunde.name}`}>{kunde.name}</option>)}
+                  </optgroup>
+                  <optgroup label="Einzelnes Objekt">
+                    {objekte.map((objekt) => (
+                      <option key={objekt.id} value={`o:${objekt.id}`}>{objekt.name}{objekt.customer_name ? ` · ${objekt.customer_name}` : ""}</option>
+                    ))}
+                  </optgroup>
                 </select>
+                {objektBlatt.id ? <span className="mt-1 block text-[12px] text-ink-400">Beim Ändern bleibt das Objekt, wie es ist.</span> : null}
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">

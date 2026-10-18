@@ -25,35 +25,74 @@ function istAdminRolle(rolle: unknown) {
   return wert === "admin" || wert === "objektleiter" || wert === "object_lead" || wert === "objectleader";
 }
 
+/**
+ * Was beim Versand herauskam.
+ *
+ * Bisher ist der Versand still gescheitert: keine Schlüssel, kein Gerät, kein
+ * Hinweis. Dann wartet jemand auf eine Nachricht, die nie losgeschickt wurde.
+ * Wichtige Meldungen geben den Bericht deshalb bis in die Oberfläche durch.
+ */
+export type PushBericht = {
+  geraete: number;
+  zugestellt: number;
+  fehler: number;
+  grund: "ok" | "keine_schluessel" | "kein_empfaenger" | "kein_geraet" | "zustellung_fehlgeschlagen";
+};
+
 /** Verschickt an alle hinterlegten Geräte der genannten Personen. */
-async function anNamen(supabase: Supabase, namen: string[], titel: string, text: string, ziel: string, art: string) {
+async function anNamen(supabase: Supabase, namen: string[], titel: string, text: string, ziel: string, art: string): Promise<PushBericht> {
   const env = schluessel();
-  if (!env || !namen.length) return;
+  if (!env) return { geraete: 0, zugestellt: 0, fehler: 0, grund: "keine_schluessel" };
+  if (!namen.length) return { geraete: 0, zugestellt: 0, fehler: 0, grund: "kein_empfaenger" };
 
   const { data: abos } = await supabase
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
     .in("employee_name", namen);
 
-  if (!abos || !abos.length) return;
+  if (!abos || !abos.length) return { geraete: 0, zugestellt: 0, fehler: 0, grund: "kein_geraet" };
 
   webpush.setVapidDetails(env.subject, env.publicKey, env.privateKey);
   const inhalt = JSON.stringify({ title: titel, body: text, url: ziel, type: art });
 
+  let zugestellt = 0;
+  let fehler = 0;
   for (const abo of abos) {
     try {
       await webpush.sendNotification(
         { endpoint: abo.endpoint, keys: { p256dh: abo.p256dh, auth: abo.auth } },
         inhalt
       );
-    } catch (fehler) {
-      const status = (fehler as { statusCode?: number }).statusCode;
+      zugestellt += 1;
+    } catch (grund) {
+      fehler += 1;
+      const status = (grund as { statusCode?: number }).statusCode;
       // Abgelaufene Anmeldungen aufräumen, sonst sammeln sich tote Geräte an.
       if (status === 404 || status === 410) {
         await supabase.from("push_subscriptions").delete().eq("id", abo.id);
       }
     }
   }
+
+  return {
+    geraete: abos.length,
+    zugestellt,
+    fehler,
+    grund: zugestellt > 0 ? "ok" : "zustellung_fehlgeschlagen"
+  };
+}
+
+/** Klartext für die Oberfläche, wenn eine wichtige Nachricht nicht rausging. */
+export function pushKlartext(bericht: PushBericht, empfaenger: string) {
+  if (bericht.grund === "ok") {
+    return bericht.fehler
+      ? `Push an ${empfaenger}: ${bericht.zugestellt} von ${bericht.geraete} Geräten erreicht.`
+      : null;
+  }
+  if (bericht.grund === "keine_schluessel") return "Push ist auf dem Server nicht eingerichtet (VAPID-Schlüssel fehlen). Die Meldung steht nur in der App.";
+  if (bericht.grund === "kein_geraet") return `${empfaenger} hat kein Gerät für Push angemeldet. Einmal in der App unter Einstellungen Push aktivieren.`;
+  if (bericht.grund === "kein_empfaenger") return "Für die Meldung war niemand hinterlegt.";
+  return `Die Push-Nachricht an ${empfaenger} wurde von keinem Gerät angenommen.`;
 }
 
 /** An einen einzelnen Mitarbeiter. */
@@ -66,8 +105,8 @@ export async function pushAnMitarbeiter(
   art = "chat_message"
 ) {
   const sauber = String(name || "").trim();
-  if (!sauber) return;
-  await anNamen(supabase, [sauber], titel, text, ziel, art);
+  if (!sauber) return { geraete: 0, zugestellt: 0, fehler: 0, grund: "kein_empfaenger" } as PushBericht;
+  return anNamen(supabase, [sauber], titel, text, ziel, art);
 }
 
 /** An alle Administratoren und Objektleiter. */
@@ -88,5 +127,5 @@ export async function pushAnBuero(
     .map((row: any) => String(row.name || "").trim())
     .filter(Boolean);
 
-  await anNamen(supabase, namen, titel, text, ziel, art);
+  return anNamen(supabase, namen, titel, text, ziel, art);
 }
