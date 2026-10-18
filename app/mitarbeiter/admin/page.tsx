@@ -19,6 +19,8 @@ type Aufgaben = {
   ohneMitarbeiter: number;
   chat: number;
   notizen: number;
+  nichtGestempelt: number;
+  ueberZeit: number;
   meldungen: number;
 };
 
@@ -600,6 +602,21 @@ export default function AdminDashboardPage() {
                     dringend
                   />
                   <AufgabenKachel
+                    zahl={aufgaben.nichtGestempelt}
+                    titel="Vergessen zu stempeln"
+                    hinweis="Nicht ausgestempelt oder gar nicht erst gebucht"
+                    icon="stopwatch"
+                    href="/mitarbeiter/admin/zeiten"
+                    dringend
+                  />
+                  <AufgabenKachel
+                    zahl={aufgaben.ueberZeit}
+                    titel="Über der Zeitvorgabe"
+                    hinweis="Länger gebraucht als eingeplant"
+                    icon="priority"
+                    href="/mitarbeiter/admin/zeiten"
+                  />
+                  <AufgabenKachel
                     zahl={aufgaben.zeiten}
                     titel="Zeiten prüfen"
                     hinweis={aufgaben.zeitenProblem > 0 ? `${aufgaben.zeitenProblem} mit Standortfehler oder ohne Ausstempeln` : "Abweichungen zur Zeitvorgabe"}
@@ -704,17 +721,25 @@ export default function AdminDashboardPage() {
                 <p className="font-bold">Kommende Einsätze</p>
                 <button onClick={() => load(token)} className="text-xs font-bold text-brand-700">Neu laden</button>
               </div>
-              <div className="space-y-3">
+              {/*
+                Eine Zeile je Einsatz statt einer Karte. Fett der Mitarbeiter
+                und das Objekt — danach sucht man hier —, die Leistung steht
+                klein dahinter. So passen doppelt so viele auf den Schirm.
+              */}
+              <div className="divide-y divide-paper-200">
                 {upcomingTasks.map((task) => (
-                  <div key={task.id} className="rounded-2xl border border-paper-300 bg-paper-100 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-bold">{task.title || "Einsatz"}</p>
-                        <p className="text-xs text-ink-400">{dateText(task.task_date)} · {task.start_time || "—"} - {task.end_time || "—"}</p>
-                        <p className="mt-1 text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"} · {task.site || task.customer_name || "Ohne Objekt"}</p>
-                      </div>
-                      <StatusPill value={task.done ? "done" : task.status} />
+                  <div key={task.id} className="flex items-baseline justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-[14px] font-semibold text-ink-900">
+                        {task.employee_name || "Ohne Mitarbeiter"}
+                        <span className="font-normal text-ink-400"> · </span>
+                        {task.site || task.customer_name || "Ohne Objekt"}
+                      </p>
+                      <p className="truncate text-[12px] text-ink-400">
+                        {dateText(task.task_date)} · {task.start_time || "—"} – {task.end_time || "—"} · {task.title || "Einsatz"}
+                      </p>
                     </div>
+                    <StatusPill value={task.done ? "done" : task.status} />
                   </div>
                 ))}
                 {!upcomingTasks.length && <EmptyCard title="Keine kommenden Einsätze" text="Hier werden nur heutige und zukünftige Termine angezeigt." />}

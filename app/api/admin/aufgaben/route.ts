@@ -79,9 +79,48 @@ export async function GET(request: Request) {
       for (const task of stamm.data || []) tasksById.set(task.id, task);
     }
 
-    const records = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
+    const grenzen = await zeitgrenzenLaden(supabase);
+    const records = buildRecords(entries, tasksById, grenzen);
     const zeitenOffen = records.filter((record: AnyRow) => record.state === "open").length;
     const zeitenProblem = records.filter((record: AnyRow) => record.locationIssue || record.incomplete).length;
+
+    /**
+     * Vergessen zu stempeln — zwei verschiedene Fälle.
+     *
+     * Angefangen und nie beendet: es gibt ein Einstempeln ohne Ausstempeln.
+     * Das fällt hier auf, solange der Satz unvollständig ist.
+     *
+     * Gar nicht gestempelt: der Einsatz war gestern oder früher, ist nicht
+     * abgehakt, und zu ihm gibt es keine einzige Buchung. Dafür müssen die
+     * vergangenen Einsätze eigens geholt werden, die Liste oben beginnt heute.
+     */
+    const nichtAusgestempelt = records.filter((record: AnyRow) => record.incomplete).length;
+
+    const vergangene = await supabase
+      .from("tasks")
+      .select("id, task_date, employee_name, status, done")
+      .gte("task_date", von)
+      .lt("task_date", heute)
+      .limit(2000);
+
+    const mitBuchung = new Set(entries.map((eintrag) => text(eintrag.task_id)).filter(Boolean));
+    const nieGestempelt = ((vergangene.data || []) as AnyRow[]).filter((task) => {
+      if (task.done) return false;
+      if (text(task.status || "open").toLowerCase() === "cancelled") return false;
+      if (!text(task.employee_name)) return false;
+      return !mitBuchung.has(text(task.id));
+    }).length;
+
+    const nichtGestempelt = nichtAusgestempelt + nieGestempelt;
+
+    /**
+     * Über der Zeitvorgabe. Dieselbe Grenze wie in der Zeitenfreigabe, damit
+     * die Kachel und die Liste dieselbe Zahl meinen.
+     */
+    const ueberZeit = records.filter((record: AnyRow) => {
+      const abweichung = Number(record.deviationMinutes || 0);
+      return Number(record.plannedMinutes || 0) > 0 && abweichung > Math.max(0, grenzen.ueber_minuten);
+    }).length;
 
     const urlaub = absences.filter(istOffen).length;
     const materialOffen = material.filter(istOffen).length;
@@ -102,6 +141,8 @@ export async function GET(request: Request) {
       gesamt,
       zeiten: zeitenOffen,
       zeitenProblem,
+      nichtGestempelt,
+      ueberZeit,
       urlaub,
       material: materialOffen,
       qualitaet: qualitaetOffen,

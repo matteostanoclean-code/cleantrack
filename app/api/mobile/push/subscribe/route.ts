@@ -79,12 +79,28 @@ export async function POST(request: Request) {
         break;
       }
 
-      // PostgREST nennt die unbekannte Spalte im Text. Die fliegt raus, dann
-      // noch einmal. Ist nichts mehr wegzulassen, ist es ein echter Fehler.
-      const treffer = /column "?([a-z_]+)"? .*(does not exist|schema cache)/i.exec(error.message)
-        || /'([a-z_]+)' column/i.exec(error.message);
-      const spalte = treffer?.[1];
-      if (spalte && spalte in felder) {
+      /**
+       * PostgREST nennt die unbekannte Spalte im Text, aber in mehreren
+       * Formulierungen:
+       *   Could not find the 'active' column of 'push_subscriptions' …
+       *   column "active" of relation … does not exist
+       *
+       * Ein einzelnes Muster reicht dafür nicht. Schlimmer noch: ein Muster
+       * auf "column <name>" trifft bei der ersten Fassung auf "column of" und
+       * hält "of" für den Spaltennamen — dann wird nichts weggelassen und die
+       * Anmeldung scheitert, obwohl sie es nicht müsste. Genau daran ist der
+       * Push hier gescheitert.
+       *
+       * Deshalb: alle Namen einsammeln, die im Text vorkommen, und den ersten
+       * nehmen, den wir wirklich schreiben wollten.
+       */
+      const namen = [
+        ...error.message.matchAll(/'([a-z_]+)'/gi),
+        ...error.message.matchAll(/"([a-z_]+)"/gi)
+      ].map((treffer) => treffer[1]);
+
+      const spalte = namen.find((name) => name in felder);
+      if (spalte) {
         delete felder[spalte];
         continue;
       }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import InstallHinweis from "@/components/InstallHinweis";
 import LiveKamera from "@/components/LiveKamera";
+import { pushAnmelden } from "@/lib/pushAnmeldung";
 import {
   ActionBar,
   Banner,
@@ -4181,48 +4182,9 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
       if (istApple && !alsAppInstalliert) {
         throw new Error("Auf dem iPhone gehen Meldungen nur, wenn die App auf dem Home-Bildschirm liegt. Unten auf das Teilen-Symbol, dann „Zum Home-Bildschirm“, und von dort aus noch einmal anmelden.");
       }
-      if (!pushSupported()) throw new Error("Dieser Browser kann keine Meldungen empfangen.");
-      if (!vapidPublicKey) throw new Error("Der Schlüssel NEXT_PUBLIC_VAPID_PUBLIC_KEY fehlt in Vercel. Ohne ihn kann kein Gerät angemeldet werden.");
-
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") throw new Error("Benachrichtigungen wurden nicht erlaubt.");
-
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      await navigator.serviceWorker.ready;
-      /**
-       * Eine bestehende Anmeldung nur weiterverwenden, wenn sie zum aktuellen
-       * Serverschlüssel gehört.
-       *
-       * Sonst bleibt eine alte Anmeldung ewig stehen und nimmt zwar
-       * Nachrichten an, zugestellt wird aber nichts. Genau so lag hier ein
-       * Gerät seit Mai im System und hat nie etwas bekommen.
-       */
-      const existing = await registration.pushManager.getSubscription();
-      let subscription = existing;
-      if (existing) {
-        const roh = existing.options?.applicationServerKey;
-        const alsText = roh
-          ? btoa(String.fromCharCode(...new Uint8Array(roh))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-          : "";
-        if (alsText !== vapidPublicKey.replace(/=+$/, "")) {
-          await existing.unsubscribe().catch(() => {});
-          subscription = null;
-        }
-      }
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-        });
-      }
-
-      const response = await fetch("/api/mobile/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ subscription })
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Push konnte nicht gespeichert werden.");
+      // Derselbe Weg wie beim Start der App, damit beide nicht auseinanderlaufen.
+      const ergebnis = await pushAnmelden(authToken, vapidPublicKey, true);
+      if (!ergebnis.ok) throw new Error(ergebnis.text);
 
       setEnabled(true);
       setStatus("Push ist aktiv. Dieses Gerät kann jetzt Meldungen empfangen.");
@@ -4547,6 +4509,32 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   const [employeeName, setEmployeeName] = useState("");
   const [authToken, setAuthToken] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  /**
+   * Beim Start stillschweigend für Push anmelden.
+   *
+   * Nach einer Neuinstallation ist die Erlaubnis auf dem Gerät oft noch da,
+   * die Anmeldung beim Server aber weg. Dann wartet jemand auf Nachrichten,
+   * die nirgends ankommen, und niemand merkt es — genau so lag hier ein Gerät
+   * seit Mai im System.
+   *
+   * Gefragt wird nichts: Ist die Erlaubnis nicht erteilt, passiert hier gar
+   * nichts und es bleibt beim Knopf in den Einstellungen. Eine Abfrage
+   * ungefragt vor die Nase zu setzen, wird von den meisten weggetippt — und
+   * dann ist sie für immer blockiert.
+   */
+  useEffect(() => {
+    if (!authToken) return;
+    let abgebrochen = false;
+    (async () => {
+      const ergebnis = await pushAnmelden(authToken, process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "", false);
+      if (!abgebrochen && ergebnis.ok && ergebnis.neu) {
+        // Nur beim wirklich neuen Gerät eine Spur hinterlassen, sonst nichts.
+        console.info("Push: Gerät neu angemeldet.");
+      }
+    })();
+    return () => { abgebrochen = true; };
+  }, [authToken]);
 
   /**
    * Daten holen. Mit silent bleibt der Bildschirm stehen und wird im
