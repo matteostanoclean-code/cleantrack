@@ -21,6 +21,15 @@ export const metadata: Metadata = {
   title: "Schichtklar",
   description: "Mobile Einsatz-, Zeit- und Stunden-App für Gebäudereinigung",
   manifest: "/manifest.json",
+  // Ohne diese Angaben nimmt sich der Browser irgendein Bild aus dem Ordner.
+  // Das Zeichen gehört auch in den Tab und auf den Home-Bildschirm des iPhones.
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" }
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }]
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
