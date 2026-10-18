@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import ServiceWorkerAnmeldung from "@/components/ServiceWorkerAnmeldung";
 
 const bodyFont = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -37,7 +38,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="de" className={`${bodyFont.variable} ${stampFont.variable}`}>
-      <body>{children}</body>
+      <body>
+        <ServiceWorkerAnmeldung />
+        {children}
+      </body>
     </html>
   );
 }
