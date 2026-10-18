@@ -4185,11 +4185,32 @@ function PushSettingsScreen({ authToken, onBack }: { authToken: string; onBack: 
 
       const registration = await navigator.serviceWorker.register("/sw.js");
       await navigator.serviceWorker.ready;
+      /**
+       * Eine bestehende Anmeldung nur weiterverwenden, wenn sie zum aktuellen
+       * Serverschlüssel gehört.
+       *
+       * Sonst bleibt eine alte Anmeldung ewig stehen und nimmt zwar
+       * Nachrichten an, zugestellt wird aber nichts. Genau so lag hier ein
+       * Gerät seit Mai im System und hat nie etwas bekommen.
+       */
       const existing = await registration.pushManager.getSubscription();
-      const subscription = existing || await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-      });
+      let subscription = existing;
+      if (existing) {
+        const roh = existing.options?.applicationServerKey;
+        const alsText = roh
+          ? btoa(String.fromCharCode(...new Uint8Array(roh))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+          : "";
+        if (alsText !== vapidPublicKey.replace(/=+$/, "")) {
+          await existing.unsubscribe().catch(() => {});
+          subscription = null;
+        }
+      }
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
+      }
 
       const response = await fetch("/api/mobile/push/subscribe", {
         method: "POST",
