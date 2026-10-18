@@ -4509,6 +4509,10 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
 export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId = "", initialAction = "stempeln" }: { initialTab?: string; initialWorkSiteId?: string; initialAction?: "stempeln" | "material" }) {
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
   const [siteHinweis, setSiteHinweis] = useState("");
+  // Gesetzt, wenn am gescannten Objekt kein eigener Einsatz steht. Dann wird
+  // Mithilfe angeboten, statt den Mitarbeiter in eine Sackgasse zu schicken.
+  const [mithilfeObjekt, setMithilfeObjekt] = useState<string | null>(null);
+  const [mithilfeLaeuft, setMithilfeLaeuft] = useState(false);
   const [siteErledigt, setSiteErledigt] = useState(false);
   const [autoStempeln, setAutoStempeln] = useState(false);
   const [data, setData] = useState<AppData | null>(null);
@@ -4635,15 +4639,51 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       return;
     }
 
-    if (passend.length) {
-      setActive("schedule");
-      setSiteHinweis("Für dieses Objekt ist heute kein Einsatz geplant. Wähle den passenden Einsatz aus.");
-      return;
-    }
-
+    // Kein eigener Einsatz heute: Mithilfe anbieten. Wer mitgefahren ist, soll
+    // seine Stunden buchen können, ohne dass vorher jemand daran gedacht hat.
+    setMithilfeObjekt(initialWorkSiteId);
     setActive("schedule");
-    setSiteHinweis("Dieses Objekt gehört nicht zu deinen Einsätzen.");
+    setSiteHinweis(
+      passend.length
+        ? "Für dieses Objekt ist heute kein Einsatz auf dich eingetragen."
+        : "Dieses Objekt gehört nicht zu deinen Einsätzen."
+    );
   }, [initialWorkSiteId, siteErledigt, data]);
+
+  /**
+   * Mithilfe: einen eigenen Einsatz am gescannten Objekt anlegen und direkt
+   * einstempeln. Der Server legt ihn nur an, wenn dort heute wirklich jemand
+   * anderes eingeteilt ist — freies Stempeln an beliebigen Objekten bleibt zu.
+   */
+  async function mithelfen() {
+    if (!mithilfeObjekt) return;
+    setMithilfeLaeuft(true);
+    try {
+      const antwort = await fetch("/api/mobile/mithilfe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ work_site_id: mithilfeObjekt })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) {
+        setSiteHinweis(ergebnis.error || "Das hat nicht geklappt.");
+        setMithilfeObjekt(null);
+        return;
+      }
+      setMithilfeObjekt(null);
+      setSiteHinweis("");
+      await loadData();
+      if (ergebnis.task?.id) {
+        setSelectedTaskId(ergebnis.task.id);
+        setActive("clock");
+        setAutoStempeln(true);
+      }
+    } catch {
+      setSiteHinweis("Keine Verbindung. Versuch es gleich noch einmal.");
+    } finally {
+      setMithilfeLaeuft(false);
+    }
+  }
 
   async function handleLogin(token: string) {
     setAuthToken(token);
@@ -4720,9 +4760,24 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       {!loading && !error && siteHinweis ? (
         <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <p className="text-[14px] leading-relaxed text-amber-900">{siteHinweis}</p>
+          {/*
+            Mithilfe: Wer mitgegangen ist, hat hier keinen eigenen Einsatz und
+            konnte bisher gar nicht stempeln. Statt einer Sackgasse ein Knopf,
+            der ihm einen eigenen Einsatz anlegt und ihn einstempelt.
+          */}
+          {mithilfeObjekt ? (
+            <button
+              type="button"
+              disabled={mithilfeLaeuft}
+              onClick={mithelfen}
+              className="mt-3 w-full rounded-xl bg-amber-900 px-4 py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+            >
+              {mithilfeLaeuft ? "Einen Moment …" : "Ich helfe hier heute mit"}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => setSiteHinweis("")}
+            onClick={() => { setSiteHinweis(""); setMithilfeObjekt(null); }}
             className="mt-2 text-[13px] font-semibold text-amber-900 underline"
           >
             Verstanden
