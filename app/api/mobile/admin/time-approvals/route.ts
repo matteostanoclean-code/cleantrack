@@ -138,7 +138,20 @@ export async function PATCH(request: Request) {
     const grossMinutes = workedFromCorrection ?? recordedMinutes;
     const netMinutes = Math.max(0, grossMinutes - breakMinutes) + travelMinutes;
 
-    const approvedMinutes = action === "approve" ? netMinutes : Math.max(0, plannedMinutes);
+    /**
+     * Aufrunden auf die Sollzeit, wenn es in den Einstellungen so steht.
+     *
+     * Nur nach oben und nur beim Freigeben: Wer zehn Minuten früher fertig
+     * war, bekommt die geplante Zeit bezahlt. Wer länger gebraucht hat, behält
+     * seine echte Zeit — sonst würde Mehrarbeit stillschweigend gekürzt.
+     *
+     * Hat der Satz keine Zeitvorgabe, gibt es nichts zum Aufrunden.
+     */
+    const grenzen = await zeitgrenzenLaden(supabase);
+    const aufgerundet =
+      grenzen.auf_soll_aufrunden && plannedMinutes > 0 && netMinutes < plannedMinutes;
+    const approvedMinutes =
+      action === "approve" ? (aufgerundet ? plannedMinutes : netMinutes) : Math.max(0, plannedMinutes);
     const statusValue = action === "approve" ? "approved" : "rejected";
     const nowIso = new Date().toISOString();
 

@@ -82,6 +82,10 @@ type TimeRecord = {
   adminResponse: string | null;
   employeeReason: string | null;
   locationIssue: boolean;
+  ausserRadius?: boolean;
+  standortFehlt?: boolean;
+  nachgetragen?: boolean;
+  ohneEinsatz?: boolean;
   windowIssue?: boolean;
   windowFrom?: string | null;
   windowTo?: string | null;
@@ -346,7 +350,11 @@ export default function TimeApprovalPage() {
                   {records.map((record) => {
                     const tone = stateTone(record);
                     const fehler: string[] = [];
-                    if (record.locationIssue) fehler.push("Standortfehler");
+                    if (record.ausserRadius) fehler.push("Nicht am Objekt");
+    if (record.standortFehlt) fehler.push("Ohne Standort");
+    if (record.ohneEinsatz) fehler.push("Ohne Einsatz");
+    if (record.nachgetragen) fehler.push("Nachgetragen");
+    if (record.locationIssue && !record.ausserRadius && !record.standortFehlt) fehler.push("Standortfehler");
                     if (record.incomplete) fehler.push("Kein Ausstempeln");
                     if (record.windowIssue) fehler.push("Ausserhalb Zeitfenster");
                     if (Math.abs(record.deviationMinutes) > 5) fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
@@ -419,7 +427,10 @@ export default function TimeApprovalPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-[16px] font-bold text-ink-900">{formatDateDE(record.date)}</p>
-                        {record.locationIssue ? <StatusPill tone="info">Standort stimmt nicht</StatusPill> : null}
+                        {record.ausserRadius ? <StatusPill tone="info">Nicht am Objekt</StatusPill> : null}
+                      {record.standortFehlt ? <StatusPill tone="info">Ohne Standort</StatusPill> : null}
+                      {record.ohneEinsatz ? <StatusPill tone="warn">Ohne Einsatz</StatusPill> : null}
+                      {record.nachgetragen ? <StatusPill tone="warn">Nachgetragen</StatusPill> : null}
                         {record.incomplete ? <StatusPill tone="warn">Kein Ausstempeln</StatusPill> : null}
                       </div>
                       <p className="mt-1 text-[14px] text-ink-400">{record.employeeName} · {record.siteName}</p>

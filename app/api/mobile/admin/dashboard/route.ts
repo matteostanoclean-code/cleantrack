@@ -410,7 +410,11 @@ function taskPayload(body: AnyRow, customer?: AnyRow | null, site?: AnyRow | nul
     recurrence_interval: nullableNumber(body.recurrence_interval),
     recurrence_days: Array.isArray(body.recurrence_days) ? body.recurrence_days : null,
     recurrence_end_date: nullableText(body.recurrence_end_date),
-    notify_employee: booleanValue(body.notify_employee, true)
+    notify_employee: booleanValue(body.notify_employee, true),
+    // Mithilfe: dieser Einsatz gehört zu einem anderen. Gesetzt, wenn das Büro
+    // jemanden dazustellt oder die App ihn beim Scannen angelegt hat.
+    helfer_zu: nullableUuid(body.helfer_zu),
+    auto_erstellt: booleanValue(body.auto_erstellt, false)
   };
 }
 

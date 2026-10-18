@@ -151,6 +151,11 @@ export async function zeitgrenzenLaden(supabase: AnyRow) {
     unter_minuten: zahl(werte.zeit.unter_minuten, VORGABEN.zeit.unter_minuten),
     ueber_minuten: zahl(werte.zeit.ueber_minuten, VORGABEN.zeit.ueber_minuten),
     fehler_standort: werte.zeit.fehler_standort !== false,
+    fehler_standort_freigabe: werte.zeit.fehler_standort_freigabe !== false,
+    fehler_freie_zeit: werte.zeit.fehler_freie_zeit !== false,
+    fehler_nachtrag: werte.zeit.fehler_nachtrag !== false,
+    /** Freigegebene Zeiten auf die Sollzeit aufrunden. */
+    auf_soll_aufrunden: werte.zeit.auf_soll_aufrunden === true,
     /** Radius fürs Stempeln, wenn am Objekt keiner hinterlegt ist. */
     gps_toleranz_m: zahl(werte.zeit.gps_toleranz_m, VORGABEN.zeit.gps_toleranz_m),
     gps_aktiv: werte.zeit.gps_aktiv !== false

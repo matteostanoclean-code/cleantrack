@@ -141,6 +141,8 @@ export default function EinsatzplanerSeite() {
 
   const [blattOffen, setBlattOffen] = useState(false);
   const [form, setForm] = useState<Row>({ ...leererEinsatz });
+  // Wer bei einem bestehenden Einsatz mithelfen soll.
+  const [helfer, setHelfer] = useState("");
 
   const load = useCallback(async (currentToken?: string) => {
     const t = currentToken || token;
@@ -224,6 +226,49 @@ export default function EinsatzplanerSeite() {
     setBlattOffen(true);
     setError(null);
     setMessage(null);
+  }
+
+  /**
+   * Denselben Einsatz für eine zweite Person anlegen.
+   *
+   * Bewusst eine Kopie und kein Feld für mehrere Namen: an jedem Einsatz
+   * hängen Stempelzeiten, Freigabe und Lohn einer Person. Zwei Namen in einer
+   * Zeile hieße, das alles noch einmal aufzuteilen.
+   */
+  async function helferAnlegen() {
+    if (!form.id || !helfer) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const objekt = objekte.find((row) => row.id === clean(form.work_site_id));
+      const antwort = await fetch("/api/mobile/admin/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...form,
+          id: undefined,
+          type: "task",
+          site: clean(objekt?.name),
+          customer_id: clean(objekt?.customer_id) || form.customer_id,
+          employee_name: helfer,
+          title: `Mithilfe bei ${clean(form.employee_name) || "Einsatz"}`,
+          helfer_zu: form.id,
+          // Einmalig: die Serie hängt am ursprünglichen Einsatz, nicht am Helfer.
+          repeat_mode: "none",
+          recurrence_days: null,
+          recurrence_end_date: null
+        })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Helfer konnte nicht angelegt werden.");
+      setMessage(`${helfer} ist dazugestellt.`);
+      setHelfer("");
+      await load();
+    } catch (fehler) {
+      setError(fehler instanceof Error ? fehler.message : "Helfer konnte nicht angelegt werden.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function speichern(weitere = false) {
@@ -540,6 +585,36 @@ export default function EinsatzplanerSeite() {
               <Feld label="Kommentar">
                 <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className={feldClass} />
               </Feld>
+
+              {/*
+                Helfer dazu. Ein Einsatz hängt an genau einer Person — wenn
+                zwei hinfahren, braucht es zwei Einsätze. Das von Hand zweimal
+                einzutippen vergisst man, und dann fehlen die Stunden des
+                Zweiten in Lohn und Auswertung.
+              */}
+              {form.id ? (
+                <div className="rounded-xl border border-paper-200 p-4">
+                  <p className="text-[15px] font-semibold text-ink-900">Helfer dazu</p>
+                  <p className="mt-0.5 text-[13px] text-ink-400">
+                    Legt denselben Einsatz für eine zweite Person an: gleiches Objekt, gleicher Tag, gleiche Zeitvorgabe. Beide stempeln dann getrennt.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <select value={helfer} onChange={(e) => setHelfer(e.target.value)} className={`${feldClass} max-w-[260px]`}>
+                      <option value="">Wer hilft mit?</option>
+                      {mitarbeiter
+                        .filter((person) => clean(person.name) !== clean(form.employee_name))
+                        .map((person) => <option key={person.id} value={clean(person.name)}>{clean(person.name)}</option>)}
+                    </select>
+                    <button
+                      onClick={helferAnlegen}
+                      disabled={!helfer || saving}
+                      className="rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] font-semibold text-ink-700 disabled:opacity-40"
+                    >
+                      Dazustellen
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 border-t border-paper-200 px-5 py-3">

@@ -97,12 +97,33 @@ function spansFromEntries(entries: AnyRow[]) {
   return { workMinutes, breakMinutes };
 }
 
-function entryHasLocationProblem(entry: AnyRow) {
+/**
+ * Zwei verschiedene Standortprobleme, die lange in einem Topf lagen.
+ *
+ * Außerhalb des Radius heißt: gestempelt, aber nicht am Objekt. Ohne
+ * Koordinaten heißt: das Handy hat den Standort nicht hergegeben. Das erste
+ * ist ein Verdacht, das zweite erst mal nur eine fehlende Angabe — deshalb
+ * lassen sie sich in den Einstellungen getrennt scharf schalten.
+ */
+function ausserhalbRadius(entry: AnyRow) {
   if (entry.success === false) return true;
   const distance = numberOrNull(entry.distance_m);
   const radius = numberOrNull(entry.allowed_radius_m);
-  if (distance !== null && radius !== null && distance > radius) return true;
+  return distance !== null && radius !== null && distance > radius;
+}
+
+function ohneStandort(entry: AnyRow) {
   return numberOrNull(entry.latitude) === null || numberOrNull(entry.longitude) === null;
+}
+
+function entryHasLocationProblem(entry: AnyRow) {
+  return ausserhalbRadius(entry) || ohneStandort(entry);
+}
+
+/** Nachgetragen heißt: nicht gestempelt, sondern hinterher eingetragen. */
+function istNachtrag(entry: AnyRow) {
+  const quelle = `${text(entry.source)} ${text(entry.entry_type)}`.toLowerCase();
+  return quelle.includes("nachtrag") || quelle.includes("manual");
 }
 
 function actionLabel(action?: string | null) {
@@ -130,13 +151,22 @@ export type Zeitgrenzen = {
   ueber_minuten: number;
   /** Ob ein Standortfehler allein schon zur Vorlage führt. */
   fehler_standort: boolean;
+  /** Ob eine fehlende Standortfreigabe zur Vorlage führt. */
+  fehler_standort_freigabe: boolean;
+  /** Ob eine Buchung ohne geplanten Einsatz zur Vorlage führt. */
+  fehler_freie_zeit: boolean;
+  /** Ob eine nachgetragene Zeit zur Vorlage führt. */
+  fehler_nachtrag: boolean;
 };
 
 export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
   unter_prozent: 25,
   unter_minuten: 10,
   ueber_minuten: TOLERANCE_MINUTES,
-  fehler_standort: true
+  fehler_standort: true,
+  fehler_standort_freigabe: true,
+  fehler_freie_zeit: true,
+  fehler_nachtrag: true
 };
 
 /**
@@ -182,6 +212,9 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
     const actualMinutes = numberOrNull(clockOut?.actual_minutes) ?? workMinutes;
     const deviationMinutes = plannedMinutes ? actualMinutes - plannedMinutes : 0;
     const locationIssue = sorted.some(entryHasLocationProblem);
+    const ausserRadius = sorted.some(ausserhalbRadius);
+    const standortFehlt = sorted.some(ohneStandort);
+    const nachgetragen = sorted.some(istNachtrag);
     const incomplete = !clockOut;
 
     /**
@@ -214,8 +247,22 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
     else if (rawStatus === "pending") state = "open";
     else if (incomplete) state = "open";
     else {
-      const standortZaehlt = grenzen.fehler_standort && locationIssue;
-      state = abweichungVorlegen(deviationMinutes, plannedMinutes, grenzen) || standortZaehlt ? "open" : "approved";
+      /**
+       * Die Fehlerarten aus den Einstellungen. Jede für sich reicht, um den
+       * Satz vorzulegen — was dort aus ist, wird still durchgewunken.
+       *
+       * Besonders wichtig ist "ohne Einsatz": so ein Satz hat gar keine
+       * Zeitvorgabe, an der sich eine Abweichung messen ließe. Ohne diese
+       * Prüfung liefe er ungeprüft in Lohn und Auswertung.
+       */
+      const gruende = [
+        grenzen.fehler_standort && ausserRadius,
+        grenzen.fehler_standort_freigabe && standortFehlt,
+        grenzen.fehler_freie_zeit && !task,
+        grenzen.fehler_nachtrag && nachgetragen,
+        abweichungVorlegen(deviationMinutes, plannedMinutes, grenzen)
+      ];
+      state = gruende.some(Boolean) ? "open" : "approved";
     }
 
     const day = localDayIso(clockIn?.created_at);
@@ -245,6 +292,12 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
       adminResponse: clockOut?.admin_response || null,
       employeeReason: clockOut?.reason || clockOut?.note || null,
       locationIssue,
+      // Getrennt ausgewiesen, damit die Zeitenfreigabe sagen kann, warum ein
+      // Satz vorliegt, statt nur dass er vorliegt.
+      ausserRadius,
+      standortFehlt,
+      nachgetragen,
+      ohneEinsatz: !task,
       incomplete,
       windowIssue,
       windowFrom: fensterVon !== null ? text(task?.start_time).slice(0, 5) : null,
