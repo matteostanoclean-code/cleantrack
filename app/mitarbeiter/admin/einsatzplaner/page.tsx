@@ -390,7 +390,12 @@ export default function EinsatzplanerSeite() {
 
         {/* Wochenraster: Zeile je Mitarbeiter */}
         <div className="mt-4 overflow-x-auto rounded-2xl border border-paper-200 bg-white">
-          <div style={{ minWidth: "1120px" }}>
+          {/*
+            220 für die Namensspalte, dazu mindestens 150 je Tag. Enger wird
+            der Objektname zu früh abgeschnitten; schmaler als das soll das
+            Raster lieber seitlich scrollen, als unleserlich zu werden.
+          */}
+          <div style={{ minWidth: 220 + 7 * 150 }}>
             <div className="flex border-b border-paper-200">
               <div className="w-[220px] shrink-0 px-4 py-3">
                 <p className="text-[12px] font-bold uppercase tracking-wide text-ink-400">Mitarbeiter</p>
@@ -400,7 +405,14 @@ export default function EinsatzplanerSeite() {
                 const datum = parseIso(tag);
                 const wochenende = datum.getDay() === 0 || datum.getDay() === 6;
                 return (
-                  <div key={tag} className={cx("flex-1 border-l border-paper-200 px-2 py-3 text-center", wochenende && "bg-paper-100", tag === heute && "bg-brand-50")}>
+                  /*
+                    min-w-0 ist hier Pflicht, nicht Kosmetik: ohne das schrumpft
+                    ein Flex-Element nie unter die Breite seines Inhalts. In den
+                    Zeilen darunter stehen lange Objektnamen, die Spalten sind
+                    dort also unterschiedlich breit geworden — und der Kopf lief
+                    gegen die Karten aus dem Tritt.
+                  */
+                  <div key={tag} className={cx("min-w-0 flex-1 border-l border-paper-200 px-2 py-3 text-center", wochenende && "bg-paper-100", tag === heute && "bg-brand-50")}>
                     <p className={cx("text-[13px] font-semibold", tag === heute ? "text-brand-700" : "text-ink-700")}>
                       {new Intl.DateTimeFormat("de-DE", { weekday: "short" }).format(datum)}, {datum.getDate()}.
                     </p>
@@ -436,7 +448,7 @@ export default function EinsatzplanerSeite() {
                     const datum = parseIso(tag);
                     const wochenende = datum.getDay() === 0 || datum.getDay() === 6;
                     return (
-                      <div key={tag} className={cx("min-h-[92px] flex-1 border-l border-paper-200 p-1.5", wochenende && "bg-paper-100/60", tag === heute && "bg-brand-50/40")}>
+                      <div key={tag} className={cx("min-h-[92px] min-w-0 flex-1 border-l border-paper-200 p-1.5", wochenende && "bg-paper-100/60", tag === heute && "bg-brand-50/40")}>
                         {eigene.slice(0, maxProTag).map((task) => (
                           <button
                             key={task.id}
@@ -448,7 +460,7 @@ export default function EinsatzplanerSeite() {
                           >
                             <span className="block text-[11px] text-ink-400">{zeitText(task)}</span>
                             <span className="block truncate text-[12px] font-semibold text-ink-900">{clean(task.site) || clean(task.customer_name) || "Ohne Objekt"}</span>
-                            <span className="mt-0.5 inline-block truncate rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            <span className="mt-0.5 inline-block max-w-full truncate rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
                               {clean(task.title) || "Einsatz"}
                             </span>
                           </button>
