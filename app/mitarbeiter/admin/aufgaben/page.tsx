@@ -575,6 +575,27 @@ export default function AufgabenSeite() {
                     <Feld label="Beschreibung">
                       <textarea value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={7} className={feldClass} />
                     </Feld>
+
+                    {/*
+                      Bilder aus dem Kundenportal. Nur anzeigen, nicht
+                      bearbeiten: was der Kunde geschickt hat, ist Beleg und
+                      wird hier nicht angefasst.
+                    */}
+                    {Array.isArray(form.photo_urls) && form.photo_urls.length ? (
+                      <div>
+                        <p className="text-[13px] text-ink-500">
+                          {form.photo_urls.length === 1 ? "Ein Bild" : `${form.photo_urls.length} Bilder`}
+                          {clean(form.quelle) === "kunde" ? " vom Kunden" : ""}
+                        </p>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          {form.photo_urls.map((adresse: string) => (
+                            <a key={adresse} href={adresse} target="_blank" rel="noreferrer" className="block">
+                              <img src={adresse} alt="" className="h-24 w-full rounded-lg border border-paper-200 object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
 

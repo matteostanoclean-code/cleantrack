@@ -45,6 +45,16 @@ const leererKunde: Row = {
   tags: [] as string[]
 };
 
+/** Portal eingeschaltet und Link vorhanden. Beides muss stimmen. */
+function portalAktiv(kunde: Row) {
+  return kunde.portal_aktiv === true && String(kunde.portal_token || "").trim().length > 0;
+}
+
+function portalLink(kunde: Row) {
+  const basis = typeof window === "undefined" ? "" : window.location.origin;
+  return `${basis}/portal/${String(kunde.portal_token || "").trim()}`;
+}
+
 function clean(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -136,6 +146,30 @@ export default function KundenSeite() {
     setBlattOffen(true);
     setError(null);
     setMessage(null);
+  }
+
+  /** Portal-Zugang ein- oder ausschalten, oder einen neuen Link erzeugen. */
+  async function portalSetzen(was: "an" | "aus" | "erneuern") {
+    if (!form.id) return;
+    if (was === "erneuern" && !window.confirm("Neuen Link erzeugen? Der alte funktioniert danach sofort nicht mehr.")) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const antwort = await fetch("/api/admin/kundenportal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: form.id, was })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Das hat nicht geklappt.");
+      setForm({ ...form, portal_token: ergebnis.kunde?.portal_token || "", portal_aktiv: ergebnis.kunde?.portal_aktiv === true });
+      setMessage(was === "aus" ? "Zugang gesperrt." : was === "erneuern" ? "Neuer Link erzeugt. Der alte ist ungültig." : "Portal eingeschaltet.");
+      await load();
+    } catch (fehler) {
+      setError(fehler instanceof Error ? fehler.message : "Das hat nicht geklappt.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function bearbeiten(kunde: Row) {
@@ -310,6 +344,53 @@ export default function KundenSeite() {
                 <Feld label="E-Mail"><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={feldClass} /></Feld>
                 <Feld label="Telefon"><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={feldClass} /></Feld>
               </div>
+
+              {/*
+                Kundenportal. Nur bei einem gespeicherten Kunden, sonst gäbe
+                es nichts, woran der Link hängen könnte.
+              */}
+              {form.id ? (
+                <div className="rounded-2xl border border-paper-200 bg-paper-100/70 p-3">
+                  <p className="text-[13px] font-semibold text-ink-700">Kundenportal</p>
+                  <p className="mt-0.5 text-[12px] leading-relaxed text-ink-400">
+                    Der Kunde sieht, an welchen Tagen gereinigt wurde, und kann mit Foto reklamieren. Keine Zeiten,
+                    keine Preise, keine Namen. Wer den Link hat, kommt rein — gib ihn nur an den Ansprechpartner.
+                  </p>
+
+                  {portalAktiv(form) ? (
+                    <>
+                      <div className="mt-3 flex items-center gap-2 rounded-xl border border-paper-200 bg-white px-3 py-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-600">{portalLink(form)}</span>
+                        <button
+                          type="button"
+                          onClick={() => { navigator.clipboard?.writeText(portalLink(form)); setMessage("Link kopiert."); }}
+                          className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white"
+                        >
+                          Kopieren
+                        </button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <a href={portalLink(form)} target="_blank" rel="noreferrer" className="rounded-lg border border-paper-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700">
+                          Ansehen
+                        </a>
+                        <button type="button" onClick={() => portalSetzen("erneuern")} disabled={saving} className="rounded-lg border border-paper-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 disabled:opacity-50">
+                          Neuen Link erzeugen
+                        </button>
+                        <button type="button" onClick={() => portalSetzen("aus")} disabled={saving} className="rounded-lg border border-danger-500/40 px-3 py-1.5 text-[12px] font-semibold text-danger-600 disabled:opacity-50">
+                          Zugang sperren
+                        </button>
+                      </div>
+                      <p className="mt-2 text-[12px] text-ink-400">
+                        „Neuen Link erzeugen" macht den alten sofort ungültig — danach den neuen verschicken.
+                      </p>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => portalSetzen("an")} disabled={saving} className="mt-3 rounded-xl bg-brand-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50">
+                      Portal einschalten
+                    </button>
+                  )}
+                </div>
+              ) : null}
 
               <div className="rounded-2xl border border-paper-200 bg-paper-100/70 p-3">
                 <p className="mb-2 text-[13px] font-semibold text-ink-700">Rechnungsanschrift</p>
