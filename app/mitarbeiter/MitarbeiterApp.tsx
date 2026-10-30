@@ -721,6 +721,34 @@ function formatHM(seconds: number) {
   return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
+/**
+ * Wie lange an diesem Einsatz bisher gearbeitet wurde, in Minuten.
+ *
+ * Nur für die Rückfrage beim Ausstempeln gedacht, nicht für den Lohn — den
+ * rechnet der Server aus denselben Buchungen noch einmal selbst. Pausen
+ * zählen nicht mit, sonst käme die Frage auch bei langen Pausen.
+ */
+function gearbeiteteMinuten(entries: RawTimeEntry[], bis = Date.now()) {
+  const sortiert = [...entries]
+    .filter((eintrag) => eintrag.action && isSuccessfulTimeEntry(eintrag))
+    .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+  let summe = 0;
+  let laeuftSeit: number | null = null;
+  for (const eintrag of sortiert) {
+    const zeit = eintrag.created_at ? new Date(eintrag.created_at).getTime() : null;
+    if (zeit === null) continue;
+    if (eintrag.action === "clock_in" || eintrag.action === "break_end") {
+      laeuftSeit = zeit;
+    } else if ((eintrag.action === "break_start" || eintrag.action === "clock_out") && laeuftSeit !== null) {
+      summe += zeit - laeuftSeit;
+      laeuftSeit = null;
+    }
+  }
+  if (laeuftSeit !== null) summe += bis - laeuftSeit;
+  return Math.max(0, Math.round(summe / 60000));
+}
+
 function latestClock(entries: RawTimeEntry[]) {
   const latest = [...entries].filter((entry) => entry.action && isSuccessfulTimeEntry(entry)).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
   if (!latest) return { status: "idle" as ClockStatus, startedAt: null as number | null };
@@ -1475,6 +1503,8 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
   const [lastGps, setLastGps] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
   const [reasonPrompt, setReasonPrompt] = useState<{ action: "clock_in" | "break_start" | "break_end" | "clock_out"; message: string } | null>(null);
   const [reasonText, setReasonText] = useState("");
+  // Rückfrage beim deutlich zu frühen Ausstempeln.
+  const [leistungFrage, setLeistungFrage] = useState<{ fehlend: number; geplant: number; bisher: number } | null>(null);
   const [geoCheck, setGeoCheck] = useState<{ distance: number; allowed: number; ok: boolean; accuracy: number | null; latitude: number; longitude: number } | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [checkingGeo, setCheckingGeo] = useState(false);
@@ -1540,8 +1570,28 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id, selectedSiteHasGps]);
 
-  async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out", reason?: string) {
+  async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out", reason?: string, leistungBestaetigt = false) {
     if (!data?.employee) return;
+
+    /**
+     * Deutlich früher fertig als eingeplant? Dann einmal nachfragen, bevor
+     * ausgestempelt wird.
+     *
+     * Nicht als Kontrolle gedacht, sondern als Erinnerung: Wer in der Hälfte
+     * der Zeit fertig ist, hat meistens etwas übersehen, das im
+     * Leistungsverzeichnis steht. Die Frage kostet einen Fingertipp, eine
+     * Reklamation kostet einen Anruf und eine Nachreinigung.
+     */
+    if (action === "clock_out" && !leistungBestaetigt && selectedTask) {
+      const geplant = plannedMinutesOf(selectedTask);
+      const bisher = gearbeiteteMinuten(selectedTaskEntries);
+      // Dreißig Minuten: lieber einmal zu viel gefragt als eine Nachreinigung.
+      const schwelle = 30;
+      if (geplant > 0 && geplant - bisher >= schwelle) {
+        setLeistungFrage({ fehlend: geplant - bisher, geplant, bisher });
+        return;
+      }
+    }
     if (!selectedTask) {
       setMessage("Bitte zuerst im Einsatzplan einen Termin öffnen. Manuelles Buchen ohne Termin ist gesperrt.");
       return;
@@ -1797,6 +1847,46 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
           hint={`${entry.work_site_name || "Ohne Objekt"}${typeof entry.distance_m === "number" ? ` · ${entry.distance_m} m vom Objekt` : ""}`}
         />
       )) : <p className="px-4 py-3 text-[14px] text-ink-400">Heute wurde noch nicht gestempelt.</p>}
+
+      {/*
+        Rückfrage beim deutlich zu frühen Ausstempeln. Zwei Knöpfe, und der
+        rechte ist nicht der bequemere: Wer "Nein" tippt, kommt zurück zur
+        Schicht und arbeitet weiter. Es gibt keinen Weg, die Frage wegzutippen,
+        ohne sich zu entscheiden.
+      */}
+      {leistungFrage ? (
+        <BottomSheet
+          title="Kurz nachgefragt"
+          onClose={() => setLeistungFrage(null)}
+          footer={
+            <div className="flex w-full gap-2">
+              <Button variant="neutral" full onClick={() => setLeistungFrage(null)}>
+                Nein, ich mache weiter
+              </Button>
+              <Button
+                variant="primary"
+                full
+                disabled={saving || locating}
+                onClick={() => { setLeistungFrage(null); stamp("clock_out", undefined, true); }}
+              >
+                {saving ? "Sende…" : "Ja, alles erledigt"}
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-[16px] font-semibold text-ink-900">
+            Sind alle Aufgaben aus dem Leistungsverzeichnis erledigt?
+          </p>
+          <p className="pt-2 text-[14px] leading-relaxed text-ink-500">
+            Du bist {hhmm(leistungFrage.fehlend)} Std. früher fertig als eingeplant
+            ({hhmm(leistungFrage.bisher)} von {hhmm(leistungFrage.geplant)} Std.).
+            Das kann passen — schau nur einmal kurz nach, ob nichts übersehen wurde.
+          </p>
+          <p className="pt-2 text-[13px] text-ink-400">
+            Deine Antwort wird mitgespeichert.
+          </p>
+        </BottomSheet>
+      ) : null}
 
       {reasonPrompt ? (
         <BottomSheet

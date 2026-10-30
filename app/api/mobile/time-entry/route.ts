@@ -404,7 +404,11 @@ export async function POST(request: Request) {
       distance_m: distance,
       allowed_radius_m: hasSiteGps ? allowedRadius : null,
       created_at: nowIso,
-      expected_start_time: taskExpectedStart(task) || body.expectedStartTime || null
+      expected_start_time: taskExpectedStart(task) || body.expectedStartTime || null,
+      // Hat jemand beim früheren Ausstempeln bestätigt, dass das
+      // Leistungsverzeichnis abgearbeitet ist? Wird mitgeschrieben, damit es
+      // bei einer Reklamation nachlesbar ist.
+      leistung_bestaetigt: body.leistungBestaetigt === true ? true : null
     };
 
     /**

@@ -577,6 +577,24 @@ export default function AufgabenSeite() {
                     </Feld>
 
                     {/*
+                      Wer zuletzt an dem Objekt war. Eine Angabe, keine
+                      Zuweisung — wer dort war, hat die Beschwerde nicht
+                      automatisch verursacht.
+                    */}
+                    {form.zuletzt_dort?.name ? (
+                      <div className="rounded-xl border border-paper-200 bg-paper-100/70 p-3">
+                        <p className="text-[13px] font-semibold text-ink-700">Zuletzt dort</p>
+                        <p className="mt-0.5 text-[15px] text-ink-900">
+                          {form.zuletzt_dort.name}
+                          <span className="text-ink-400"> · {datumText(form.zuletzt_dort.datum)}</span>
+                        </p>
+                        <p className="mt-1 text-[12px] text-ink-400">
+                          Letzte Buchung an diesem Objekt vor der Meldung. Zum Zuweisen oben bei „Zugewiesen an".
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {/*
                       Bilder aus dem Kundenportal. Nur anzeigen, nicht
                       bearbeiten: was der Kunde geschickt hat, ist Beleg und
                       wird hier nicht angefasst.

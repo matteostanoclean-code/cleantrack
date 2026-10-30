@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert } from "@/lib/safeWrite";
+import { zeitNeuVerteilen } from "@/lib/mithilfe";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,10 @@ export async function POST(request: Request) {
     )[0];
 
     const objekt = (await supabase.from("work_sites").select("name, customer_name").eq("id", objektId).maybeSingle()).data as AnyRow | null;
-    const minuten = Number(vorbild.planned_minutes) || Number(vorbild.max_minutes) || 0;
+    // Ohne eigene Zeit anlegen: gleich danach wird das Volumen des
+    // Einsatzes auf alle Beteiligten aufgeteilt. Stuende hier die volle
+    // Vorgabe, waere die Summe der Gruppe doppelt so gross wie der Auftrag.
+    const minuten = 0;
 
     const ergebnis = await safeInsert(supabase, "tasks", {
       title: `Mithilfe bei ${clean(vorbild.employee_name)}`,
@@ -116,10 +120,13 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString()
     });
 
+    // Jetzt das Volumen des Einsatzes auf alle Beteiligten aufteilen.
+    const aufteilung = await zeitNeuVerteilen(supabase, vorbild.id);
+
     // Das Büro soll sehen, dass jemand mitgegangen ist, den niemand geplant hat.
     await supabase.from("admin_notifications").insert({
       title: "Mithilfe am Objekt",
-      message: `${eigenerName} hilft heute bei ${clean(vorbild.employee_name)} an ${clean(objekt?.name) || "einem Objekt"} mit. Der Einsatz wurde automatisch angelegt.`,
+      message: `${eigenerName} hilft heute bei ${clean(vorbild.employee_name)} an ${clean(objekt?.name) || "einem Objekt"} mit.${aufteilung ? ` Die Zeitvorgabe von ${Math.round(aufteilung.gesamt / 60 * 10) / 10} Std. ist jetzt auf ${aufteilung.anzahl} Personen aufgeteilt.` : ""}`,
       employee_name: eigenerName,
       notification_type: "mithilfe",
       status: "open",

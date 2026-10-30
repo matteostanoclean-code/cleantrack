@@ -240,29 +240,24 @@ export default function EinsatzplanerSeite() {
     setSaving(true);
     setError(null);
     try {
-      const objekt = objekte.find((row) => row.id === clean(form.work_site_id));
-      const antwort = await fetch("/api/mobile/admin/dashboard", {
+      // Eigener Weg, damit die Zeitaufteilung dieselbe ist wie beim
+      // Dazukommen per Aufkleber.
+      const antwort = await fetch("/api/admin/mithilfe", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          ...form,
-          id: undefined,
-          type: "task",
-          site: clean(objekt?.name),
-          customer_id: clean(objekt?.customer_id) || form.customer_id,
-          employee_name: helfer,
-          title: `Mithilfe bei ${clean(form.employee_name) || "Einsatz"}`,
-          helfer_zu: form.id,
-          // Einmalig: die Serie hängt am ursprünglichen Einsatz, nicht am Helfer.
-          repeat_mode: "none",
-          recurrence_days: null,
-          recurrence_end_date: null
-        })
+        body: JSON.stringify({ task_id: form.id, employee_name: helfer })
       });
       const ergebnis = await antwort.json();
       if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Helfer konnte nicht angelegt werden.");
-      setMessage(`${helfer} ist dazugestellt.`);
+
+      const aufteilung = ergebnis.aufteilung;
+      setMessage(
+        aufteilung
+          ? `${helfer} ist dazugestellt. ${stundenText(aufteilung.gesamt)} Std. sind jetzt auf ${aufteilung.anzahl} Personen aufgeteilt, je ${stundenText(aufteilung.jeweils)} Std.`
+          : `${helfer} ist dazugestellt.`
+      );
       setHelfer("");
+      setBlattOffen(false);
       await load();
     } catch (fehler) {
       setError(fehler instanceof Error ? fehler.message : "Helfer konnte nicht angelegt werden.");

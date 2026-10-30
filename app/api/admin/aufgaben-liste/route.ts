@@ -88,10 +88,53 @@ export async function GET(request: Request) {
       supabase.from("customers").select("id, name").order("name", { ascending: true }).limit(500)
     ]);
 
+    /**
+     * Wer war zuletzt dort?
+     *
+     * Bei einer Reklamation ist das die erste Frage. Bewusst nur eine Angabe
+     * und keine Zuweisung: Wer dort war, hat die Beschwerde nicht automatisch
+     * verursacht — es kann an der Zeitvorgabe liegen, am Kunden oder an etwas
+     * ganz anderem. Zuweisen tut das Büro, wenn es hingesehen hat.
+     *
+     * Gesucht wird die letzte Buchung an dem Objekt vor der Meldung, nicht
+     * die letzte überhaupt: Wer nach der Beschwerde dort war, hat mit ihr
+     * nichts zu tun.
+     */
+    const tickets = ((aufgaben.data || []) as AnyRow[]);
+    const objektIds = Array.from(new Set(tickets.map((zeile) => clean(zeile.link_work_site_id)).filter(Boolean)));
+
+    const besuche = objektIds.length
+      ? await supabase
+          .from("time_entries")
+          .select("work_site_id, employee_name, created_at, action")
+          .in("work_site_id", objektIds)
+          .eq("action", "clock_in")
+          .order("created_at", { ascending: false })
+          .limit(3000)
+      : { data: [] as AnyRow[] };
+
+    const besucheNach = new Map<string, AnyRow[]>();
+    for (const eintrag of ((besuche.data || []) as AnyRow[])) {
+      const objekt = clean(eintrag.work_site_id);
+      besucheNach.set(objekt, [...(besucheNach.get(objekt) || []), eintrag]);
+    }
+
+    const mitBesuch = tickets.map((ticket) => {
+      const objekt = clean(ticket.link_work_site_id);
+      if (!objekt) return ticket;
+      const gemeldet = clean(ticket.created_at);
+      const treffer = (besucheNach.get(objekt) || []).find((eintrag) => !gemeldet || clean(eintrag.created_at) <= gemeldet);
+      if (!treffer) return ticket;
+      return {
+        ...ticket,
+        zuletzt_dort: { name: clean(treffer.employee_name), datum: clean(treffer.created_at).slice(0, 10) }
+      };
+    });
+
     return NextResponse.json({
       ok: true,
       setupFehlt: false,
-      tickets: aufgaben.data || [],
+      tickets: mitBesuch,
       employees: ((employees.data || []) as AnyRow[]).filter((row) => clean(row.name) && row.active !== false),
       sites: sites.data || [],
       customers: customers.data || [],
