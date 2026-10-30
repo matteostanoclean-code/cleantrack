@@ -635,6 +635,15 @@ export default function MitarbeiterSeite() {
                               kürzt nie: Mehrarbeit wird zusätzlich bezahlt.
                             */}
                             <label className="flex cursor-pointer items-start gap-3">
+                              <input type="checkbox" checked={form.inhaber === true} onChange={(e) => setForm({ ...form, inhaber: e.target.checked })} className="mt-0.5 h-5 w-5 accent-brand-600" />
+                              <span>
+                                <span className="block text-[14px] text-ink-700">Inhaber</span>
+                                <span className="mt-0.5 block text-[13px] text-ink-400">
+                                  Taucht in Team-Übersichten wie „Einrichtung im Team" nicht auf. Einsätze, Zeiten und Lohn bleiben unberührt.
+                                </span>
+                              </span>
+                            </label>
+                            <label className="flex cursor-pointer items-start gap-3">
                               <input type="checkbox" checked={form.fixed_paid_time === true} onChange={(e) => setForm({ ...form, fixed_paid_time: e.target.checked })} className="mt-0.5 h-5 w-5 accent-brand-600" />
                               <span>
                                 <span className="block text-[14px] text-ink-700">Feste bezahlte Zeit vereinbart</span>

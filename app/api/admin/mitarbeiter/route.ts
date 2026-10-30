@@ -129,6 +129,8 @@ function aktenDaten(body: AnyRow) {
       travel_time_allowed: body.travel_time_allowed === true,
       // Feste bezahlte Zeit statt reiner Stempelzeit. Mehrarbeit kommt dazu.
       fixed_paid_time: body.fixed_paid_time === true,
+      // Inhaber: taucht in Team-Übersichten nicht auf.
+      inhaber: body.inhaber === true,
       annual_vacation_days: nullableZahl(body.annual_vacation_days),
       absence_pay_per_day: nullableZahl(body.absence_pay_per_day),
       monthly_hour_limit: nullableZahl(body.monthly_hour_limit),
