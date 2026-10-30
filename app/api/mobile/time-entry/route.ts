@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
+import { NFC_VERMERK } from "@/lib/zeiten";
 
 export const dynamic = "force-dynamic";
 
@@ -366,8 +367,11 @@ export async function POST(request: Request) {
       site = selectedSite || null;
     }
 
-    const employeeLat = numberOrNull(body.latitude);
-    const employeeLng = numberOrNull(body.longitude);
+    // Der Aufkleber klebt am Objekt: Wer ihn scannt, steht dort. Es zählt nur
+    // der Aufkleber des Objekts, zu dem dieser Einsatz gehört.
+    const viaNfc = clean(body.nfcObjekt) === workSiteId;
+    const employeeLat = viaNfc ? null : numberOrNull(body.latitude);
+    const employeeLng = viaNfc ? null : numberOrNull(body.longitude);
     const siteLat = pickNumber(site, ["latitude", "lat", "gps_latitude", "object_latitude"]);
     const siteLng = pickNumber(site, ["longitude", "lng", "lon", "gps_longitude", "object_longitude"]);
     // Ohne eigenen Radius am Objekt gilt die Toleranz aus den Einstellungen.
@@ -423,7 +427,7 @@ export async function POST(request: Request) {
      * Zeitenfreigabe. Aufgezeichnet wird der Standort trotzdem, wenn das Handy
      * ihn liefert — er steht dann als Angabe da, nicht als Urteil.
      */
-    if (gpsPflicht) {
+    if (gpsPflicht && !viaNfc) {
       if (!hasSiteGps) {
         const errorMessage = "Für dieses Objekt fehlen GPS-Koordinaten. Bitte im Admin-Dashboard beim Objekt den Standort speichern. Stempeln ist bis dahin gesperrt.";
         return NextResponse.json({ ok: false, error: errorMessage, gpsStatus }, { status: 409 });
@@ -506,7 +510,9 @@ export async function POST(request: Request) {
       ...basePayload,
       ...approvalPayload,
       success: true,
-      error_message: outsideRadius
+      error_message: viaNfc
+        ? NFC_VERMERK
+        : outsideRadius
         ? `Standort ausserhalb des Objekts: ${distance} m statt erlaubter ${allowedRadius} m.`
         : `Standort geprüft: ${distance} m von ${allowedRadius} m Radius.`
     });
@@ -548,6 +554,7 @@ export async function POST(request: Request) {
       entry,
       approval: approvalInfo,
       gpsStatus,
+      viaNfc,
       distanceM: distance,
       allowedRadiusM: hasSiteGps ? allowedRadius : null,
       hasSiteGps,

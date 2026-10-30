@@ -26,6 +26,9 @@ export type AnyRow = Record<string, any>;
 /** Abweichungen bis zu dieser Grenze gelten als planmäßig und brauchen keine Freigabe. */
 export const TOLERANCE_MINUTES = 5;
 
+/** Steht in error_message eines Stempels, der über den NFC-Aufkleber kam. */
+export const NFC_VERMERK = "Über NFC-Aufkleber gestempelt, Standort nicht geprüft.";
+
 export function text(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -113,6 +116,9 @@ function ausserhalbRadius(entry: AnyRow) {
 }
 
 function ohneStandort(entry: AnyRow) {
+  // Wer den Aufkleber scannt, steht am Objekt. Da fehlt keine Angabe, sie wurde
+  // gar nicht erst abgefragt.
+  if (text(entry.error_message) === NFC_VERMERK) return false;
   return numberOrNull(entry.latitude) === null || numberOrNull(entry.longitude) === null;
 }
 

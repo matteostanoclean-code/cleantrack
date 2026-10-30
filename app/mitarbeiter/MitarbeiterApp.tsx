@@ -1493,7 +1493,10 @@ function expectedStartIso(task: RawTask | null) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, autoStamp = false }: { data: AppData | null; authToken: string; onReload: () => Promise<void>; selectedTaskId: string | null; onOpenSchedule: () => void; autoStamp?: boolean }) {
+/** So lange gilt ein Scan. Für Pause oder Feierabend später wird neu gescannt. */
+const NFC_GUELTIG_MS = 15 * 60 * 1000;
+
+function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, autoStamp = false, nfcObjekt = "", nfcScanZeit = 0 }: { data: AppData | null; authToken: string; onReload: () => Promise<void>; selectedTaskId: string | null; onOpenSchedule: () => void; autoStamp?: boolean; nfcObjekt?: string; nfcScanZeit?: number }) {
   const [status, setStatus] = useState<ClockStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -1529,6 +1532,9 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
   const selectedSiteName = selectedClockSite?.siteName || "Kein Termin gewählt";
   const selectedSiteHasGps = Boolean(selectedClockSite && selectedClockSite.latitude !== null && selectedClockSite.longitude !== null);
   const latestTwo = selectedTaskEntries.slice(-4).reverse();
+  // Aufkleber dieses Objekts gerade gescannt: Standort wird weder gemessen noch geprüft.
+  const nfcFuerEinsatz = Boolean(nfcObjekt && String(selectedTask?.work_site_id || "") === nfcObjekt);
+  const nfcAktiv = nfcFuerEinsatz && Date.now() - nfcScanZeit < NFC_GUELTIG_MS;
 
   useEffect(() => {
     const latest = latestClock(selectedTaskEntries);
@@ -1566,9 +1572,9 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
   useEffect(() => {
     setGeoCheck(null);
     setGeoError(null);
-    if (selectedTask?.id && selectedSiteHasGps) checkPosition();
+    if (selectedTask?.id && selectedSiteHasGps && !nfcAktiv) checkPosition();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTask?.id, selectedSiteHasGps]);
+  }, [selectedTask?.id, selectedSiteHasGps, nfcAktiv]);
 
   async function stamp(action: "clock_in" | "break_start" | "break_end" | "clock_out", reason?: string, leistungBestaetigt = false) {
     if (!data?.employee) return;
@@ -1600,26 +1606,28 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
       setMessage("Dieser Termin hat kein Objekt. Bitte im Admin-Dashboard ein Objekt hinterlegen, erst dann kann gestempelt werden.");
       return;
     }
-    if (!selectedSiteHasGps) {
+    if (!selectedSiteHasGps && !nfcAktiv) {
       setMessage("Für dieses Objekt fehlen GPS-Koordinaten. Bitte im Admin-Dashboard beim Objekt den Standort speichern.");
       return;
     }
 
     setSaving(true);
-    setLocating(true);
-    setMessage("GPS-Standort wird geprüft…");
     let gps: { latitude: number; longitude: number; accuracy: number | null } | null = null;
-    try {
-      gps = await getBrowserPosition();
-      setLastGps(gps);
-    } catch (gpsError) {
-      setLastGps(null);
-      setMessage(gpsError instanceof Error ? gpsError.message : "GPS-Standort konnte nicht gelesen werden.");
-      setSaving(false);
-      setLocating(false);
-      return;
-    } finally {
-      setLocating(false);
+    if (!nfcAktiv) {
+      setLocating(true);
+      setMessage("GPS-Standort wird geprüft…");
+      try {
+        gps = await getBrowserPosition();
+        setLastGps(gps);
+      } catch (gpsError) {
+        setLastGps(null);
+        setMessage(gpsError instanceof Error ? gpsError.message : "GPS-Standort konnte nicht gelesen werden.");
+        setSaving(false);
+        setLocating(false);
+        return;
+      } finally {
+        setLocating(false);
+      }
     }
 
     try {
@@ -1634,6 +1642,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
           latitude: gps?.latitude ?? null,
           longitude: gps?.longitude ?? null,
           accuracyM: gps?.accuracy ?? null,
+          nfcObjekt: nfcAktiv ? nfcObjekt : "",
           reason: reason || "",
           expectedStartTime: expectedStartIso(selectedTask)
         })
@@ -1651,7 +1660,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
       if (!response.ok || !result.ok) throw new Error(result.error || "Speichern fehlgeschlagen");
       setReasonPrompt(null);
       const distanceText = typeof result.distanceM === "number" ? ` · Entfernung ${result.distanceM} m` : "";
-      setMessage(result.hasSiteGps ? `Gespeichert. GPS geprüft${distanceText}.` : "Gespeichert. GPS wurde gespeichert, am Objekt fehlen noch GPS-Koordinaten für die Radius-Prüfung.");
+      setMessage(result.viaNfc ? "Gespeichert. Aufkleber am Objekt gescannt." : result.hasSiteGps ? `Gespeichert. GPS geprüft${distanceText}.` : "Gespeichert. GPS wurde gespeichert, am Objekt fehlen noch GPS-Koordinaten für die Radius-Prüfung.");
       await onReload();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Speichern fehlgeschlagen.");
@@ -1662,7 +1671,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
     }
   }
 
-  const canStamp = Boolean(selectedTask && selectedTask.work_site_id && selectedSiteHasGps);
+  const canStamp = Boolean(selectedTask && selectedTask.work_site_id && (selectedSiteHasGps || nfcAktiv));
 
   /**
    * Kommt der Aufruf vom Aufkleber am Objekt, wird ohne weiteres Tippen
@@ -1699,7 +1708,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
     ? null
     : !selectedTask.work_site_id
       ? "Dieser Einsatz hat kein Objekt. Das Büro muss zuerst eins hinterlegen."
-      : !selectedSiteHasGps
+      : !selectedSiteHasGps && !nfcAktiv
         ? "Für dieses Objekt fehlen die GPS-Koordinaten. Das Büro muss sie zuerst speichern."
         : null;
 
@@ -1723,7 +1732,7 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
       ) : null}
 
       {/* Karte: Objekt als Markierung, Ausschnitt umfasst auch den eigenen Standort. */}
-      {selectedTask && selectedSiteHasGps && selectedClockSite?.latitude !== null && selectedClockSite?.longitude !== null ? (
+      {selectedTask && selectedSiteHasGps && !nfcAktiv && selectedClockSite?.latitude !== null && selectedClockSite?.longitude !== null ? (
         <div className="px-4 pt-4">
           <div className="overflow-hidden rounded-xl border border-paper-200">
             <iframe
@@ -1772,9 +1781,10 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
 
       {message ? <div className="px-4 pt-3"><Banner tone={message.startsWith("Gespeichert") ? "success" : "danger"}>{message}</Banner></div> : null}
       {blockReason ? <div className="px-4 pt-3"><Banner tone="warn">{blockReason}</Banner></div> : null}
+      {nfcFuerEinsatz && !nfcAktiv && status !== "idle" ? <div className="px-4 pt-3"><Banner tone="info">Für Pause oder Ausstempeln den Aufkleber am Objekt noch einmal scannen, dann entfällt die Standortprüfung.</Banner></div> : null}
 
       {/* Standortlage vor dem Tippen zeigen, damit niemand raten muss, warum es klemmt. */}
-      {selectedTask && selectedSiteHasGps ? (
+      {selectedTask && selectedSiteHasGps && !nfcAktiv ? (
         <div className="px-4 pt-3">
           <div className={cx(
             "flex items-start gap-3 rounded-xl px-4 py-3",
@@ -1828,9 +1838,9 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
           <DetailRow
             icon="target"
             label="Standortprüfung"
-            value={selectedSiteHasGps ? `Aktiv · ${selectedClockSite?.allowedRadiusM || 150} m erlaubt` : "Nicht möglich"}
-            hint={lastGps ? `Zuletzt gemessen: Genauigkeit ca. ${lastGps.accuracy || "—"} m` : undefined}
-            tone={selectedSiteHasGps ? "default" : "danger"}
+            value={nfcAktiv ? "Nicht nötig · Aufkleber gescannt" : selectedSiteHasGps ? `Aktiv · ${selectedClockSite?.allowedRadiusM || 150} m erlaubt` : "Nicht möglich"}
+            hint={!nfcAktiv && lastGps ? `Zuletzt gemessen: Genauigkeit ca. ${lastGps.accuracy || "—"} m` : undefined}
+            tone={selectedSiteHasGps || nfcAktiv ? "default" : "danger"}
           />
         </>
       ) : null}
@@ -4594,6 +4604,8 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   const [mithilfeLaeuft, setMithilfeLaeuft] = useState(false);
   const [siteErledigt, setSiteErledigt] = useState(false);
   const [autoStempeln, setAutoStempeln] = useState(false);
+  // Der Zeitpunkt des Scans muss den Wechsel zwischen den Reitern überleben.
+  const nfcScanZeit = useRef(Date.now());
   const [data, setData] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
@@ -4900,7 +4912,7 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
             />
           )}
           {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => refreshData()} />}
-          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => refreshData()} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} autoStamp={autoStempeln} />}
+          {active === "clock" && <Clock data={data} authToken={authToken} onReload={() => refreshData()} selectedTaskId={selectedTaskId} onOpenSchedule={() => setActive("schedule")} autoStamp={autoStempeln} nfcObjekt={initialAction === "stempeln" ? initialWorkSiteId : ""} nfcScanZeit={nfcScanZeit.current} />}
           {active === "timesheet" && (
             <Timesheet
               entries={timeEntries}
