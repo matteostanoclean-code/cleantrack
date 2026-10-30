@@ -224,6 +224,13 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
     const ausserRadius = sorted.some(ausserhalbRadius);
     const standortFehlt = sorted.some(ohneStandort);
     const nachgetragen = sorted.some(istNachtrag);
+    // Über den Aufkleber gestempelt: der Standort wurde bewusst nicht
+    // abgefragt. Das ist etwas anderes als "geprüft und in Ordnung" — die
+    // Oberfläche soll das auseinanderhalten können.
+    const perNfc = sorted.some((eintrag) => text(eintrag.error_message) === NFC_VERMERK);
+    const mitKoordinaten = sorted.some(
+      (eintrag) => numberOrNull(eintrag.latitude) !== null && numberOrNull(eintrag.longitude) !== null
+    );
     const incomplete = !clockOut;
 
     /**
@@ -309,6 +316,8 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
       ausserRadius,
       standortFehlt,
       nachgetragen,
+      perNfc,
+      mitKoordinaten,
       ohneEinsatz: !task,
       incomplete,
       windowIssue,

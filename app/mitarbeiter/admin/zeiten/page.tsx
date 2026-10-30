@@ -82,6 +82,8 @@ type TimeRecord = {
   adminResponse: string | null;
   employeeReason: string | null;
   locationIssue: boolean;
+  perNfc?: boolean;
+  mitKoordinaten?: boolean;
   ausserRadius?: boolean;
   standortFehlt?: boolean;
   nachgetragen?: boolean;
@@ -590,7 +592,21 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
                   <a href={checkOutUrl} target="_blank" rel="noreferrer" className="block text-[15px] font-medium text-brand-600">Check-Out Standort ansehen</a>
                 ) : <p className="text-[15px] text-ink-400">Kein Check-Out Standort</p>}
               </div>
-              <span className="shrink-0 text-[13px] text-ink-400">{record.locationIssue ? "Standortfehler" : "Standort passt"}</span>
+              {/*
+                „Standort passt" nur sagen, wenn wirklich geprüft wurde. Beim
+                Stempeln über den Aufkleber wird der Standort gar nicht erst
+                abgefragt — als geprüft zu melden, was niemand geprüft hat,
+                wäre eine Behauptung.
+              */}
+              <span className={cx("shrink-0 text-[13px]", record.ausserRadius ? "text-danger-600" : "text-ink-400")}>
+                {record.ausserRadius
+                  ? "Standortfehler"
+                  : record.perNfc
+                  ? "Nicht geprüft, per NFC"
+                  : record.mitKoordinaten
+                  ? "Standort passt"
+                  : "Nicht geprüft"}
+              </span>
             </div>
           </div>
 

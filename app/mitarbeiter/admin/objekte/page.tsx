@@ -94,6 +94,8 @@ export default function ObjekteSeite() {
   const [tagFilter, setTagFilter] = useState("");
 
   const [blattOffen, setBlattOffen] = useState(false);
+  const [standortLaeuft, setStandortLaeuft] = useState(false);
+  const [standortHinweis, setStandortHinweis] = useState<string | null>(null);
   const [form, setForm] = useState<Row>({ ...leeresObjekt });
 
   const load = useCallback(async (currentToken?: string) => {
@@ -146,6 +148,51 @@ export default function ObjekteSeite() {
     const treffer = sites.find((objekt) => clean(objekt.id) === gesucht);
     if (treffer) bearbeiten(treffer);
   }, [sites, direktGeoeffnet]);
+
+  /**
+   * Koordinaten vom Gerät übernehmen.
+   *
+   * Geschrieben wird nichts von allein — die Werte landen in den Feldern, und
+   * gespeichert wird erst beim Speichern. Ein Knopf, der still den Standort
+   * eines Objekts überschreibt, wäre zu leicht aus Versehen getroffen.
+   *
+   * Die Genauigkeit wird mitgesagt: Zeigt das Gerät 2000 Meter Unsicherheit,
+   * ist der Punkt nichts wert, und das soll man sehen, bevor man speichert.
+   */
+  async function standortUebernehmen() {
+    if (!navigator.geolocation) {
+      setStandortHinweis("Dieses Gerät gibt keinen Standort her.");
+      return;
+    }
+    setStandortLaeuft(true);
+    setStandortHinweis(null);
+    try {
+      const position = await new Promise<GeolocationPosition>((erfolg, fehler) => {
+        navigator.geolocation.getCurrentPosition(erfolg, fehler, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+      });
+      const breite = Number(position.coords.latitude.toFixed(7));
+      const laenge = Number(position.coords.longitude.toFixed(7));
+      const genauigkeit = Math.round(position.coords.accuracy || 0);
+
+      setForm((alt: Row) => ({ ...alt, latitude: String(breite), longitude: String(laenge) }));
+      setStandortHinweis(
+        genauigkeit > 50
+          ? `Übernommen, aber das Gerät ist sich nur auf ${genauigkeit} m sicher. Draußen und mit ein paar Sekunden Wartezeit wird es genauer.`
+          : `Übernommen, auf ${genauigkeit} m genau. Zum Speichern unten auf Speichern.`
+      );
+    } catch (fehler) {
+      const code = (fehler as GeolocationPositionError)?.code;
+      setStandortHinweis(
+        code === 1
+          ? "Der Standort ist für diese Seite nicht freigegeben. In den Browser-Einstellungen erlauben und noch einmal tippen."
+          : code === 3
+          ? "Das hat zu lange gedauert. Draußen noch einmal versuchen."
+          : "Der Standort konnte nicht gelesen werden."
+      );
+    } finally {
+      setStandortLaeuft(false);
+    }
+  }
 
   const gefiltert = useMemo(() => {
     const needle = suche.trim().toLowerCase();
@@ -418,14 +465,29 @@ export default function ObjekteSeite() {
                     Der Standort wird beim Speichern aus der Anschrift geholt. Prüf ihn anschließend auf der Karte — 150 Meter Radius sind schnell daneben.
                   </p>
                   {form.id ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <Feld label="Breite" hinweis="Nur ändern, wenn der Standort falsch sitzt.">
-                        <input value={form.latitude ?? ""} onChange={(e) => setForm({ ...form, latitude: e.target.value })} className={feldClass} />
-                      </Feld>
-                      <Feld label="Länge">
-                        <input value={form.longitude ?? ""} onChange={(e) => setForm({ ...form, longitude: e.target.value })} className={feldClass} />
-                      </Feld>
-                    </div>
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Feld label="Breite" hinweis="Nur ändern, wenn der Standort falsch sitzt.">
+                          <input value={form.latitude ?? ""} onChange={(e) => setForm({ ...form, latitude: e.target.value })} className={feldClass} />
+                        </Feld>
+                        <Feld label="Länge">
+                          <input value={form.longitude ?? ""} onChange={(e) => setForm({ ...form, longitude: e.target.value })} className={feldClass} />
+                        </Feld>
+                      </div>
+
+                      {/*
+                        Der Standort vom Handy, direkt am Objekt. Eine
+                        Adresssuche trifft den Hinterhof, den Seiteneingang
+                        oder den Sportplatz nicht — da hilft nur hingehen.
+                      */}
+                      <button type="button" onClick={standortUebernehmen} disabled={standortLaeuft} className="w-full rounded-xl border border-paper-300 bg-white px-4 py-3 text-[14px] font-semibold text-ink-700 disabled:opacity-50">
+                        {standortLaeuft ? "Standort wird gelesen …" : "Standort von hier übernehmen"}
+                      </button>
+                      <p className="text-[12px] leading-relaxed text-ink-400">
+                        Am Objekt stehen und antippen. Genauer als jede Adresssuche — und der Weg, falsche Koordinaten loszuwerden.
+                      </p>
+                      {standortHinweis ? <p className="text-[13px] text-ink-600">{standortHinweis}</p> : null}
+                    </>
                   ) : null}
                 </div>
               </div>
