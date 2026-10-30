@@ -465,11 +465,23 @@ export default function EinsatzplanerSeite() {
                             + weitere {eigene.length - maxProTag}
                           </button>
                         ) : null}
-                        {!eigene.length ? (
-                          <button onClick={() => neuerEinsatz(tag, name)} className="grid h-full min-h-[70px] w-full place-items-center rounded-md text-[18px] text-ink-200 hover:bg-paper-100 hover:text-brand-600">
-                            +
-                          </button>
-                        ) : null}
+                        {/*
+                          In der leeren Zelle füllt das Plus die ganze Fläche,
+                          damit man irgendwo hintippen kann. Steht schon etwas
+                          drin, kommt es als schmale Zeile darunter — vorher
+                          gab es gar keinen Weg, einen zweiten Einsatz an
+                          denselben Tag zu legen.
+                        */}
+                        <button
+                          onClick={() => neuerEinsatz(tag, name)}
+                          title="Weiteren Einsatz an diesem Tag"
+                          className={cx(
+                            "grid w-full place-items-center rounded-md text-ink-200 hover:bg-paper-100 hover:text-brand-600",
+                            eigene.length ? "h-6 text-[15px]" : "h-full min-h-[70px] text-[18px]"
+                          )}
+                        >
+                          +
+                        </button>
                       </div>
                     );
                   })}
