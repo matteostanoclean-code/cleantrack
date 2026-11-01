@@ -163,9 +163,22 @@ export type Zeitgrenzen = {
   fehler_freie_zeit: boolean;
   /** Ob eine nachgetragene Zeit zur Vorlage führt. */
   fehler_nachtrag: boolean;
+  /** Ob ein Beginn nach dem spätesten Start zur Vorlage führt. */
+  fehler_spaeter_beginn: boolean;
   /** Ist die Standortprüfung aus, zählt kein Standortfehler mehr. */
   gps_aktiv: boolean;
 };
+
+/**
+ * Die Spalten eines Einsatzes, die die Zeitrechnung braucht.
+ *
+ * Stand bisher in jeder Route einzeln, und jede hatte eine andere Auswahl —
+ * der Zeitenfreigabe fehlten window_binding und status, weshalb die
+ * Fensterprüfung dort nie anschlug. Eine Liste, eine Wahrheit.
+ */
+export const TASK_SPALTEN =
+  "id, title, site, customer_name, employee_name, task_date, start_time, end_time, latest_start, " +
+  "planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done, status, window_binding";
 
 export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
   unter_prozent: 25,
@@ -175,6 +188,7 @@ export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
   fehler_standort_freigabe: true,
   fehler_freie_zeit: true,
   fehler_nachtrag: true,
+  fehler_spaeter_beginn: true,
   gps_aktiv: true
 };
 
@@ -244,17 +258,36 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
     const fensterBindend = task?.window_binding === true;
     const fensterVon = parseHm(text(task?.start_time).slice(0, 5));
     const fensterBis = parseHm(text(task?.end_time).slice(0, 5));
+    const minutenAmTag = (wert: unknown) => {
+      const zeit = new Date(String(wert || ""));
+      return Number.isNaN(zeit.getTime()) ? null : zeit.getHours() * 60 + zeit.getMinutes();
+    };
+    const beginn = minutenAmTag(clockIn?.created_at);
+    const ende = minutenAmTag(clockOut?.created_at);
+
     let windowIssue = false;
     if (fensterBindend && (fensterVon !== null || fensterBis !== null)) {
-      const minutenAmTag = (wert: unknown) => {
-        const zeit = new Date(String(wert || ""));
-        return Number.isNaN(zeit.getTime()) ? null : zeit.getHours() * 60 + zeit.getMinutes();
-      };
-      const beginn = minutenAmTag(clockIn?.created_at);
-      const ende = minutenAmTag(clockOut?.created_at);
       if (fensterVon !== null && beginn !== null && beginn < fensterVon - TOLERANCE_MINUTES) windowIssue = true;
       if (fensterBis !== null && ende !== null && ende > fensterBis + TOLERANCE_MINUTES) windowIssue = true;
     }
+
+    /**
+     * Zu spät angefangen.
+     *
+     * Eigene Prüfung, nicht am Zeitfenster hängend: Wer einen spätesten
+     * Beginn einträgt, meint ihn auch. Dahinter steht Geld — ab 22:00 Uhr
+     * sind es 30 % Nachtzuschlag (RTV § 3 Nr. 4.2 und 4.7). Wer statt um
+     * 19:30 erst um 22:00 anfängt, verteuert denselben Einsatz.
+     *
+     * Gesperrt wird trotzdem nichts. Wer um 22:00 am Objekt steht, soll
+     * arbeiten können; das Büro soll es nur sehen.
+     */
+    const spaetesterStart = parseHm(text(task?.latest_start).slice(0, 5));
+    const spaeterBeginn =
+      spaetesterStart !== null && beginn !== null && beginn > spaetesterStart + TOLERANCE_MINUTES;
+    const verspaetungMinuten = spaeterBeginn && beginn !== null && spaetesterStart !== null
+      ? beginn - spaetesterStart
+      : null;
 
     const rawStatus = text(clockOut?.approval_status).toLowerCase();
     let state: "open" | "approved" | "rejected";
@@ -279,6 +312,7 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
         grenzen.gps_aktiv && grenzen.fehler_standort_freigabe && standortFehlt,
         grenzen.fehler_freie_zeit && !task,
         grenzen.fehler_nachtrag && nachgetragen,
+        grenzen.fehler_spaeter_beginn && spaeterBeginn,
         abweichungVorlegen(deviationMinutes, plannedMinutes, grenzen)
       ];
       state = gruende.some(Boolean) ? "open" : "approved";
@@ -298,6 +332,9 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
       date: day,
       plannedStart: task?.start_time ? text(task.start_time).slice(0, 5) : null,
       plannedEnd: task?.end_time ? text(task.end_time).slice(0, 5) : null,
+      latestStart: task?.latest_start ? text(task.latest_start).slice(0, 5) : null,
+      spaeterBeginn,
+      verspaetungMinuten,
       plannedMinutes,
       actualStart: clockIn?.created_at || null,
       actualEnd: clockOut?.created_at || null,

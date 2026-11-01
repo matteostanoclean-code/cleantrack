@@ -345,7 +345,8 @@ export const BEREICHE: Bereich[] = [
               { art: "schalter", schluessel: "fehler_standort", label: "Standortfehler", hinweis: "Gestempelt wurde außerhalb des Objektradius." },
               { art: "schalter", schluessel: "fehler_standort_freigabe", label: "Standortfreigabe war aus" },
               { art: "schalter", schluessel: "fehler_freie_zeit", label: "Freie Zeiterfassung", hinweis: "Gestempelt ohne geplanten Einsatz." },
-              { art: "schalter", schluessel: "fehler_nachtrag", label: "Nachgetragene Zeiten" }
+              { art: "schalter", schluessel: "fehler_nachtrag", label: "Nachgetragene Zeiten" },
+              { art: "schalter", schluessel: "fehler_spaeter_beginn", label: "Zu spät angefangen", hinweis: "Eingestempelt nach dem spätesten Beginn, der am Einsatz steht." }
             ]
           }
         ]

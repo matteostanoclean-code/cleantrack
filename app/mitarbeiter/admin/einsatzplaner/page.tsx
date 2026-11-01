@@ -88,6 +88,17 @@ function zeitText(task: Row) {
   return `${stundenText(planMinuten(task))} Std.`;
 }
 
+/**
+ * Fällt die Uhrzeit in die Nachtarbeit? 22:00 bis 5:00 nach RTV § 3 Nr. 4.2.
+ * Nur für den Hinweis in der Maske — gerechnet wird damit nichts.
+ */
+function nachtarbeit(zeit: unknown) {
+  const text = clean(zeit).slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(text)) return false;
+  const minuten = Number(text.slice(0, 2)) * 60 + Number(text.slice(3, 5));
+  return minuten >= 22 * 60 || minuten < 5 * 60;
+}
+
 function aktiv(task: Row) {
   const status = clean(task.status || "open").toLowerCase();
   return !task.done && !["done", "cancelled", "storniert"].includes(status);
@@ -115,6 +126,7 @@ const leererEinsatz: Row = {
   mit_fenster: false,
   window_binding: false,
   start_time: "",
+  latest_start: "",
   end_time: "",
   employee_name: "",
   notes: "",
@@ -222,9 +234,10 @@ export default function EinsatzplanerSeite() {
       title: clean(task.title) || "Einsatz",
       task_date: clean(task.task_date).slice(0, 10),
       planned_minutes: String(planMinuten(task) || ""),
-      mit_fenster: Boolean(clean(task.start_time) || clean(task.end_time)),
+      mit_fenster: Boolean(clean(task.start_time) || clean(task.end_time) || clean(task.latest_start)),
       window_binding: task.window_binding === true,
       start_time: clean(task.start_time).slice(0, 5),
+      latest_start: clean(task.latest_start).slice(0, 5),
       end_time: clean(task.end_time).slice(0, 5),
       employee_name: clean(task.employee_name),
       notes: clean(task.notes),
@@ -595,24 +608,40 @@ export default function EinsatzplanerSeite() {
                   <input
                     type="checkbox"
                     checked={Boolean(form.mit_fenster)}
-                    onChange={(e) => setForm({ ...form, mit_fenster: e.target.checked, start_time: e.target.checked ? form.start_time : "", end_time: e.target.checked ? form.end_time : "", window_binding: e.target.checked ? form.window_binding : false })}
+                    onChange={(e) => setForm({ ...form, mit_fenster: e.target.checked, start_time: e.target.checked ? form.start_time : "", latest_start: e.target.checked ? form.latest_start : "", end_time: e.target.checked ? form.end_time : "", window_binding: e.target.checked ? form.window_binding : false })}
                     className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
                   />
                   <span>
-                    <span className="block text-[14px] font-semibold text-ink-800">Zeitfenster vorgeben</span>
-                    <span className="block text-[13px] text-ink-400">Nur nötig, wenn der Kunde eine Uhrzeit erwartet.</span>
+                    <span className="block text-[14px] font-semibold text-ink-800">Uhrzeiten vorgeben</span>
+                    <span className="block text-[13px] text-ink-400">Ohne das zählt nur die Dauer, angefangen wird, wann es passt.</span>
                   </span>
                 </label>
 
                 {form.mit_fenster ? (
                   <div className="mt-3 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <Feld label="Frühestens ab"><input type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className={feldClass} /></Feld>
-                      <Feld label="Spätestens bis"><input type="time" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className={feldClass} /></Feld>
+                      <Feld label="Anfangen frühestens ab"><input type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className={feldClass} /></Feld>
+                      <Feld label="Anfangen spätestens um" hinweis="Wer später stempelt, kommt in die Zeitenfreigabe.">
+                        <input type="time" value={form.latest_start} onChange={(e) => setForm({ ...form, latest_start: e.target.value })} className={feldClass} />
+                      </Feld>
                     </div>
-                    <label className="flex cursor-pointer items-center gap-3">
-                      <input type="checkbox" checked={Boolean(form.window_binding)} onChange={(e) => setForm({ ...form, window_binding: e.target.checked })} className="h-5 w-5 accent-brand-600" />
-                      <span className="text-[13px] text-ink-600">Fenster einhalten — außerhalb wird in der Zeitenfreigabe angezeigt</span>
+                    <Feld label="Fertig spätestens bis" hinweis="Nur nötig, wenn der Kunde das so erwartet.">
+                      <input type="time" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className={feldClass} />
+                    </Feld>
+
+                    {/*
+                      Der Grund, warum der späteste Beginn überhaupt existiert:
+                      ab 22:00 Uhr wird derselbe Einsatz teurer.
+                    */}
+                    {[form.start_time, form.latest_start, form.end_time].some(nachtarbeit) ? (
+                      <p className="rounded-xl bg-amber-50 px-3.5 py-3 text-[13px] text-amber-800">
+                        Ab 22:00 Uhr ist das Nachtarbeit: 30 % Zuschlag auf diese Stunden (Rahmentarifvertrag Gebäudereinigung, § 3 Nr. 4.2 und 4.7).
+                      </p>
+                    ) : null}
+
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input type="checkbox" checked={Boolean(form.window_binding)} onChange={(e) => setForm({ ...form, window_binding: e.target.checked })} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" />
+                      <span className="text-[13px] text-ink-600">Auch zu früh anfangen und zu spät fertig werden in der Zeitenfreigabe zeigen</span>
                     </label>
                   </div>
                 ) : null}

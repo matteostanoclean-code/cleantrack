@@ -51,6 +51,7 @@ const emptyTask: Row = {
   mit_fenster: false,
   window_binding: false,
   start_time: "",
+  latest_start: "",
   end_time: "",
   planned_minutes: "120",
   employee_name: "",
@@ -145,6 +146,17 @@ function activeStatus(task: Row) {
 
 function seriesKey(task: Row) {
   return clean(task.recurrence_group_id) || "";
+}
+
+/**
+ * Fällt die Uhrzeit in die Nachtarbeit? 22:00 bis 5:00 nach RTV § 3 Nr. 4.2.
+ * Nur für den Hinweis in der Maske — gerechnet wird damit nichts.
+ */
+function nachtarbeit(zeit: unknown) {
+  const text = clean(zeit).slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(text)) return false;
+  const minuten = Number(text.slice(0, 2)) * 60 + Number(text.slice(3, 5));
+  return minuten >= 22 * 60 || minuten < 5 * 60;
 }
 
 function dayLabelsFromTasks(tasks: Row[]) {
@@ -333,24 +345,30 @@ function TaskSheet({
               <input
                 type="checkbox"
                 checked={Boolean(form.mit_fenster)}
-                onChange={(event) => setForm({ ...form, mit_fenster: event.target.checked, start_time: event.target.checked ? form.start_time : "", end_time: event.target.checked ? form.end_time : "", window_binding: event.target.checked ? form.window_binding : false })}
+                onChange={(event) => setForm({ ...form, mit_fenster: event.target.checked, start_time: event.target.checked ? form.start_time : "", latest_start: event.target.checked ? form.latest_start : "", end_time: event.target.checked ? form.end_time : "", window_binding: event.target.checked ? form.window_binding : false })}
                 className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
               />
               <span>
-                <span className="block text-[14px] font-semibold text-ink-800">Zeitfenster vorgeben</span>
-                <span className="block text-[13px] text-ink-400">Nur nötig, wenn der Kunde eine Uhrzeit erwartet. Ohne Fenster zählt allein die Dauer.</span>
+                <span className="block text-[14px] font-semibold text-ink-800">Uhrzeiten vorgeben</span>
+                <span className="block text-[13px] text-ink-400">Ohne das zählt allein die Dauer, angefangen wird, wann es passt.</span>
               </span>
             </label>
 
             {form.mit_fenster ? (
               <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Frühestens ab"><input type="time" value={form.start_time} onChange={(event) => setTimes(event.target.value, form.end_time)} className={inputClass} /></Field>
-                  <Field label="Spätestens bis"><input type="time" value={form.end_time} onChange={(event) => setTimes(form.start_time, event.target.value)} className={inputClass} /></Field>
+                  <Field label="Anfangen frühestens ab"><input type="time" value={form.start_time} onChange={(event) => setTimes(event.target.value, form.end_time)} className={inputClass} /></Field>
+                  <Field label="Anfangen spätestens um"><input type="time" value={form.latest_start} onChange={(event) => setForm({ ...form, latest_start: event.target.value })} className={inputClass} /></Field>
                 </div>
-                <label className="flex cursor-pointer items-center gap-3">
-                  <input type="checkbox" checked={Boolean(form.window_binding)} onChange={(event) => setForm({ ...form, window_binding: event.target.checked })} className="h-5 w-5 accent-brand-600" />
-                  <span className="text-[13px] text-ink-600">Fenster einhalten — außerhalb wird in der Zeitenfreigabe angezeigt</span>
+                <Field label="Fertig spätestens bis"><input type="time" value={form.end_time} onChange={(event) => setTimes(form.start_time, event.target.value)} className={inputClass} /></Field>
+                {[form.start_time, form.latest_start, form.end_time].some(nachtarbeit) ? (
+                  <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
+                    Ab 22:00 Uhr ist das Nachtarbeit: 30 % Zuschlag (Rahmentarifvertrag Gebäudereinigung, § 3 Nr. 4.2 und 4.7).
+                  </p>
+                ) : null}
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input type="checkbox" checked={Boolean(form.window_binding)} onChange={(event) => setForm({ ...form, window_binding: event.target.checked })} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" />
+                  <span className="text-[13px] text-ink-600">Auch zu früh anfangen und zu spät fertig werden in der Zeitenfreigabe zeigen</span>
                 </label>
               </div>
             ) : null}
@@ -528,8 +546,9 @@ export default function AdminPlanningPage() {
       title: clean(task.title) || "Einsatz",
       task_date: clean(task.task_date) || today,
       start_time: clean(task.start_time).slice(0, 5) || "",
+      latest_start: clean(task.latest_start).slice(0, 5) || "",
       end_time: clean(task.end_time).slice(0, 5) || "",
-      mit_fenster: Boolean(clean(task.start_time) || clean(task.end_time)),
+      mit_fenster: Boolean(clean(task.start_time) || clean(task.end_time) || clean(task.latest_start)),
       window_binding: task.window_binding === true,
       planned_minutes: String(minutesFromTask(task) || ""),
       employee_name: clean(task.employee_name),
@@ -886,9 +905,10 @@ export default function AdminPlanningPage() {
                     <Field label="Tätigkeit"><input type="text" value={edit.title ?? clean(series.first.title)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, title: event.target.value } })} className={inputClass} /></Field>
                     <Field label="Objekt"><input type="text" value={edit.site ?? clean(series.first.site)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, site: event.target.value } })} className={inputClass} /></Field>
                     <div className="grid grid-cols-2 gap-2">
-                      <Field label="Start"><input type="time" value={edit.start_time ?? clean(series.first.start_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></Field>
-                      <Field label="Ende"><input type="time" value={edit.end_time ?? clean(series.first.end_time)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></Field>
+                      <Field label="Anfangen ab"><input type="time" value={edit.start_time ?? clean(series.first.start_time).slice(0, 5)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, start_time: event.target.value } })} className={inputClass} /></Field>
+                      <Field label="Anfangen spätestens"><input type="time" value={edit.latest_start ?? clean(series.first.latest_start).slice(0, 5)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, latest_start: event.target.value } })} className={inputClass} /></Field>
                     </div>
+                    <Field label="Fertig bis"><input type="time" value={edit.end_time ?? clean(series.first.end_time).slice(0, 5)} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, end_time: event.target.value } })} className={inputClass} /></Field>
                     <Field label="Planminuten"><input type="number" value={edit.planned_minutes ?? String(series.minutes || "")} onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, planned_minutes: event.target.value } })} className={inputClass} /></Field>
                     <Field label="Mitarbeiter">
                       <select value={assigned} onChange={(event) => setAssignments({ ...assignments, [series.id]: event.target.value })} className={inputClass}>
@@ -896,7 +916,7 @@ export default function AdminPlanningPage() {
                         {(data?.employees || []).map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
                       </select>
                     </Field>
-                    <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, title: edit.title ?? series.first.title, site: edit.site ?? series.first.site, start_time: edit.start_time ?? series.first.start_time, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-bold text-white disabled:opacity-50">Änderungen ab heute speichern</button>
+                    <button disabled={saving} onClick={() => patch({ type: "series_update", recurrence_group_id: series.id, scope: "future", from_date: today, employee_name: assigned, title: edit.title ?? series.first.title, site: edit.site ?? series.first.site, start_time: edit.start_time ?? series.first.start_time, latest_start: edit.latest_start ?? series.first.latest_start, end_time: edit.end_time ?? series.first.end_time, planned_minutes: edit.planned_minutes ?? series.minutes }, "Serie wurde ab heute geändert.")} className="w-full rounded-2xl bg-emerald-600 py-3 text-sm font-bold text-white disabled:opacity-50">Änderungen ab heute speichern</button>
                     <div className="grid grid-cols-2 gap-2">
                       <button disabled={saving} onClick={() => patch({ type: "series_status", recurrence_group_id: series.id, scope: "future", from_date: today, status: "paused", done: true }, "Serie wurde ab heute pausiert.")} className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-3 text-xs font-bold text-amber-700 disabled:opacity-50">Pausieren</button>
                       {/* Hiess frueher "Öffnen". Das las sich wie "Maske aufklappen",

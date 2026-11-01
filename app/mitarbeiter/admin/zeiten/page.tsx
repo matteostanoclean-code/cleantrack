@@ -91,6 +91,9 @@ type TimeRecord = {
   windowIssue?: boolean;
   windowFrom?: string | null;
   windowTo?: string | null;
+  latestStart?: string | null;
+  spaeterBeginn?: boolean;
+  verspaetungMinuten?: number | null;
   incomplete: boolean;
   log: LogRow[];
 };
@@ -359,6 +362,10 @@ export default function TimeApprovalPage() {
     if (record.locationIssue && !record.ausserRadius && !record.standortFehlt) fehler.push("Standortfehler");
                     if (record.incomplete) fehler.push("Kein Ausstempeln");
                     if (record.windowIssue) fehler.push("Ausserhalb Zeitfenster");
+                    if (record.spaeterBeginn) {
+                      const spaet = Number(record.verspaetungMinuten || 0);
+                      fehler.push(spaet >= 60 ? `Zu spät angefangen (${Math.floor(spaet / 60)}:${String(spaet % 60).padStart(2, "0")} Std.)` : `Zu spät angefangen (${spaet} Min.)`);
+                    }
                     if (Math.abs(record.deviationMinutes) > 5) fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
                     return (
                       <tr key={record.id} className="border-b border-paper-200 last:border-0 hover:bg-paper-100/60">

@@ -141,6 +141,7 @@ export async function PATCH(request: Request) {
       if (body.site !== undefined) patch.site = nullableText(body.site);
       if (body.start_time !== undefined) patch.start_time = nullableText(body.start_time);
       if (body.end_time !== undefined) patch.end_time = nullableText(body.end_time);
+      if (body.latest_start !== undefined) patch.latest_start = nullableText(body.latest_start);
       if (body.planned_minutes !== undefined) {
         const minutes = nullableNumber(body.planned_minutes);
         patch.planned_minutes = minutes;
@@ -159,9 +160,19 @@ export async function PATCH(request: Request) {
       }
       if (!Object.keys(patch).length) return NextResponse.json({ ok: false, error: "Keine Änderung angegeben." }, { status: 400 });
 
-      let updateQuery = supabase.from("tasks").update(patch).eq("recurrence_group_id", groupId);
-      if (scope !== "all") updateQuery = updateQuery.gte("task_date", fromDate || todayIso());
-      const { data, error } = await updateQuery.select("id, title, site, employee_name, task_date, status");
+      const serieSchreiben = async (felder: AnyRow) => {
+        let query = supabase.from("tasks").update(felder).eq("recurrence_group_id", groupId);
+        if (scope !== "all") query = query.gte("task_date", fromDate || todayIso());
+        return query.select("id, title, site, employee_name, task_date, status");
+      };
+
+      let { data, error } = await serieSchreiben(patch);
+      // Ohne startfenster.sql gibt es latest_start noch nicht. Dann lieber den
+      // Rest der Serie ändern als gar nichts.
+      if (error && /latest_start/.test(String(error.message))) {
+        const { latest_start: _weg, ...rest } = patch;
+        ({ data, error } = await serieSchreiben(rest));
+      }
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, items: data || [], count: Array.isArray(data) ? data.length : 0 });
     }
@@ -233,7 +244,7 @@ export async function PATCH(request: Request) {
       // Stempelzeiten, Fotos und gesetzte Haken mitbringen, die zu einem neuen
       // Einsatz nicht gehören.
       const UEBERNEHMEN = [
-        "title", "site", "employee_name", "start_time", "end_time", "window_binding",
+        "title", "site", "employee_name", "start_time", "end_time", "latest_start", "window_binding",
         "max_minutes", "planned_minutes", "paid_minutes", "wage_minutes",
         "work_site_id", "customer_id", "customer_name", "priority",
         "task_type", "item_type", "notes", "repeat_mode", "recurrence_unit",

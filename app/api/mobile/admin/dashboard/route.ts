@@ -383,6 +383,12 @@ function sitePayload(body: AnyRow, customer?: AnyRow | null) {
   };
 }
 
+/** Dieselbe Zeile ohne den spätesten Beginn — für Datenbanken ohne die Spalte. */
+function ohneLatestStart(zeile: AnyRow) {
+  const { latest_start: _weg, ...rest } = zeile;
+  return rest;
+}
+
 function taskPayload(body: AnyRow, customer?: AnyRow | null, site?: AnyRow | null) {
   const selectedSiteName = clean(site?.name || body.site || body.work_site_name);
   const selectedCustomerName = clean(body.customer_name) || customerName(customer) || clean(site?.customer_name);
@@ -397,6 +403,9 @@ function taskPayload(body: AnyRow, customer?: AnyRow | null, site?: AnyRow | nul
     // lange am Objekt ist; wann genau, entscheidet die Stempeluhr.
     start_time: nullableText(body.start_time),
     end_time: nullableText(body.end_time),
+    // Spätester Beginn. Wer danach stempelt, kommt in die Zeitenfreigabe —
+    // ab 22:00 Uhr kostet derselbe Einsatz 30 % Nachtzuschlag.
+    latest_start: nullableText(body.latest_start),
     window_binding: booleanValue(body.window_binding, false),
     max_minutes: plannedMinutes,
     planned_minutes: plannedMinutes,
@@ -490,7 +499,12 @@ export async function POST(request: Request) {
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);
       const rows = buildTaskRows(payload, body);
-      const { data, error } = await supabase.from("tasks").insert(rows).select("*");
+      let { data, error } = await supabase.from("tasks").insert(rows).select("*");
+      // Solange startfenster.sql nicht gelaufen ist, gibt es latest_start noch
+      // nicht. Dann lieber ohne den spätesten Beginn anlegen als gar nicht.
+      if (error && /latest_start/.test(String(error.message))) {
+        ({ data, error } = await supabase.from("tasks").insert(rows.map((zeile) => ohneLatestStart(zeile))).select("*"));
+      }
       if (error) throw new Error(error.message);
 
       const insertedTasks = Array.isArray(data) ? data : [];
@@ -575,7 +589,10 @@ export async function PATCH(request: Request) {
       const customer = await readCustomer(supabase, nullableUuid(body.customer_id));
       const site = await readSite(supabase, nullableUuid(body.work_site_id));
       const payload = taskPayload(body, customer, site);
-      const { data, error } = await supabase.from("tasks").update(payload).eq("id", id).select("*").single();
+      let { data, error } = await supabase.from("tasks").update(payload).eq("id", id).select("*").single();
+      if (error && /latest_start/.test(String(error.message))) {
+        ({ data, error } = await supabase.from("tasks").update(ohneLatestStart(payload)).eq("id", id).select("*").single());
+      }
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, item: data });
     }

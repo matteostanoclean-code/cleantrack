@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { buildRecords, plannedMinutesFromTask } from "@/lib/zeiten";
+import { TASK_SPALTEN, buildRecords, plannedMinutesFromTask } from "@/lib/zeiten";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { safeSelect } from "@/lib/safeWrite";
 
 export const dynamic = "force-dynamic";
 
@@ -83,12 +84,9 @@ export async function GET(request: Request) {
         .lte("created_at", rahmenBis.toISOString())
         .order("created_at", { ascending: true })
         .limit(4000),
-      supabase
-        .from("tasks")
-        .select("id, title, site, customer_name, employee_name, task_date, start_time, end_time, planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done, status")
-        .gte("task_date", von)
-        .lte("task_date", bis)
-        .limit(4000),
+      safeSelect(supabase, "tasks", TASK_SPALTEN, (query) =>
+        query.gte("task_date", von).lte("task_date", bis).limit(4000)
+      ),
       supabase.from("absence_requests").select("*").limit(1000)
     ]);
 
@@ -104,10 +102,7 @@ export async function GET(request: Request) {
       ((zeitenErgebnis.data || []) as AnyRow[]).map((eintrag) => clean(eintrag.task_id)).filter((id) => id && !tasksById.has(id))
     ));
     if (fehlendeIds.length) {
-      const nachschlag = await supabase
-        .from("tasks")
-        .select("id, title, site, customer_name, employee_name, task_date, start_time, end_time, planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done")
-        .in("id", fehlendeIds);
+      const nachschlag = await safeSelect(supabase, "tasks", TASK_SPALTEN, (query) => query.in("id", fehlendeIds));
       for (const aufgabe of (nachschlag.data || []) as AnyRow[]) tasksById.set(aufgabe.id, aufgabe);
     }
 

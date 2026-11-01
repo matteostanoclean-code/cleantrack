@@ -54,6 +54,7 @@ export const VORGABEN = {
     fehler_standort_freigabe: true,
     fehler_freie_zeit: true,
     fehler_nachtrag: true,
+    fehler_spaeter_beginn: true,
     unter_prozent: 25,
     unter_minuten: 10,
     auf_soll_aufrunden: false,
@@ -154,6 +155,7 @@ export async function zeitgrenzenLaden(supabase: AnyRow) {
     fehler_standort_freigabe: werte.zeit.fehler_standort_freigabe !== false,
     fehler_freie_zeit: werte.zeit.fehler_freie_zeit !== false,
     fehler_nachtrag: werte.zeit.fehler_nachtrag !== false,
+    fehler_spaeter_beginn: werte.zeit.fehler_spaeter_beginn !== false,
     /** Freigegebene Zeiten auf die Sollzeit aufrunden. */
     auf_soll_aufrunden: werte.zeit.auf_soll_aufrunden === true,
     /** Radius fürs Stempeln, wenn am Objekt keiner hinterlegt ist. */

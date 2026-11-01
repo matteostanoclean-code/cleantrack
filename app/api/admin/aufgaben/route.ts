@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { buildRecords } from "@/lib/zeiten";
+import { TASK_SPALTEN, buildRecords } from "@/lib/zeiten";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { safeSelect } from "@/lib/safeWrite";
 
 export const dynamic = "force-dynamic";
 
@@ -72,10 +73,7 @@ export async function GET(request: Request) {
     const taskIds = Array.from(new Set(entries.map((entry) => entry.task_id).filter(Boolean))) as string[];
     const tasksById = new Map<string, AnyRow>();
     if (taskIds.length) {
-      const stamm = await supabase
-        .from("tasks")
-        .select("id, title, site, customer_name, employee_name, task_date, start_time, end_time, planned_minutes, max_minutes, paid_minutes, wage_minutes, work_site_id, task_type, done")
-        .in("id", taskIds);
+      const stamm = await safeSelect(supabase, "tasks", TASK_SPALTEN, (query) => query.in("id", taskIds));
       for (const task of stamm.data || []) tasksById.set(task.id, task);
     }
 
