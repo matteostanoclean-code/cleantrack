@@ -111,6 +111,7 @@ export default function ObjekteSeite() {
   const [urlaub, setUrlaub] = useState<Row>({ von: "", bis: "", grund: "", faellt_aus: true });
   const [urlaubLaeuft, setUrlaubLaeuft] = useState(false);
   const [urlaubHinweis, setUrlaubHinweis] = useState<string | null>(null);
+  const [offeneVorschlaege, setOffeneVorschlaege] = useState(0);
   const [standortLaeuft, setStandortLaeuft] = useState(false);
   const [standortHinweis, setStandortHinweis] = useState<string | null>(null);
   const [form, setForm] = useState<Row>({ ...leeresObjekt });
@@ -288,6 +289,10 @@ export default function ObjekteSeite() {
       const ergebnis = await antwort.json();
       if (ergebnis.ok) setSchliessungen(ergebnis.schliessungen || []);
       else setUrlaubHinweis(ergebnis.error || null);
+      // Ein Vorschlag aus einer Kundenantwort ist noch kein Zeitraum. Er
+      // wird hier genannt, entschieden wird im Urlaubsplaner.
+      const offen = ((ergebnis.schliessungen || []) as Row[]).filter((zeile) => zeile.bestaetigt === false).length;
+      setOffeneVorschlaege(offen);
     } catch {
       setUrlaubHinweis("Die Schließzeiten konnten nicht geladen werden.");
     }
@@ -623,9 +628,15 @@ export default function ObjekteSeite() {
                     Betriebsferien, Feiertagsschließung, Umbau. In dieser Zeit ist hier nichts zu tun — der Urlaubsplaner zeigt dann, wer dadurch frei wird.
                   </p>
 
-                  {schliessungen.length ? (
+                  {offeneVorschlaege ? (
+                    <p className="mt-3 rounded-xl bg-brand-50 px-3.5 py-2.5 text-[13px] text-brand-700">
+                      {offeneVorschlaege === 1 ? "Ein Zeitraum aus einer Kundenantwort wartet" : `${offeneVorschlaege} Zeiträume aus Kundenantworten warten`} auf dich — im Urlaubsplaner.
+                    </p>
+                  ) : null}
+
+                  {schliessungen.filter((zeile) => zeile.bestaetigt !== false).length ? (
                     <ul className="mt-3 space-y-2">
-                      {schliessungen.map((zeile) => (
+                      {schliessungen.filter((zeile) => zeile.bestaetigt !== false).map((zeile) => (
                         <li key={zeile.id} className="flex items-center justify-between gap-3 rounded-xl bg-paper-100 px-3.5 py-2.5">
                           <span className="min-w-0">
                             <span className="block text-[14px] font-semibold text-ink-800">

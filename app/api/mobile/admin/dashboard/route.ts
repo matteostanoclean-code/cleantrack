@@ -293,7 +293,7 @@ async function loadAdminData(supabase: any) {
     // der Planer soll deswegen nicht stehen.
     supabase
       .from("site_closures")
-      .select("work_site_id, object_name, customer_name, von, bis, grund, faellt_aus")
+      .select("*")
       .gte("bis", fromDate.toISOString().slice(0, 10))
       .lte("von", toDate.toISOString().slice(0, 10))
       .limit(1000)
@@ -324,7 +324,12 @@ async function loadAdminData(supabase: any) {
     notifications: notifications.data || [],
     auftragsarten: auftragsarten.map((zeile: AnyRow) => clean(zeile.name)).filter(Boolean),
     feiertage,
-    schliessungen: schliessungen.error ? [] : (schliessungen.data || [])
+    // Unbestätigte Zeiträume sind Vorschläge aus Kundenantworten. Sie werden
+    // hier herausgefiltert statt in der Abfrage: fehlt die Spalte noch, soll
+    // der Planer trotzdem die vorhandenen Schließzeiten zeigen.
+    schliessungen: schliessungen.error
+      ? []
+      : ((schliessungen.data || []) as AnyRow[]).filter((zeile) => zeile.bestaetigt !== false)
   };
 }
 

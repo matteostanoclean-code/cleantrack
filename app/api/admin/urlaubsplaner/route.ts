@@ -316,6 +316,16 @@ export async function PATCH(request: Request) {
     const id = clean(body.id);
     if (!id) return NextResponse.json({ ok: false, error: "Es fehlt die Kennung." }, { status: 400 });
 
+    /**
+     * Einen Vorschlag aus einer Kundenantwort annehmen: nur den Haken
+     * setzen, sonst nichts anfassen. Käme hier der ganze Datensatz mit,
+     * würde ein leeres Feld im Aufruf einen gefüllten Wert überschreiben.
+     */
+    if (body.nurBestaetigen === true) {
+      const ergebnis = await safeUpdateById(guard.auth.supabase, "site_closures", id, { bestaetigt: true });
+      return NextResponse.json({ ok: true, eintrag: ergebnis.data });
+    }
+
     const von = nullableDatum(body.von);
     const bis = nullableDatum(body.bis) || von;
     if (von && bis && bis < von) return NextResponse.json({ ok: false, error: "Das Ende liegt vor dem Anfang." }, { status: 400 });
@@ -325,7 +335,9 @@ export async function PATCH(request: Request) {
       bis,
       grund: nullableText(body.grund),
       faellt_aus: body.faellt_aus !== false,
-      notiz: nullableText(body.notiz)
+      notiz: nullableText(body.notiz),
+      // Was von Hand geändert wird, ist damit bestätigt.
+      bestaetigt: true
     });
 
     return NextResponse.json({ ok: true, eintrag: ergebnis.data });

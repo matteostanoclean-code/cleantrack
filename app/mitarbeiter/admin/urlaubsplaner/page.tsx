@@ -177,18 +177,42 @@ export default function UrlaubsplanerSeite() {
     [jahr]
   );
 
+  /**
+   * Nur das Bestätigte gehört in den Kalender. Was aus einer Kundenantwort
+   * gelesen wurde, steht darüber als Vorschlag, bis jemand zustimmt.
+   */
+  const bestaetigte = useMemo(() => schliessungen.filter((eintrag) => eintrag.bestaetigt !== false), [schliessungen]);
+
+  /** Vorschläge aus Kundenantworten, je Kunde und Zeitraum zusammengefasst. */
+  const vorschlaege = useMemo(() => {
+    const gruppen = new Map<string, Row & { ids: string[]; objekte: string[] }>();
+    for (const eintrag of schliessungen) {
+      if (eintrag.bestaetigt !== false) continue;
+      const kunde = clean(eintrag.customer_name) || clean(eintrag.object_name);
+      const schluessel = `${kunde}|${clean(eintrag.von)}|${clean(eintrag.bis)}`;
+      const vorhanden = gruppen.get(schluessel);
+      if (vorhanden) {
+        vorhanden.ids.push(clean(eintrag.id));
+        vorhanden.objekte.push(clean(eintrag.object_name));
+        continue;
+      }
+      gruppen.set(schluessel, { ...eintrag, kunde, ids: [clean(eintrag.id)], objekte: [clean(eintrag.object_name)] });
+    }
+    return Array.from(gruppen.values()).sort((a, b) => clean(a.von).localeCompare(clean(b.von)));
+  }, [schliessungen]);
+
   /** Objekte, für die es in diesem Jahr etwas zu zeigen gibt. */
   const objektZeilen = useMemo(() => {
-    const ids = new Set(schliessungen.map((eintrag) => clean(eintrag.work_site_id)).filter(Boolean));
+    const ids = new Set(bestaetigte.map((eintrag) => clean(eintrag.work_site_id)).filter(Boolean));
     return objekte.filter((objekt) => ids.has(clean(objekt.id)));
-  }, [objekte, schliessungen]);
+  }, [objekte, bestaetigte]);
 
   function balkenFuerPerson(name: string) {
     return abwesenheiten.filter((eintrag) => clean(eintrag.employee_name) === name);
   }
 
   function balkenFuerObjekt(id: string) {
-    return schliessungen.filter((eintrag) => clean(eintrag.work_site_id) === id);
+    return bestaetigte.filter((eintrag) => clean(eintrag.work_site_id) === id);
   }
 
   function tagAngeklickt(zeile: string, art: "person" | "objekt", datum: string) {
@@ -265,6 +289,40 @@ export default function UrlaubsplanerSeite() {
       await holen();
     } catch (speicherFehler) {
       setFehler(speicherFehler instanceof Error ? speicherFehler.message : "Konnte nicht gespeichert werden.");
+    } finally {
+      setSpeichert(false);
+    }
+  }
+
+  /**
+   * Ein Vorschlag aus einer Kundenantwort wird angenommen oder verworfen.
+   * Erst damit zählt der Zeitraum im Planer.
+   */
+  async function vorschlagAnnehmen(id: string) {
+    setSpeichert(true);
+    setFehler(null);
+    try {
+      const antwort = await fetch("/api/admin/urlaubsplaner", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id, nurBestaetigen: true })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Konnte nicht übernommen werden.");
+      setMeldung("Zeitraum übernommen.");
+      await holen();
+    } catch (fehlerBeim) {
+      setFehler(fehlerBeim instanceof Error ? fehlerBeim.message : "Konnte nicht übernommen werden.");
+    } finally {
+      setSpeichert(false);
+    }
+  }
+
+  async function vorschlagVerwerfen(id: string) {
+    setSpeichert(true);
+    try {
+      await fetch(`/api/admin/urlaubsplaner?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      await holen();
     } finally {
       setSpeichert(false);
     }
@@ -396,6 +454,62 @@ export default function UrlaubsplanerSeite() {
             </button>
           </div>
         </div>
+
+        {/*
+          Vorschläge aus den Antworten auf die Jahresabfrage. Stehen oben,
+          weil sie die einzige Stelle sind, an der etwas von dir erwartet
+          wird — der Rest der Seite ist zum Ansehen.
+        */}
+        {vorschlaege.length ? (
+          <section className="mt-4 rounded-2xl border border-brand-500/40 bg-brand-50 p-4">
+            <p className="text-[15px] font-bold text-brand-700">
+              {vorschlaege.length === 1 ? "Eine Kundenantwort wartet" : `${vorschlaege.length} Kundenantworten warten`}
+            </p>
+            <p className="mt-0.5 text-[13px] text-ink-500">
+              Aus der Mail gelesen. Nachlesen, dann übernehmen — erst danach zählt der Zeitraum im Planer.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {vorschlaege.map((vorschlag) => (
+                <li key={vorschlag.ids[0]} className="rounded-xl border border-paper-200 bg-white p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[15px] font-semibold text-ink-900">{vorschlag.kunde}</p>
+                      <p className="text-[14px] text-ink-700">
+                        {datumText(clean(vorschlag.von))} bis {datumText(clean(vorschlag.bis))}
+                        {clean(vorschlag.grund) ? ` · ${clean(vorschlag.grund)}` : ""}
+                      </p>
+                      <p className="truncate text-[12px] text-ink-400">
+                        {vorschlag.objekte.filter(Boolean).join(", ") || "ohne Objekt"}
+                        {clean(vorschlag.absender) ? ` · von ${clean(vorschlag.absender)}` : ""}
+                      </p>
+                      {clean(vorschlag.zitat) ? (
+                        <p className="mt-1.5 border-l-2 border-paper-300 pl-2 text-[13px] italic text-ink-500">„{clean(vorschlag.zitat)}"</p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        disabled={speichert}
+                        onClick={() => vorschlag.ids.forEach((id: string) => vorschlagAnnehmen(id))}
+                        className="rounded-xl bg-brand-600 px-4 py-2.5 text-[14px] font-semibold text-white disabled:opacity-50"
+                      >
+                        Übernehmen
+                      </button>
+                      <button
+                        type="button"
+                        disabled={speichert}
+                        onClick={() => vorschlag.ids.forEach((id: string) => vorschlagVerwerfen(id))}
+                        className="rounded-xl border border-paper-300 px-4 py-2.5 text-[14px] font-semibold text-ink-600 disabled:opacity-50"
+                      >
+                        Verwerfen
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         {setupFehlt ? (
           <div className="mt-4 rounded-xl bg-amber-100 px-4 py-3 text-[14px] text-amber-800">
