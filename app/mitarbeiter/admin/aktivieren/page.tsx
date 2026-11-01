@@ -20,6 +20,8 @@ type CreatedLogin = {
   email: string;
   password: string;
   mustChangePassword: boolean;
+  /** Der Anmeldename wurde aus dem Namen gebaut, weil keine Adresse hinterlegt war. */
+  emailErzeugt?: boolean;
 };
 
 function statusText(employee: Employee) {
@@ -52,6 +54,12 @@ export default function ActivateEmployeesPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [passwords, setPasswords] = useState<Record<string, string>>({});
   const [createdLogins, setCreatedLogins] = useState<Record<string, CreatedLogin>>({});
+  // Die zuletzt vergebenen Zugangsdaten, gross und oben auf der Seite.
+  // Vorher standen sie nur auf der Karte in "Noch ohne Login" - und die war
+  // nach dem Aktivieren sofort weg, weil der Mitarbeiter in die andere Liste
+  // rutscht. Das Passwort war damit unwiederbringlich verloren.
+  const [letzterZugang, setLetzterZugang] = useState<(CreatedLogin & { name: string }) | null>(null);
+  const [kopiert, setKopiert] = useState(false);
 
   const inactiveEmployees = useMemo(() => employees.filter((employee) => employee.role !== "admin" && !employee.canLogin), [employees]);
   const activeEmployees = useMemo(() => employees.filter((employee) => employee.role !== "admin" && employee.canLogin), [employees]);
@@ -117,7 +125,12 @@ export default function ActivateEmployeesPage() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Mitarbeiter konnte nicht aktiviert werden.");
       setCreatedLogins((current) => ({ ...current, [employee.id]: result.login }));
-      setSuccess(`${employee.name || "Mitarbeiter"} wurde aktiviert.`);
+      setLetzterZugang({ ...result.login, name: employee.name || "Mitarbeiter" });
+      setKopiert(false);
+      setSuccess(null);
+      // Das eingetippte Startpasswort nicht stehen lassen: sonst bekommt der
+      // naechste Mitarbeiter versehentlich dasselbe
+      setPasswords((current) => ({ ...current, [employee.id]: "" }));
       await loadEmployees(token);
     } catch (activateError) {
       setError(activateError instanceof Error ? activateError.message : "Mitarbeiter konnte nicht aktiviert werden.");
@@ -198,6 +211,59 @@ export default function ActivateEmployeesPage() {
           {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-700">{error}</p>}
           {success && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-4 py-3 text-sm text-brand-700">{success}</p>}
 
+          {/* Die Zugangsdaten stehen oben und bleiben stehen, bis sie
+              weggeklickt werden. Sie gibt es nur dieses eine Mal: gespeichert
+              wird bei Supabase nur der Abdruck, nicht das Passwort. */}
+          {letzterZugang && (
+            <section className="rounded-2xl border-2 border-success-500 bg-success-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-bold text-ink-900">Zugangsdaten für {letzterZugang.name}</p>
+                <button
+                  onClick={() => setLetzterZugang(null)}
+                  className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-ink-400"
+                  aria-label="Schließen"
+                >
+                  Fertig
+                </button>
+              </div>
+              <p className="mt-1 text-sm font-semibold text-rose-700">
+                Jetzt notieren oder kopieren. Nach dem Schließen oder Neuladen ist das Passwort weg.
+              </p>
+              <dl className="mt-3 space-y-2 rounded-xl bg-white p-3">
+                <div>
+                  <dt className="text-xs font-bold uppercase tracking-wide text-ink-400">
+                    {letzterZugang.emailErzeugt ? "Anmeldename" : "E-Mail"}
+                  </dt>
+                  <dd className="break-all text-[15px] font-semibold text-ink-900">{letzterZugang.email}</dd>
+                  {letzterZugang.emailErzeugt && (
+                    <p className="mt-1 text-xs text-ink-400">
+                      Aus dem Namen gebaut, weil keine Adresse hinterlegt war. Es ist keine
+                      echte Mailadresse — nur der Anmeldename.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs font-bold uppercase tracking-wide text-ink-400">Passwort</dt>
+                  <dd className="break-all font-mono text-[17px] font-bold text-ink-900">{letzterZugang.password}</dd>
+                </div>
+              </dl>
+              <button
+                onClick={async () => {
+                  await copyToClipboard(
+                    `Schichtklar\nE-Mail: ${letzterZugang.email}\nPasswort: ${letzterZugang.password}`
+                  );
+                  setKopiert(true);
+                }}
+                className="mt-3 w-full rounded-2xl bg-success-500 py-3.5 text-[15px] font-bold text-white"
+              >
+                {kopiert ? "Kopiert" : "E-Mail und Passwort kopieren"}
+              </button>
+              <p className="mt-2 text-xs text-ink-400">
+                Es geht keine Mail raus. Gib beides selbst weiter.
+              </p>
+            </section>
+          )}
+
           {!loading && (
             <>
               <section className="rounded-2xl border border-paper-200 bg-white p-4">
@@ -237,8 +303,16 @@ export default function ActivateEmployeesPage() {
                       />
                     </label>
 
+                    {/* Ohne eigene Adresse geht es trotzdem: der Server baut
+                        aus dem Namen einen Anmeldenamen. Es geht nie eine Mail raus. */}
+                    {!employee.email && (
+                      <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-100 px-3 py-2 text-xs text-amber-800">
+                        Ohne E-Mail-Adresse. Beim Aktivieren wird ein Anmeldename aus dem
+                        Namen gebaut — du siehst ihn danach bei den Zugangsdaten.
+                      </p>
+                    )}
                     <button
-                      disabled={savingId === employee.id || !employee.email}
+                      disabled={savingId === employee.id}
                       onClick={() => activateEmployee(employee)}
                       className="mt-3 w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-glow disabled:opacity-50"
                     >
@@ -286,10 +360,33 @@ export default function ActivateEmployeesPage() {
                       </div>
                       <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-bold ${statusClass(employee)}`}>{statusText(employee)}</span>
                     </div>
+                    {/* Passwort vergessen oder verloren: neu setzen. Derselbe Weg
+                        wie beim Aktivieren, der Zugang bleibt bestehen. */}
+                    <label className="mt-4 block">
+                      <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Neues Passwort optional</span>
+                      <input
+                        value={passwords[employee.id] || ""}
+                        onChange={(event) => setPasswords((current) => ({ ...current, [employee.id]: event.target.value }))}
+                        type="text"
+                        className="mt-2 w-full rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-sm text-ink-900 outline-none focus:border-brand-500"
+                        placeholder="Leer lassen = Passwort wird erzeugt"
+                      />
+                    </label>
+                    <button
+                      disabled={savingId === employee.id}
+                      onClick={() => {
+                        if (window.confirm(`Für ${employee.name || "diesen Mitarbeiter"} ein neues Passwort setzen?\n\nDas alte gilt dann nicht mehr.`)) {
+                          activateEmployee(employee);
+                        }
+                      }}
+                      className="mt-3 w-full rounded-2xl bg-brand-600 py-3.5 font-bold text-white disabled:opacity-50"
+                    >
+                      {savingId === employee.id ? "Setze…" : "Passwort neu setzen"}
+                    </button>
                     <button
                       disabled={savingId === employee.id}
                       onClick={() => deactivateEmployee(employee)}
-                      className="mt-4 w-full rounded-2xl border border-rose-500/30 bg-rose-100 py-3 font-bold text-rose-700 disabled:opacity-50"
+                      className="mt-2 w-full rounded-2xl border border-rose-500/30 bg-rose-100 py-3 font-bold text-rose-700 disabled:opacity-50"
                     >
                       Deaktivieren
                     </button>

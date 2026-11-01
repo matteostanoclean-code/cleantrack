@@ -14,6 +14,30 @@ function cleanString(value: unknown) {
 }
 
 /**
+ * Anmeldename fuer Leute ohne eigene E-Mail-Adresse.
+ *
+ * Supabase braucht zum Anmelden eine Adresse. Nicht jeder im Betrieb hat eine,
+ * deshalb wird aus dem Namen eine gebaut: vorname.nachname@intern.matteostano-clean.de.
+ * Dorthin geht nie eine Mail - weder beim Anlegen (email_confirm) noch spaeter.
+ * Die Adresse ist nur der Anmeldename und wird ins Profil zurueckgeschrieben,
+ * damit beim naechsten Mal dieselbe gilt.
+ */
+const INTERNE_DOMAENE = "intern.matteostano-clean.de";
+
+function interneAdresse(name: string, employeeId: string) {
+  const ersatz: Record<string, string> = { "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss" };
+  const klein = name.toLowerCase().replace(/[äöüß]/g, (z) => ersatz[z] || z);
+  const teile = klein
+    .replace(/[^a-z0-9\s.-]/g, " ")
+    .split(/[\s.-]+/)
+    .filter(Boolean);
+  // Reihenfolge im Profil ist "Nachname, Vorname", fuer die Adresse gedreht
+  const basis = teile.length >= 2 ? `${teile[teile.length - 1]}.${teile[0]}` : teile[0] || "";
+  if (!basis) return `mitarbeiter.${employeeId.slice(0, 8)}@${INTERNE_DOMAENE}`;
+  return `${basis}@${INTERNE_DOMAENE}`;
+}
+
+/**
  * Anmeldekonto zu einer E-Mail suchen.
  *
  * Supabase bietet dafür keine direkte Abfrage, deshalb wird die Nutzerliste
@@ -48,11 +72,21 @@ export async function POST(request: Request) {
     const body = await request.json();
     const employeeId = cleanString(body.employeeId);
     const customPassword = cleanString(body.password);
-    const password = customPassword.length >= 8 ? customPassword : createTemporaryPassword();
 
     if (!employeeId) {
       return NextResponse.json({ ok: false, error: "Mitarbeiter-ID fehlt." }, { status: 400 });
     }
+
+    // Ein zu kurzes eigenes Passwort wurde frueher stillschweigend durch ein
+    // zufaelliges ersetzt. Wer "Elona1" eintippt, bekam dann ein anderes und
+    // merkte es nicht. Jetzt gibt es eine Ansage.
+    if (customPassword && customPassword.length < 8) {
+      return NextResponse.json({
+        ok: false,
+        error: "Das eigene Startpasswort braucht mindestens 8 Zeichen. Feld leer lassen, dann wird eines erzeugt."
+      }, { status: 400 });
+    }
+    const password = customPassword || createTemporaryPassword();
 
     const { data: employee, error: employeeError } = await auth.supabase
       .from("employee_profiles")
@@ -65,13 +99,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Mitarbeiter wurde nicht gefunden." }, { status: 404 });
     }
 
-    const email = cleanString(employee.email);
     const name = cleanString(employee.name) || "Mitarbeiter";
     const role = cleanString(employee.role) || "employee";
-
-    if (!email) {
-      return NextResponse.json({ ok: false, error: "Dieser Mitarbeiter hat keine E-Mail-Adresse." }, { status: 400 });
-    }
+    // Ohne eigene Adresse wird eine interne gebaut. Sie ist nur der
+    // Anmeldename, es geht nie eine Mail dorthin
+    const vorhandeneEmail = cleanString(employee.email);
+    const email = vorhandeneEmail || interneAdresse(name, employeeId);
+    const emailErzeugt = !vorhandeneEmail;
 
     let authUserId = cleanString(employee.auth_user_id);
 
@@ -145,7 +179,10 @@ export async function POST(request: Request) {
       .update({
         auth_user_id: authUserId,
         active: true,
-        must_change_password: true
+        must_change_password: true,
+        // Die erzeugte Adresse ins Profil zurueck, sonst entsteht beim
+        // naechsten Mal eine andere und der alte Zugang passt nicht mehr
+        ...(emailErzeugt ? { email } : {})
       })
       .eq("id", employeeId)
       .select("id, auth_user_id, name, email, role, active, must_change_password")
@@ -159,7 +196,8 @@ export async function POST(request: Request) {
       login: {
         email,
         password,
-        mustChangePassword: true
+        mustChangePassword: true,
+        emailErzeugt
       }
     });
   } catch (error) {

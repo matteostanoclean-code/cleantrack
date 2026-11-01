@@ -29,7 +29,7 @@ import { addDaysIso, formatDateDE, formatDayMonthDE, formatShortDateDE, hhmm, mi
 import { antwortLesen, bilderVerkleinern } from "@/lib/bild";
 import { NACHTRAG_ERKLAERUNG } from "@/lib/zeiten";
 
-type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push" | "search" | "admin";
+type Tab = "home" | "schedule" | "taskdetail" | "clock" | "timesheet" | "tasks" | "menu" | "material" | "absence" | "chat" | "profile" | "quality" | "notifications" | "dayclose" | "route" | "objects" | "issue" | "service" | "push" | "search" | "admin" | "passwort";
 type ClockStatus = "idle" | "working" | "break";
 
 type Employee = {
@@ -47,6 +47,8 @@ type Employee = {
   vacation_days?: number | null;
   annual_vacation_days?: number | null;
   birthday?: string | null;
+  /** Startpasswort aus dem Büro: Es muss erst ein eigenes gesetzt werden. */
+  must_change_password?: boolean | null;
 };
 
 type RawTask = {
@@ -4516,6 +4518,19 @@ function Menu({ data, employeeName, onEmployeeChange, onLogout, setActive }: { d
         </button>
       ))}
 
+      <SectionHeading>Zugang</SectionHeading>
+      <button
+        onClick={() => setActive("passwort")}
+        className="flex w-full items-center gap-3 border-b border-paper-200 px-4 py-3.5 text-left"
+      >
+        <span className="shrink-0 text-ink-400"><UiIcon name="shield" className="h-[22px] w-[22px]" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-semibold text-ink-900">Passwort ändern</span>
+          <span className="mt-0.5 block truncate text-[13px] text-ink-400">Neues Passwort für die Anmeldung setzen</span>
+        </span>
+        <UiIcon name="chevronRight" className="h-4 w-4 shrink-0 text-ink-200" />
+      </button>
+
       <div className="px-4 py-6">
         <Button variant="neutral" full onClick={onLogout}>Abmelden</Button>
       </div>
@@ -4690,6 +4705,150 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
         <p className="mt-6 text-[13px] text-ink-400">Zugang vergessen? Melde dich im Büro, dann setzen wir dir ein neues Passwort.</p>
       </div>
     </main>
+  );
+}
+
+/**
+ * Eigenes Passwort setzen.
+ *
+ * Das Passwort geht direkt von hier zu Supabase, es laeuft nie durch unsere
+ * Server. Danach meldet die App dem Betrieb nur noch, dass die Pflicht erledigt
+ * ist (/api/mobile/passwort).
+ *
+ * `pflicht` heisst: Der Mitarbeiter hat ein Startpasswort aus dem Buero und
+ * kommt erst in die App, wenn er ein eigenes gesetzt hat. Ohne `pflicht` ist es
+ * dieselbe Maske aus den Einstellungen heraus, mit Zurueck-Knopf.
+ */
+function PasswortAendern({ authToken, pflicht = false, onFertig, onAbmelden, onZurueck }: {
+  authToken: string;
+  pflicht?: boolean;
+  onFertig: () => Promise<void> | void;
+  onAbmelden?: () => void;
+  onZurueck?: () => void;
+}) {
+  const [neu, setNeu] = useState("");
+  const [wiederholung, setWiederholung] = useState("");
+  const [zeigen, setZeigen] = useState(false);
+  const [speichert, setSpeichert] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [fertig, setFertig] = useState(false);
+
+  const zuKurz = neu.length > 0 && neu.length < 8;
+  const ungleich = wiederholung.length > 0 && neu !== wiederholung;
+  const bereit = neu.length >= 8 && neu === wiederholung && !speichert;
+
+  async function speichern(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!bereit) return;
+    setSpeichert(true);
+    setFehler(null);
+    try {
+      const supabase = getSupabaseBrowser();
+      const { error } = await supabase.auth.updateUser({ password: neu });
+      if (error) throw new Error(error.message);
+      // Erst wenn Supabase das Passwort angenommen hat, den Merker loeschen
+      const antwort = await fetch("/api/mobile/passwort", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      const ergebnis = await antwort.json().catch(() => ({ ok: false }));
+      if (!antwort.ok || !ergebnis.ok) {
+        throw new Error("Das Passwort ist geändert, aber der Vermerk im Büro nicht. Bitte Matteo sagen.");
+      }
+      setFertig(true);
+      await onFertig();
+    } catch (f) {
+      setFehler(f instanceof Error ? f.message : "Das hat nicht geklappt.");
+    } finally {
+      setSpeichert(false);
+    }
+  }
+
+  // Als Pflichtseite steht sie allein da, aus den Einstellungen heraus sitzt
+  // sie im Rahmen der App und braucht keine eigene Hoehe
+  const Rahmen = pflicht
+    ? ({ children }: { children: React.ReactNode }) => (
+        <main className="min-h-[100dvh] bg-paper-100 px-4 py-6 text-ink-900">{children}</main>
+      )
+    : ({ children }: { children: React.ReactNode }) => <div className="text-ink-900">{children}</div>;
+
+  return (
+    <Rahmen>
+      <div className="mx-auto w-full max-w-[430px]">
+        <h1 className="text-2xl font-bold">
+          {pflicht ? "Eigenes Passwort festlegen" : "Passwort ändern"}
+        </h1>
+        <p className="mt-2 text-[15px] leading-6 text-ink-600">
+          {pflicht
+            ? "Du hast ein Startpasswort aus dem Büro bekommen. Such dir jetzt ein eigenes aus, das nur du kennst."
+            : "Wähle ein neues Passwort. Du brauchst es beim nächsten Anmelden."}
+        </p>
+
+        {fertig ? (
+          <div className="mt-6 rounded-2xl border border-success-500/40 bg-success-50 p-4">
+            <p className="font-bold">Passwort geändert.</p>
+            <p className="mt-1 text-sm text-ink-600">
+              Merk es dir gut. Vergessen? Dann setzt dir das Büro ein neues.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={speichern} className="mt-6 space-y-4">
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Neues Passwort</span>
+              <input
+                value={neu}
+                onChange={(e) => setNeu(e.target.value)}
+                type={zeigen ? "text" : "password"}
+                autoComplete="new-password"
+                className="mt-2 w-full rounded-2xl border border-paper-300 bg-white px-4 py-3.5 text-[16px] outline-none focus:border-brand-500"
+                placeholder="Mindestens 8 Zeichen"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-ink-400">Noch einmal</span>
+              <input
+                value={wiederholung}
+                onChange={(e) => setWiederholung(e.target.value)}
+                type={zeigen ? "text" : "password"}
+                autoComplete="new-password"
+                className="mt-2 w-full rounded-2xl border border-paper-300 bg-white px-4 py-3.5 text-[16px] outline-none focus:border-brand-500"
+                placeholder="Zur Sicherheit wiederholen"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 text-sm text-ink-600">
+              <input type="checkbox" checked={zeigen} onChange={(e) => setZeigen(e.target.checked)} />
+              Passwort anzeigen
+            </label>
+
+            {zuKurz && <p className="text-sm text-rose-700">Das Passwort braucht mindestens 8 Zeichen.</p>}
+            {ungleich && <p className="text-sm text-rose-700">Die beiden Eingaben sind nicht gleich.</p>}
+            {fehler && (
+              <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-700">{fehler}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={!bereit}
+              className="w-full rounded-2xl bg-brand-600 py-4 text-[16px] font-bold text-white disabled:opacity-50"
+            >
+              {speichert ? "Speichere…" : "Passwort speichern"}
+            </button>
+          </form>
+        )}
+
+        {pflicht && onAbmelden && !fertig && (
+          <button onClick={onAbmelden} className="mt-6 w-full rounded-2xl border border-paper-300 bg-white py-3 text-sm font-semibold text-ink-600">
+            Abmelden
+          </button>
+        )}
+        {!pflicht && onZurueck && (
+          <button onClick={onZurueck} className="mt-6 w-full rounded-2xl border border-paper-300 bg-white py-3 text-sm font-semibold text-ink-600">
+            Zurück
+          </button>
+        )}
+      </div>
+    </Rahmen>
   );
 }
 
@@ -4956,6 +5115,19 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     return <LoginScreen onLogin={handleLogin} />;
   }
 
+  // Startpasswort vom Büro: erst ein eigenes setzen, dann die App. Kein Weg
+  // daran vorbei ausser Abmelden — sonst bleibt das Startpasswort ewig stehen.
+  if (data?.employee?.must_change_password) {
+    return (
+      <PasswortAendern
+        authToken={authToken}
+        pflicht
+        onFertig={() => refreshData()}
+        onAbmelden={handleLogout}
+      />
+    );
+  }
+
   return (
     <AppShell
       active={active}
@@ -5007,6 +5179,13 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
               assignments={assignments}
               onOpenAssignment={openAssignment}
               onStartAssignment={(assignment) => { setSelectedTaskId(assignment.id); setActive("clock"); }}
+            />
+          )}
+          {active === "passwort" && (
+            <PasswortAendern
+              authToken={authToken}
+              onFertig={() => refreshData()}
+              onZurueck={() => setActive("menu")}
             />
           )}
           {active === "taskdetail" && <TaskDetail data={data} authToken={authToken} taskId={selectedTaskId} onBack={() => setActive("schedule")} onOpenClock={openClockForTask} onOpenQuality={openQualityForTask} onReload={() => refreshData()} />}
