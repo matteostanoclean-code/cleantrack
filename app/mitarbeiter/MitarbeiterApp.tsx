@@ -3570,7 +3570,103 @@ function DayCloseScreen({ data, authToken, onBack, onReload }: { data: AppData |
   );
 }
 
-function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBack: () => void; onLogout: () => Promise<void> }) {
+/**
+ * Die eigenen Entgeltabrechnungen.
+ *
+ * Geladen wird nur die Liste. Die Datei selbst liegt in einem privaten
+ * Ablagefach; beim Tippen holt der Server eine Adresse, die fünf Minuten
+ * gilt. Dadurch gibt es keinen Link, den man weitergeben könnte.
+ */
+function LohnAbschnitt({ authToken }: { authToken: string }) {
+  const [dokumente, setDokumente] = useState<any[]>([]);
+  const [laedt, setLaedt] = useState(true);
+  const [holt, setHolt] = useState("");
+  const [fehler, setFehler] = useState("");
+
+  useEffect(() => {
+    let abgebrochen = false;
+    async function laden() {
+      try {
+        const antwort = await fetch("/api/mobile/lohn", { cache: "no-store", headers: { Authorization: `Bearer ${authToken}` } });
+        const ergebnis = await antwort.json();
+        if (!abgebrochen && ergebnis.ok) setDokumente(ergebnis.dokumente || []);
+      } catch {
+        // Ohne Abrechnungen ist das Profil trotzdem brauchbar.
+      } finally {
+        if (!abgebrochen) setLaedt(false);
+      }
+    }
+    if (authToken) laden();
+    return () => { abgebrochen = true; };
+  }, [authToken]);
+
+  async function oeffnen(dokument: any) {
+    setHolt(dokument.id);
+    setFehler("");
+    try {
+      const antwort = await fetch("/api/mobile/lohn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ id: dokument.id })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Die Abrechnung konnte nicht geöffnet werden.");
+      // Ein echter Link statt window.open: in der installierten App wird ein
+      // Fenster sonst gern blockiert.
+      const link = document.createElement("a");
+      link.href = ergebnis.adresse;
+      link.rel = "noopener";
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setDokumente((alt) => alt.map((eintrag) => (eintrag.id === dokument.id ? { ...eintrag, gesehen_at: new Date().toISOString() } : eintrag)));
+    } catch (problem) {
+      setFehler(problem instanceof Error ? problem.message : "Die Abrechnung konnte nicht geöffnet werden.");
+    } finally {
+      setHolt("");
+    }
+  }
+
+  if (laedt || !dokumente.length) return null;
+
+  const MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+
+  return (
+    <>
+      <SectionHeading>Deine Abrechnungen</SectionHeading>
+      {fehler ? <div className="px-4 pb-2"><Banner tone="danger">{fehler}</Banner></div> : null}
+      <div className="divide-y divide-paper-200">
+        {dokumente.map((dokument) => (
+          <button
+            key={dokument.id}
+            onClick={() => oeffnen(dokument)}
+            disabled={Boolean(holt)}
+            className="flex w-full items-center gap-3 px-4 py-3.5 text-left disabled:opacity-50"
+          >
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
+              <UiIcon name="euro" className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-semibold text-ink-900">
+                {MONATE[Math.max(0, Math.min(11, Number(dokument.monat) - 1))]} {dokument.jahr}
+              </span>
+              <span className="block text-[13px] text-ink-400">
+                {holt === dokument.id ? "Wird geöffnet …" : dokument.gesehen_at ? "schon geöffnet" : "neu"}
+              </span>
+            </span>
+            <UiIcon name="chevronRight" className="h-5 w-5 shrink-0 text-ink-300" />
+          </button>
+        ))}
+      </div>
+      <p className="px-4 pt-2 text-[12px] text-ink-400">
+        Die Abrechnung wird beim Tippen frisch geholt und lässt sich nicht als Link weitergeben.
+      </p>
+    </>
+  );
+}
+
+function ProfileScreen({ data, authToken, onBack, onLogout }: { data: AppData | null; authToken: string; onBack: () => void; onLogout: () => Promise<void> }) {
   const employee = data?.employee;
   const birthday = birthdayInfo(employee);
   return (
@@ -3600,6 +3696,8 @@ function ProfileScreen({ data, onBack, onLogout }: { data: AppData | null; onBac
       <DetailRow icon="euro" label="Stundensatz" value={moneyPerHour(employee?.hourly_rate)} />
       <DetailRow icon="clock" label="Monatsstunden" value={employee?.monthly_hour_limit ? `${employee.monthly_hour_limit} h` : "Nicht hinterlegt"} />
       <DetailRow icon="flag" label="Geburtstag" value={birthday?.date || "Nicht hinterlegt"} hint={birthday?.nextLabel} />
+
+      <LohnAbschnitt authToken={authToken} />
 
       <div className="px-4 py-6">
         <Button variant="neutral" full onClick={onLogout}>Abmelden</Button>
@@ -4938,7 +5036,7 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
           {active === "service" && <ServiceReportScreen data={data} authToken={authToken} selectedTaskId={selectedTaskId} onBack={() => setActive("menu")} onReload={() => refreshData()} />}
           {active === "push" && <PushSettingsScreen authToken={authToken} onBack={() => setActive("menu")} />}
           {active === "search" && <SearchScreen data={data} onOpenAssignment={openAssignment} setActive={setActive} />}
-          {active === "profile" && <ProfileScreen data={data} onBack={() => setActive("menu")} onLogout={handleLogout} />}
+          {active === "profile" && <ProfileScreen data={data} authToken={authToken} onBack={() => setActive("menu")} onLogout={handleLogout} />}
         </>
       )}
     </AppShell>
