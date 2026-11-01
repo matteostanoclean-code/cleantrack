@@ -32,6 +32,36 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Was ein neuer Einsatz von seiner Vorlage erbt.
+ *
+ * Bewusst nur diese Felder und nicht die ganze Zeile: eine Vorlage kann
+ * Stempelzeiten, Fotos und gesetzte Haken mitbringen, die zu einem neuen
+ * Einsatz nicht gehören.
+ */
+const UEBERNEHMEN = [
+  "title", "site", "employee_name", "start_time", "end_time", "latest_start", "window_binding",
+  "max_minutes", "planned_minutes", "paid_minutes", "wage_minutes",
+  "work_site_id", "customer_id", "customer_name", "priority",
+  "task_type", "item_type", "notes", "repeat_mode", "recurrence_unit",
+  "recurrence_interval", "recurrence_end_date"
+];
+
+/** Einen neuen Einsatz der Serie aus einer Vorlage bauen. */
+function ausVorlage(vorlage: AnyRow, groupId: string, datum: string, tage: number[]) {
+  const zeile: AnyRow = {};
+  for (const spalte of UEBERNEHMEN) {
+    if (vorlage[spalte] !== undefined) zeile[spalte] = vorlage[spalte];
+  }
+  zeile.recurrence_group_id = groupId;
+  zeile.recurrence_days = tage;
+  zeile.task_date = datum;
+  zeile.due_date = datum;
+  zeile.done = false;
+  zeile.status = "open";
+  return zeile;
+}
+
 async function requireAdmin(request: Request) {
   const auth = await getAuthenticatedMobileProfile(request);
   if (!auth.ok) return { ok: false, response: NextResponse.json({ ok: false, error: auth.error }, { status: auth.status }) };
@@ -202,8 +232,8 @@ export async function PATCH(request: Request) {
      */
     if (type === "series_weekdays") {
       if (!groupId) return NextResponse.json({ ok: false, error: "Serien-ID fehlt." }, { status: 400 });
-      const tage = Array.isArray(body.weekdays)
-        ? Array.from(new Set(body.weekdays.map(Number).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6)))
+      const tage: number[] = Array.isArray(body.weekdays)
+        ? Array.from(new Set<number>(body.weekdays.map(Number).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6)))
         : [];
       if (!tage.length) {
         return NextResponse.json({ ok: false, error: "Bitte mindestens einen Wochentag wählen." }, { status: 400 });
@@ -240,34 +270,13 @@ export async function PATCH(request: Request) {
         vorlage.recurrence_end_date || alle[alle.length - 1].task_date
       ).slice(0, 10);
 
-      // Bewusst nur diese Felder und nicht die ganze Zeile: eine Vorlage kann
-      // Stempelzeiten, Fotos und gesetzte Haken mitbringen, die zu einem neuen
-      // Einsatz nicht gehören.
-      const UEBERNEHMEN = [
-        "title", "site", "employee_name", "start_time", "end_time", "latest_start", "window_binding",
-        "max_minutes", "planned_minutes", "paid_minutes", "wage_minutes",
-        "work_site_id", "customer_id", "customer_name", "priority",
-        "task_type", "item_type", "notes", "repeat_mode", "recurrence_unit",
-        "recurrence_interval", "recurrence_end_date"
-      ];
-
       const neue: AnyRow[] = [];
       const cursor = new Date(`${start}T12:00:00Z`);
       const ende = new Date(`${letzter}T12:00:00Z`);
       while (cursor <= ende && neue.length < 400) {
         const datum = cursor.toISOString().slice(0, 10);
         if (tage.includes(cursor.getUTCDay()) && !vorhanden.has(datum)) {
-          const zeile: AnyRow = {};
-          for (const spalte of UEBERNEHMEN) {
-            if (vorlage[spalte] !== undefined) zeile[spalte] = vorlage[spalte];
-          }
-          zeile.recurrence_group_id = groupId;
-          zeile.recurrence_days = tage;
-          zeile.task_date = datum;
-          zeile.due_date = datum;
-          zeile.done = false;
-          zeile.status = "open";
-          neue.push(zeile);
+          neue.push(ausVorlage(vorlage, groupId, datum, tage));
         }
         cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
@@ -293,6 +302,130 @@ export async function PATCH(request: Request) {
         removed: zuLoeschen.length,
         added: neue.length,
         protected_count: geschuetzt
+      });
+    }
+
+    /**
+     * Den Zeitraum einer Serie ändern: Von, Bis oder beides.
+     *
+     * "Von" und "Bis" sind keine Eigenschaft der Serie, sondern der erste und
+     * letzte Einsatz darin. Den Zeitraum zu ändern heißt deshalb: Einsätze
+     * anlegen oder wegnehmen.
+     *
+     *   Bis nach hinten  -> fehlende Termine bis dahin anlegen
+     *   Bis nach vorn    -> offene Termine danach löschen
+     *   Von nach hinten  -> offene Termine davor löschen
+     *   Von nach vorn    -> fehlende Termine ab dann anlegen, frühestens heute
+     *
+     * Erledigte Einsätze bleiben in jedem Fall stehen, auch außerhalb des
+     * neuen Zeitraums: sie sind Arbeitszeitaufzeichnungen (§ 17 Abs. 1
+     * MiLoG). In der Vergangenheit wird nie etwas angelegt — ein Einsatz, den
+     * niemand mehr machen kann, gehört nicht in die Planung.
+     */
+    if (type === "series_zeitraum") {
+      if (!groupId) return NextResponse.json({ ok: false, error: "Serien-ID fehlt." }, { status: 400 });
+
+      const neuVon = nullableText(body.von)?.slice(0, 10) || null;
+      const neuBis = nullableText(body.bis)?.slice(0, 10) || null;
+      const datumOk = (wert: string | null) => !wert || /^\d{4}-\d{2}-\d{2}$/.test(wert);
+      if (!datumOk(neuVon) || !datumOk(neuBis)) {
+        return NextResponse.json({ ok: false, error: "Bitte ein Datum wie 2026-12-31 angeben." }, { status: 400 });
+      }
+      if (!neuVon && !neuBis) {
+        return NextResponse.json({ ok: false, error: "Weder Anfang noch Ende angegeben." }, { status: 400 });
+      }
+      if (neuVon && neuBis && neuBis < neuVon) {
+        return NextResponse.json({ ok: false, error: "Das Ende liegt vor dem Anfang." }, { status: 400 });
+      }
+
+      const { data: alle, error: leseFehler } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("recurrence_group_id", groupId)
+        .order("task_date", { ascending: true });
+      if (leseFehler) throw new Error(leseFehler.message);
+      if (!alle?.length) return NextResponse.json({ ok: false, error: "Serie nicht gefunden." }, { status: 404 });
+
+      const heute = todayIso();
+      const wochentag = (datum: string) => new Date(`${datum}T12:00:00Z`).getUTCDay();
+      const kuenftig = alle.filter((t: AnyRow) => String(t.task_date) >= heute);
+      const vorlage: AnyRow = kuenftig[0] || alle[alle.length - 1];
+
+      // Die Wochentage der Serie: was sie künftig belegt, sonst was sie
+      // bisher belegt hat. Ohne das wüsste ein verlängerter Zeitraum nicht,
+      // an welchen Tagen er Termine anlegen soll.
+      const grundlage = kuenftig.length ? kuenftig : alle;
+      const tage: number[] = Array.from(
+        new Set(grundlage.map((t: AnyRow) => wochentag(String(t.task_date))))
+      ).sort((a, b) => a - b);
+
+      const vonAlt = String(alle[0].task_date).slice(0, 10);
+      const bisAlt = String(alle[alle.length - 1].task_date).slice(0, 10);
+
+      // Weg: offene Termine außerhalb des neuen Zeitraums.
+      const zuLoeschen = alle
+        .filter((t: AnyRow) => {
+          if (t.done) return false;
+          const datum = String(t.task_date).slice(0, 10);
+          if (datum < heute) return false; // Vergangenes bleibt, wie es ist
+          if (neuVon && datum < neuVon) return true;
+          if (neuBis && datum > neuBis) return true;
+          return false;
+        })
+        .map((t: AnyRow) => t.id);
+      if (zuLoeschen.length) {
+        const { error } = await supabase.from("tasks").delete().in("id", zuLoeschen);
+        if (error) throw new Error(error.message);
+      }
+
+      // Dazu: fehlende Termine im neuen Zeitraum, aber nie vor heute.
+      const vorhanden = new Set(
+        alle.filter((t: AnyRow) => !zuLoeschen.includes(t.id)).map((t: AnyRow) => String(t.task_date).slice(0, 10))
+      );
+      const anfang = [neuVon || vonAlt, heute].sort().pop() as string;
+      const schluss = neuBis || bisAlt;
+
+      const neue: AnyRow[] = [];
+      if (tage.length && anfang <= schluss) {
+        const cursor = new Date(`${anfang}T12:00:00Z`);
+        const ende = new Date(`${schluss}T12:00:00Z`);
+        while (cursor <= ende && neue.length < 400) {
+          const datum = cursor.toISOString().slice(0, 10);
+          if (tage.includes(cursor.getUTCDay()) && !vorhanden.has(datum)) {
+            neue.push(ausVorlage(vorlage, groupId, datum, tage));
+          }
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        if (neue.length) {
+          const { error } = await supabase.from("tasks").insert(neue);
+          if (error) throw new Error(error.message);
+        }
+      }
+
+      // Das neue Ende merken, damit eine spätere Änderung der Wochentage
+      // denselben Zeitraum bespielt und nicht wieder den alten.
+      if (neuBis) {
+        const { error } = await supabase
+          .from("tasks")
+          .update({ recurrence_end_date: neuBis })
+          .eq("recurrence_group_id", groupId)
+          .gte("task_date", heute);
+        if (error) throw new Error(error.message);
+      }
+
+      const geschuetzt = alle.filter((t: AnyRow) => {
+        if (!t.done) return false;
+        const datum = String(t.task_date).slice(0, 10);
+        return (neuVon && datum < neuVon) || (neuBis && datum > neuBis);
+      }).length;
+
+      return NextResponse.json({
+        ok: true,
+        removed: zuLoeschen.length,
+        added: neue.length,
+        protected_count: geschuetzt,
+        von: neuVon || vonAlt,
+        bis: neuBis || bisAlt
       });
     }
 

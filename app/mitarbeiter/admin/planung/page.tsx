@@ -891,6 +891,9 @@ export default function AdminPlanningPage() {
               const tageGeaendert =
                 tage.length > 0 &&
                 JSON.stringify([...tage].map(Number).sort((a, b) => a - b)) !== JSON.stringify(series.weekdays);
+              const zeitraumGeaendert =
+                (edit.von !== undefined && edit.von !== clean(series.from).slice(0, 10)) ||
+                (edit.bis !== undefined && edit.bis !== clean(series.to).slice(0, 10));
               return (
                 <details key={series.id} className="group overflow-hidden rounded-2xl border border-paper-200 bg-white open:border-brand-500/40 open:bg-brand-50">
                   <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
@@ -907,11 +910,53 @@ export default function AdminPlanningPage() {
                     <span className="shrink-0 text-xs font-bold text-brand-600 group-open:hidden">Ändern</span>
                   </summary>
                   <div className="space-y-3 border-t border-paper-200 bg-paper-100 px-4 py-3">
-                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                      <div className="rounded-2xl bg-white p-2"><p className="text-ink-400">Von</p><p className="font-bold">{dateText(series.from)}</p></div>
-                      <div className="rounded-2xl bg-white p-2"><p className="text-ink-400">Bis</p><p className="font-bold">{dateText(series.to)}</p></div>
-                      <div className="rounded-2xl bg-white p-2"><p className="text-ink-400">Termine</p><p className="font-bold">{series.count}</p></div>
+                    {/*
+                      Von und Bis sind keine Eigenschaft der Serie, sondern der
+                      erste und der letzte Einsatz darin. Sie zu ändern heißt
+                      Termine anlegen oder wegnehmen — darum ein eigener Knopf
+                      und nicht der allgemeine zum Speichern.
+                    */}
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <Field label="Von">
+                        <input
+                          type="date"
+                          value={edit.von ?? clean(series.from).slice(0, 10)}
+                          onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, von: event.target.value } })}
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Bis">
+                        <input
+                          type="date"
+                          value={edit.bis ?? clean(series.to).slice(0, 10)}
+                          onChange={(event) => setEdits({ ...edits, [series.id]: { ...edit, bis: event.target.value } })}
+                          className={inputClass}
+                        />
+                      </Field>
+                      <div className="self-end rounded-2xl bg-white p-2 text-center">
+                        <p className="text-ink-400">Termine</p>
+                        <p className="font-bold">{series.count}</p>
+                      </div>
                     </div>
+                    {zeitraumGeaendert ? (
+                      <button
+                        disabled={saving}
+                        onClick={() => {
+                          const von = edit.von ?? clean(series.from).slice(0, 10);
+                          const bis = edit.bis ?? clean(series.to).slice(0, 10);
+                          const laenger = bis > clean(series.to).slice(0, 10) || von < clean(series.from).slice(0, 10);
+                          const frage = laenger
+                            ? `Serie läuft dann von ${dateText(von)} bis ${dateText(bis)}.\n\nFehlende Termine werden an den Wochentagen der Serie angelegt — nie in der Vergangenheit.`
+                            : `Serie läuft dann von ${dateText(von)} bis ${dateText(bis)}.\n\nOffene Termine außerhalb werden gelöscht. Bereits erledigte bleiben als Arbeitszeitnachweis stehen.`;
+                          if (window.confirm(frage)) {
+                            patch({ type: "series_zeitraum", recurrence_group_id: series.id, von, bis }, "Zeitraum der Serie wurde geändert.");
+                          }
+                        }}
+                        className="w-full rounded-2xl bg-brand-600 py-3 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        Zeitraum übernehmen
+                      </button>
+                    ) : null}
                     {/* Wochentage sind keine Eigenschaft der Serie, sondern ergeben
                         sich aus den Einsaetzen. Darum eigener Knopf: weggefallene
                         Tage werden geloescht, neue angelegt. */}
