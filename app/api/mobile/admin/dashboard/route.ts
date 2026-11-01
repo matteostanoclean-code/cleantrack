@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { pushAnMitarbeiter } from "@/lib/push";
+import { zeitNachAbgangVerteilen } from "@/lib/mithilfe";
+import { listeLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -292,6 +294,10 @@ async function loadAdminData(supabase: any) {
   const errors = [employees.error, customers.error, sites.error, tasks.error, timeEntries.error, absences.error, materialReports.error, notifications.error].filter(Boolean);
   if (errors.length) throw new Error(errors[0]?.message || "Admin-Daten konnten nicht geladen werden.");
 
+  // Die Tätigkeiten im Planer sind dieselben Auftragsarten wie am Objekt.
+  // Standen sie fest im Code, fehlte dort, was in den Einstellungen dazukam.
+  const auftragsarten = await listeLaden(supabase, "auftragsarten");
+
   return {
     employees: employees.data || [],
     customers: customers.data || [],
@@ -300,7 +306,8 @@ async function loadAdminData(supabase: any) {
     timeEntries: timeEntries.data || [],
     absences: absences.data || [],
     materialReports: materialReports.data || [],
-    notifications: notifications.data || []
+    notifications: notifications.data || [],
+    auftragsarten: auftragsarten.map((zeile: AnyRow) => clean(zeile.name)).filter(Boolean)
   };
 }
 
@@ -608,6 +615,66 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: false, error: "Unbekannter Typ." }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Datensatz konnte nicht gespeichert werden.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Einen einzelnen Einsatz löschen.
+ *
+ * Ohne Nachfrage und ohne Nachricht an den Mitarbeiter: Wer im Planer einen
+ * Einsatz öffnet und auf Löschen drückt, meint genau diesen einen. Ein
+ * Dialog davor fragt nur noch einmal dasselbe.
+ *
+ * Zwei Dinge gehen trotzdem nicht:
+ *
+ * 1. Ein erledigter Einsatz. Das ist eine Arbeitszeitaufzeichnung, nach
+ *    § 17 Abs. 1 MiLoG zwei Jahre aufzubewahren.
+ * 2. Ein Einsatz, auf den schon gestempelt wurde. Die Stempelzeiten hingen
+ *    sonst an nichts mehr und fielen aus Freigabe und Lohn heraus.
+ *
+ * Hängt eine Mithilfe daran, bekommt der Rest der Gruppe die Minuten zurück.
+ */
+export async function DELETE(request: Request) {
+  try {
+    const guard = await requireAdmin(request);
+    if ("response" in guard) return guard.response;
+    const { supabase } = guard.auth;
+    const body = await request.json();
+    const type = clean(body.type) || "task";
+    const id = clean(body.id);
+
+    if (type !== "task") return NextResponse.json({ ok: false, error: "Unbekannter Typ." }, { status: 400 });
+    if (!id) return NextResponse.json({ ok: false, error: "ID fehlt." }, { status: 400 });
+
+    const { data: einsatz, error: leseFehler } = await supabase.from("tasks").select("*").eq("id", id).maybeSingle();
+    if (leseFehler) throw new Error(leseFehler.message);
+    if (!einsatz) return NextResponse.json({ ok: false, error: "Dieser Einsatz ist nicht mehr da." }, { status: 404 });
+
+    const erledigt = einsatz.done === true || ["done", "erledigt"].includes(clean(einsatz.status).toLowerCase());
+    if (erledigt) {
+      return NextResponse.json(
+        { ok: false, error: "Dieser Einsatz ist erledigt und bleibt als Arbeitszeitaufzeichnung stehen (§ 17 MiLoG)." },
+        { status: 409 }
+      );
+    }
+
+    const { data: stempel } = await supabase.from("time_entries").select("id").eq("task_id", id).limit(1);
+    if (Array.isArray(stempel) && stempel.length) {
+      return NextResponse.json(
+        { ok: false, error: "Auf diesen Einsatz wurde schon gestempelt. Die Zeiten hingen sonst an nichts mehr." },
+        { status: 409 }
+      );
+    }
+
+    const { error: loeschFehler } = await supabase.from("tasks").delete().eq("id", id);
+    if (loeschFehler) throw new Error(loeschFehler.message);
+
+    const aufteilung = await zeitNachAbgangVerteilen(supabase, einsatz);
+
+    return NextResponse.json({ ok: true, item: einsatz, aufteilung });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Einsatz konnte nicht gelöscht werden.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

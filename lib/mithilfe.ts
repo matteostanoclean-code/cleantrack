@@ -26,6 +26,60 @@ function zahl(wert: unknown) {
   return Number.isFinite(gelesen) && gelesen > 0 ? gelesen : 0;
 }
 
+/**
+ * Zeit zurückgeben, wenn einer aus einer Mithilfe-Gruppe wegfällt.
+ *
+ * Gegenstück zum Dazustellen: Die Arbeit bleibt dieselbe, nur machen sie
+ * weniger Leute. Also bekommt der Rest die Minuten des Abgegangenen zurück,
+ * statt dass sie aus der Planung verschwinden.
+ *
+ * Wird der ursprüngliche Einsatz gelöscht, zeigt das helfer_zu der anderen
+ * ins Leere. Deshalb wird der erste Verbliebene zum neuen Anker.
+ *
+ * Die gelöschte Zeile wird mitgegeben, nicht nachgelesen — zu dem Zeitpunkt
+ * ist sie schon weg.
+ */
+export async function zeitNachAbgangVerteilen(supabase: AnyRow, geloescht: AnyRow) {
+  const eigeneId = String(geloescht?.id || "").trim();
+  const ankerId = String(geloescht?.helfer_zu || "").trim() || eigeneId;
+  if (!ankerId) return null;
+
+  const [original, helfer] = await Promise.all([
+    supabase.from("tasks").select("id, planned_minutes, max_minutes").eq("id", ankerId).maybeSingle(),
+    supabase.from("tasks").select("id, planned_minutes, max_minutes").eq("helfer_zu", ankerId).limit(20)
+  ]);
+
+  const rest: AnyRow[] = [...(original.data ? [original.data] : []), ...((helfer.data || []) as AnyRow[])]
+    .filter((eintrag) => String(eintrag.id) !== eigeneId);
+  if (!rest.length) return null;
+
+  if (!original.data) {
+    const [neuerAnker, ...weitere] = rest;
+    await supabase.from("tasks").update({ helfer_zu: null }).eq("id", neuerAnker.id);
+    for (const eintrag of weitere) {
+      await supabase.from("tasks").update({ helfer_zu: neuerAnker.id }).eq("id", eintrag.id);
+    }
+  }
+
+  const gesamt = [...rest, geloescht].reduce(
+    (summe, eintrag) => summe + (zahl(eintrag.planned_minutes) || zahl(eintrag.max_minutes)),
+    0
+  );
+  if (!gesamt) return null;
+
+  const anteil = Math.floor(gesamt / rest.length);
+  const uebrig = gesamt - anteil * rest.length;
+  for (let i = 0; i < rest.length; i += 1) {
+    const minuten = anteil + (i < uebrig ? 1 : 0);
+    await supabase
+      .from("tasks")
+      .update({ planned_minutes: minuten, max_minutes: minuten, paid_minutes: minuten, wage_minutes: minuten })
+      .eq("id", rest[i].id);
+  }
+
+  return { gesamt, anzahl: rest.length, jeweils: anteil };
+}
+
 export async function zeitNeuVerteilen(supabase: AnyRow, originalId: string) {
   const id = String(originalId || "").trim();
   if (!id) return null;

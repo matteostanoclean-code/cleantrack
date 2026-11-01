@@ -433,6 +433,18 @@ export default function AdminPlanningPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [weekStart, setWeekStart] = useState(weekStartIso());
+
+  /**
+   * Aus dem Einsatzplaner heraus direkt auf eine Serie: ?serie=<id>.
+   * Sonst steht man hier vor allen Serien und sucht die eine wieder.
+   *
+   * Bewusst über window.location statt useSearchParams — das verlangte sonst
+   * eine Suspense-Grenze um die ganze Seite.
+   */
+  useEffect(() => {
+    const gesucht = new URLSearchParams(window.location.search).get("serie");
+    if (gesucht) setQuery(gesucht);
+  }, []);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, Row>>({});
   const [sheetOpen, setSheetOpen] = useState(false);

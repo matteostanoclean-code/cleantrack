@@ -19,7 +19,8 @@ import { UiIcon, cx } from "@/components/ui";
 
 type Row = Record<string, any>;
 
-const AUFTRAGSARTEN = ["Unterhaltsreinigung", "Treppenhausreinigung", "Grundreinigung", "Glasreinigung", "Sonderreinigung"];
+/** Netz darunter: Die Tätigkeiten kommen aus den Einstellungen, Auftragsarten. */
+const AUFTRAGSARTEN_ERSATZ = ["Unterhaltsreinigung", "Treppenhausreinigung", "Grundreinigung", "Glasreinigung", "Sonderreinigung"];
 
 const weekdayOptions = [
   { value: "1", label: "Mo" }, { value: "2", label: "Di" }, { value: "3", label: "Mi" },
@@ -121,7 +122,9 @@ const leererEinsatz: Row = {
   repeat_mode: "none",
   recurrence_interval: "1",
   recurrence_end_date: "",
-  recurrence_days: [] as string[]
+  recurrence_days: [] as string[],
+  recurrence_unit: "",
+  recurrence_group_id: ""
 };
 
 export default function EinsatzplanerSeite() {
@@ -176,6 +179,10 @@ export default function EinsatzplanerSeite() {
   const tage = useMemo(() => Array.from({ length: 7 }, (_, i) => iso(addDays(parseIso(start), i))), [start]);
   const mitarbeiter = useMemo(() => ((data?.employees || []) as Row[]).filter((row) => clean(row.name) && row.active !== false), [data?.employees]);
   const objekte = useMemo(() => (data?.workSites || []) as Row[], [data?.workSites]);
+  const auftragsarten = useMemo(() => {
+    const liste = (data?.auftragsarten || []) as string[];
+    return liste.length ? liste : AUFTRAGSARTEN_ERSATZ;
+  }, [data?.auftragsarten]);
 
   const einsaetze = useMemo(() => {
     const needle = suche.trim().toLowerCase();
@@ -221,7 +228,15 @@ export default function EinsatzplanerSeite() {
       end_time: clean(task.end_time).slice(0, 5),
       employee_name: clean(task.employee_name),
       notes: clean(task.notes),
-      repeat_mode: ""
+      // Serienangaben unverändert mitgeben. Wurden sie hier geleert, verlor der
+      // Tag beim Speichern seine Serienmerkmale, obwohl nur die Uhrzeit
+      // geändert werden sollte.
+      repeat_mode: clean(task.repeat_mode) || "none",
+      recurrence_unit: clean(task.recurrence_unit),
+      recurrence_interval: task.recurrence_interval ?? "",
+      recurrence_days: Array.isArray(task.recurrence_days) ? task.recurrence_days : [],
+      recurrence_end_date: clean(task.recurrence_end_date).slice(0, 10),
+      recurrence_group_id: clean(task.recurrence_group_id)
     });
     setBlattOffen(true);
     setError(null);
@@ -290,6 +305,41 @@ export default function EinsatzplanerSeite() {
       await load();
     } catch (fehler) {
       setError(fehler instanceof Error ? fehler.message : "Speichern fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Einsatz löschen. Ohne Nachfrage, so war es gewünscht — wer die Maske
+   * dieses Einsatzes offen hat, meint genau diesen. Der Server lässt zwei
+   * Fälle nicht durch: erledigt, und schon gestempelt.
+   */
+  async function loeschen() {
+    if (!form.id) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const antwort = await fetch("/api/mobile/admin/dashboard", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: "task", id: form.id })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Löschen fehlgeschlagen.");
+
+      const aufteilung = ergebnis.aufteilung;
+      setMessage(
+        aufteilung
+          ? aufteilung.anzahl === 1
+            ? `Einsatz gelöscht. Die ${stundenText(aufteilung.gesamt)} Std. sind wieder vollständig beim verbliebenen Einsatz.`
+            : `Einsatz gelöscht. ${stundenText(aufteilung.gesamt)} Std. sind jetzt auf ${aufteilung.anzahl} Personen verteilt.`
+          : "Einsatz gelöscht."
+      );
+      setBlattOffen(false);
+      await load();
+    } catch (fehler) {
+      setError(fehler instanceof Error ? fehler.message : "Löschen fehlgeschlagen.");
     } finally {
       setSaving(false);
     }
@@ -515,7 +565,7 @@ export default function EinsatzplanerSeite() {
               <Feld label="Auftrag" pflicht>
                 <input list="auftragsarten" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={feldClass} />
                 <datalist id="auftragsarten">
-                  {AUFTRAGSARTEN.map((art) => <option key={art} value={art} />)}
+                  {auftragsarten.map((art) => <option key={art} value={art} />)}
                 </datalist>
               </Feld>
 
@@ -606,6 +656,26 @@ export default function EinsatzplanerSeite() {
               </Feld>
 
               {/*
+                Gehört der Einsatz zu einer Serie, soll das hier stehen. Sonst
+                ändert man denselben Fehler zwanzigmal einzeln nach, obwohl ein
+                Griff in der Serienverwaltung gereicht hätte.
+              */}
+              {form.id && clean(form.recurrence_group_id) ? (
+                <div className="rounded-xl border border-paper-200 bg-paper-100/70 p-4">
+                  <p className="text-[14px] font-semibold text-ink-800">Dieser Einsatz gehört zu einer Serie</p>
+                  <p className="mt-0.5 text-[13px] text-ink-500">
+                    Was du hier änderst, gilt nur für diesen einen Tag. Tätigkeit, Zeiten, Wochentage oder den Mitarbeiter für alle künftigen Termine änderst du in der Serienverwaltung.
+                  </p>
+                  <a
+                    href={`/mitarbeiter/admin/planung?serie=${encodeURIComponent(clean(form.recurrence_group_id))}`}
+                    className="mt-3 inline-block rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] font-semibold text-ink-700"
+                  >
+                    Ganze Serie ändern
+                  </a>
+                </div>
+              ) : null}
+
+              {/*
                 Helfer dazu. Ein Einsatz hängt an genau einer Person — wenn
                 zwei hinfahren, braucht es zwei Einsätze. Das von Hand zweimal
                 einzutippen vergisst man, und dann fehlen die Stunden des
@@ -641,6 +711,11 @@ export default function EinsatzplanerSeite() {
                 <input type="checkbox" checked={form.notify_employee !== false} onChange={(e) => setForm({ ...form, notify_employee: e.target.checked })} className="h-5 w-5 accent-brand-600" />
                 <span className="text-[14px] text-ink-600">Mitarbeiter benachrichtigen</span>
               </label>
+              {form.id ? (
+                <button onClick={loeschen} disabled={saving} className="rounded-xl border border-danger-100 px-4 py-2.5 text-[14px] font-semibold text-danger-600 disabled:opacity-50">
+                  Löschen
+                </button>
+              ) : null}
               <span className="flex-1" />
               {!form.id ? (
                 <button onClick={() => speichern(true)} disabled={saving} className="rounded-xl border border-paper-300 px-4 py-2.5 text-[14px] font-semibold text-ink-700 disabled:opacity-50">Weiteren erstellen</button>

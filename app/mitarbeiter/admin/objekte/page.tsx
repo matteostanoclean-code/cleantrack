@@ -14,7 +14,12 @@ import { UiIcon, cx } from "@/components/ui";
 
 type Row = Record<string, any>;
 
-const TAGS = [
+/**
+ * Die Leistungen kommen aus den Einstellungen (Auftragsarten). Diese Liste
+ * hier ist nur das Netz darunter, falls der Server keine liefert — sonst
+ * stünde die Maske ohne Auswahl da.
+ */
+const TAGS_ERSATZ = [
   "Unterhaltsreinigung",
   "Glasreinigung",
   "Treppenhausreinigung",
@@ -88,6 +93,7 @@ export default function ObjekteSeite() {
   const [employees, setEmployees] = useState<Row[]>([]);
   const [devices, setDevices] = useState<Row[]>([]);
   const [keys, setKeys] = useState<Row[]>([]);
+  const [tags, setTags] = useState<string[]>(TAGS_ERSATZ);
 
   const [reiter, setReiter] = useState<"alle" | "aktiv" | "passiv">("aktiv");
   const [suche, setSuche] = useState("");
@@ -112,6 +118,7 @@ export default function ObjekteSeite() {
       setEmployees(ergebnis.employees || []);
       setDevices(ergebnis.devices || []);
       setKeys(ergebnis.keys || []);
+      if (Array.isArray(ergebnis.tags) && ergebnis.tags.length) setTags(ergebnis.tags);
     } catch (ladeFehler) {
       setError(ladeFehler instanceof Error ? ladeFehler.message : "Objekte konnten nicht geladen werden.");
     } finally {
@@ -337,7 +344,7 @@ export default function ObjekteSeite() {
           </div>
           <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="rounded-xl border border-paper-300 bg-white px-3.5 py-2.5 text-[14px] text-ink-700 outline-none">
             <option value="">Alle Leistungen</option>
-            {TAGS.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+            {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
           </select>
         </div>
 
@@ -495,7 +502,7 @@ export default function ObjekteSeite() {
               <div>
                 <p className="mb-2 text-[13px] text-ink-500">Leistungen an diesem Objekt</p>
                 <div className="flex flex-wrap gap-2">
-                  {TAGS.map((tag) => {
+                  {tags.map((tag) => {
                     const gesetzt = Array.isArray(form.tags) && form.tags.includes(tag);
                     return (
                       <button key={tag} type="button" onClick={() => tagUmschalten(tag)} className={cx("rounded-full border px-3.5 py-2 text-[13px]", gesetzt ? "border-brand-600 bg-brand-600 font-semibold text-white" : "border-paper-300 text-ink-600")}>
@@ -504,7 +511,7 @@ export default function ObjekteSeite() {
                     );
                   })}
                 </div>
-                <p className="mt-2 text-[12px] text-ink-400">Weitere Leistungen kommen später über die Einstellungen dazu.</p>
+                <p className="mt-2 text-[12px] text-ink-400">Die Auswahl kommt aus den Einstellungen, unter Auftragsarten.</p>
               </div>
 
               <div className="rounded-2xl border border-paper-200 bg-paper-100/70 p-3">
