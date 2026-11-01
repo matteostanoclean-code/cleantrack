@@ -108,6 +108,28 @@ function hoherFeiertag(name: unknown) {
   return ["neujahr", "tag der arbeit", "1. weihnachtsfeiertag", "2. weihnachtsfeiertag"].some((eintrag) => text.includes(eintrag));
 }
 
+/**
+ * Der Zeitraum der Woche in Worten: "26. Okt. – 1. Nov. 2026".
+ *
+ * Steht da, weil der Wochenplan sonst nur Tagesnummern zeigt und man beim
+ * Blättern nicht mehr weiß, in welchem Monat man gelandet ist. Liegt die
+ * Woche in einem Monat, wird er nur einmal genannt.
+ */
+function wochenText(tage: string[]) {
+  if (!tage.length) return "";
+  const von = parseIso(tage[0]);
+  const bis = parseIso(tage[tage.length - 1]);
+  const monat = (datum: Date) => new Intl.DateTimeFormat("de-DE", { month: "short" }).format(datum);
+  if (von.getFullYear() !== bis.getFullYear()) {
+    // Über den Jahreswechsel gehören beide Jahre hin, sonst liest man
+    // "28. Dez – 3. Jan 2027" und der Dezember wirkt wie 2027.
+    return `${von.getDate()}. ${monat(von)} ${von.getFullYear()} – ${bis.getDate()}. ${monat(bis)} ${bis.getFullYear()}`;
+  }
+  return von.getMonth() === bis.getMonth()
+    ? `${von.getDate()}.–${bis.getDate()}. ${monat(bis)} ${bis.getFullYear()}`
+    : `${von.getDate()}. ${monat(von)} – ${bis.getDate()}. ${monat(bis)} ${bis.getFullYear()}`;
+}
+
 /** 2026-12-24 wird zu 24.12. */
 function datumKurz(wert: unknown) {
   const text = clean(wert).slice(0, 10);
@@ -465,7 +487,9 @@ export default function EinsatzplanerSeite() {
             <button onClick={() => setStart(montagVon(heute))} className="border-x border-paper-300 px-4 py-2.5 text-[14px] font-semibold text-ink-700">Heute</button>
             <button onClick={() => setStart(iso(addDays(parseIso(start), 7)))} className="px-3 py-2.5 text-ink-600" aria-label="Woche vor"><UiIcon name="chevronRight" className="h-4 w-4" /></button>
           </div>
-          <span className="rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] text-ink-700">KW {kalenderwoche(start)}</span>
+          <span className="rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] text-ink-700">
+            KW {kalenderwoche(start)} <span className="text-ink-400">·</span> {wochenText(tage)}
+          </span>
           <div className="flex w-full max-w-[260px] items-center gap-2 rounded-xl border border-paper-200 bg-white px-3.5 py-2.5">
             <UiIcon name="search" className="h-4 w-4 shrink-0 text-ink-300" />
             <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Suchen" className="w-full border-0 bg-transparent p-0 text-[15px] outline-none placeholder:text-ink-300" />
@@ -548,7 +572,7 @@ export default function EinsatzplanerSeite() {
             <div className="flex border-b border-paper-200">
               <div className="w-[220px] shrink-0 px-4 py-3">
                 <p className="text-[12px] font-bold uppercase tracking-wide text-ink-400">Mitarbeiter</p>
-                <p className="text-[12px] text-brand-600">KW {kalenderwoche(start)}</p>
+                <p className="text-[12px] text-brand-600">KW {kalenderwoche(start)} · {wochenText(tage)}</p>
               </div>
               {tage.map((tag) => {
                 const datum = parseIso(tag);
@@ -564,7 +588,7 @@ export default function EinsatzplanerSeite() {
                   */
                   <div key={tag} className={cx("min-w-0 flex-1 border-l border-paper-200 px-2 py-3 text-center", wochenende && "bg-paper-100", feiertag && "bg-danger-50", tag === heute && "bg-brand-50")}>
                     <p className={cx("text-[13px] font-semibold", feiertag ? "text-danger-600" : tag === heute ? "text-brand-700" : "text-ink-700")}>
-                      {new Intl.DateTimeFormat("de-DE", { weekday: "short" }).format(datum)}, {datum.getDate()}.
+                      {new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }).format(datum)}
                     </p>
                     {feiertag ? <p className="truncate text-[11px] font-semibold text-danger-600" title={feiertag}>{feiertag}</p> : null}
                   </div>
