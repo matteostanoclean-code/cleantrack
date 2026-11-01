@@ -298,6 +298,13 @@ async function loadAdminData(supabase: any) {
   // Standen sie fest im Code, fehlte dort, was in den Einstellungen dazukam.
   const auftragsarten = await listeLaden(supabase, "auftragsarten");
 
+  // Feiertage, damit der Wochenplan sie zeigt. Wer an einem Feiertag plant,
+  // soll das sehen, bevor er plant — und nicht erst, wenn der Zuschlag im
+  // Lohn steht (RTV § 3 Nr. 4.7: 80 %, an den hohen Feiertagen 200 %).
+  const feiertage = (await listeLaden(supabase, "feiertage"))
+    .map((zeile: AnyRow) => ({ name: clean(zeile.name), datum: clean((zeile.daten as AnyRow)?.datum).slice(0, 10) }))
+    .filter((zeile: AnyRow) => zeile.datum && zeile.name);
+
   return {
     employees: employees.data || [],
     customers: customers.data || [],
@@ -307,7 +314,8 @@ async function loadAdminData(supabase: any) {
     absences: absences.data || [],
     materialReports: materialReports.data || [],
     notifications: notifications.data || [],
-    auftragsarten: auftragsarten.map((zeile: AnyRow) => clean(zeile.name)).filter(Boolean)
+    auftragsarten: auftragsarten.map((zeile: AnyRow) => clean(zeile.name)).filter(Boolean),
+    feiertage
   };
 }
 

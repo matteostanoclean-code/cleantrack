@@ -647,6 +647,16 @@ export default function AdminPlanningPage() {
   }, [data?.absences, weekDays]);
   const unassignedTasks = useMemo(() => tasks.filter((task) => !clean(task.employee_name) && activeStatus(task)), [tasks]);
 
+  /** Tag → Name des Feiertags. Aus den Einstellungen, Baden-Württemberg. */
+  const feiertage = useMemo(() => {
+    const karte = new Map<string, string>();
+    for (const eintrag of ((data as any)?.feiertage || []) as Row[]) {
+      const tag = clean(eintrag.datum).slice(0, 10);
+      if (tag) karte.set(tag, clean(eintrag.name));
+    }
+    return karte;
+  }, [data]);
+
   const seriesGroups = useMemo(() => {
     const map = new Map<string, Row[]>();
     for (const task of tasks) {
@@ -741,10 +751,14 @@ export default function AdminPlanningPage() {
             {weekDays.map((day) => {
               const dayTasks = weekTasks.filter((task) => task.task_date === day);
               const isToday = day === today;
+              const feiertag = feiertage.get(day);
               return (
-                <div key={day} className={`rounded-2xl border p-3 ${isToday ? "border-brand-500/40 bg-brand-50" : "border-paper-200 bg-paper-100/80"}`}>
+                <div key={day} className={`rounded-2xl border p-3 ${feiertag ? "border-danger-500/40 bg-danger-50" : isToday ? "border-brand-500/40 bg-brand-50" : "border-paper-200 bg-paper-100/80"}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="font-bold">{dateText(day)}</p>
+                    <div className="min-w-0">
+                      <p className={`font-bold ${feiertag ? "text-danger-600" : ""}`}>{dateText(day)}</p>
+                      {feiertag ? <p className="truncate text-[11px] font-semibold text-danger-600">{feiertag}</p> : null}
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-ink-500">{dayTasks.length}</span>
                       <button onClick={() => openNew(day)} aria-label={`Einsatz am ${dateText(day)} anlegen`} className="grid h-8 w-8 place-items-center rounded-full bg-brand-600 text-[18px] font-bold leading-none text-white">

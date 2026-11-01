@@ -343,7 +343,9 @@ export default function UrlaubsplanerSeite() {
                     "h-6 border-r border-white/70 last:border-r-0",
                     // Monatstrenner, innen gezeichnet: kostet keine Breite.
                     index === 0 && monat.index > 0 && "border-l-2 border-l-paper-400",
-                    eintrag ? farbeVon(eintrag) : feiertag ? "bg-brand-100" : wochenende ? "bg-paper-200" : "bg-paper-100 hover:bg-brand-100",
+                    // Feiertage rot, wie im Wochenplan. Vorher war das dasselbe
+                    // Blau wie die Mauszeiger-Markierung daneben.
+                    eintrag ? farbeVon(eintrag) : feiertag ? "bg-danger-100" : wochenende ? "bg-paper-200" : "bg-paper-100 hover:bg-brand-100",
                     istAnfang && "ring-2 ring-inset ring-ink-900"
                   )}
                 />
@@ -556,7 +558,7 @@ export default function UrlaubsplanerSeite() {
             </span>
           ))}
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-success-600" />Kunde geschlossen</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-brand-100" />Feiertag</span>
+          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-danger-100" />Feiertag</span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-paper-200" />Wochenende</span>
           <span className="text-ink-400">Blasse Balken sind noch nicht genehmigt.</span>
         </div>

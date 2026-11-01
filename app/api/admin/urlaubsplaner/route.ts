@@ -59,6 +59,26 @@ export async function GET(request: Request) {
     if (!guard.ok) return guard.response;
     const supabase = guard.auth.supabase;
 
+    /**
+     * Kleine Auskunft für die Objektmaske: alle Schließzeiten eines Objekts,
+     * ohne das ganze Jahr mit Personal und Abwesenheiten zu laden. Dort geht
+     * es nur um die eine Frage "wann hat dieser Kunde zu".
+     */
+    const nurObjekt = uuidOrNull(new URL(request.url).searchParams.get("objekt"));
+    if (nurObjekt) {
+      const treffer = await supabase
+        .from("site_closures")
+        .select("*")
+        .eq("work_site_id", nurObjekt)
+        .order("von", { ascending: true })
+        .limit(200);
+      if (treffer.error) {
+        if (fehlendeTabelle(treffer.error)) return NextResponse.json({ ok: false, error: FEHLT }, { status: 409 });
+        throw new Error(treffer.error.message);
+      }
+      return NextResponse.json({ ok: true, schliessungen: treffer.data || [] });
+    }
+
     const jahr = Number(clean(new URL(request.url).searchParams.get("jahr"))) || new Date().getFullYear();
     const von = `${jahr}-01-01`;
     const bis = `${jahr}-12-31`;

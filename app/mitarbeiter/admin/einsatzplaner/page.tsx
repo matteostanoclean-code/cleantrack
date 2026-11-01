@@ -99,6 +99,15 @@ function nachtarbeit(zeit: unknown) {
   return minuten >= 22 * 60 || minuten < 5 * 60;
 }
 
+/**
+ * Die vier Tage mit 200 % statt 80 %: 1. Mai, Neujahr, 1. und 2.
+ * Weihnachtsfeiertag (RTV § 3 Nr. 4.7 c, "genau diese vier Tage").
+ */
+function hoherFeiertag(name: unknown) {
+  const text = clean(name).toLowerCase();
+  return ["neujahr", "tag der arbeit", "1. weihnachtsfeiertag", "2. weihnachtsfeiertag"].some((eintrag) => text.includes(eintrag));
+}
+
 function aktiv(task: Row) {
   const status = clean(task.status || "open").toLowerCase();
   return !task.done && !["done", "cancelled", "storniert"].includes(status);
@@ -195,6 +204,16 @@ export default function EinsatzplanerSeite() {
     const liste = (data?.auftragsarten || []) as string[];
     return liste.length ? liste : AUFTRAGSARTEN_ERSATZ;
   }, [data?.auftragsarten]);
+
+  /** Tag → Name des Feiertags. Aus den Einstellungen, Baden-Württemberg. */
+  const feiertage = useMemo(() => {
+    const karte = new Map<string, string>();
+    for (const eintrag of (data?.feiertage || []) as Row[]) {
+      const tag = clean(eintrag.datum).slice(0, 10);
+      if (tag) karte.set(tag, clean(eintrag.name));
+    }
+    return karte;
+  }, [data?.feiertage]);
 
   const einsaetze = useMemo(() => {
     const needle = suche.trim().toLowerCase();
@@ -462,6 +481,7 @@ export default function EinsatzplanerSeite() {
               {tage.map((tag) => {
                 const datum = parseIso(tag);
                 const wochenende = datum.getDay() === 0 || datum.getDay() === 6;
+                const feiertag = feiertage.get(tag);
                 return (
                   /*
                     min-w-0 ist hier Pflicht, nicht Kosmetik: ohne das schrumpft
@@ -470,10 +490,11 @@ export default function EinsatzplanerSeite() {
                     dort also unterschiedlich breit geworden — und der Kopf lief
                     gegen die Karten aus dem Tritt.
                   */
-                  <div key={tag} className={cx("min-w-0 flex-1 border-l border-paper-200 px-2 py-3 text-center", wochenende && "bg-paper-100", tag === heute && "bg-brand-50")}>
-                    <p className={cx("text-[13px] font-semibold", tag === heute ? "text-brand-700" : "text-ink-700")}>
+                  <div key={tag} className={cx("min-w-0 flex-1 border-l border-paper-200 px-2 py-3 text-center", wochenende && "bg-paper-100", feiertag && "bg-danger-50", tag === heute && "bg-brand-50")}>
+                    <p className={cx("text-[13px] font-semibold", feiertag ? "text-danger-600" : tag === heute ? "text-brand-700" : "text-ink-700")}>
                       {new Intl.DateTimeFormat("de-DE", { weekday: "short" }).format(datum)}, {datum.getDate()}.
                     </p>
+                    {feiertag ? <p className="truncate text-[11px] font-semibold text-danger-600" title={feiertag}>{feiertag}</p> : null}
                   </div>
                 );
               })}
@@ -505,8 +526,9 @@ export default function EinsatzplanerSeite() {
                     const eigene = einsaetzeVon(name, tag);
                     const datum = parseIso(tag);
                     const wochenende = datum.getDay() === 0 || datum.getDay() === 6;
+                    const feiertag = feiertage.has(tag);
                     return (
-                      <div key={tag} className={cx("min-h-[92px] min-w-0 flex-1 border-l border-paper-200 p-1.5", wochenende && "bg-paper-100/60", tag === heute && "bg-brand-50/40")}>
+                      <div key={tag} className={cx("min-h-[92px] min-w-0 flex-1 border-l border-paper-200 p-1.5", wochenende && "bg-paper-100/60", feiertag && "bg-danger-50/50", tag === heute && "bg-brand-50/40")}>
                         {eigene.slice(0, maxProTag).map((task) => (
                           <button
                             key={task.id}
@@ -598,6 +620,17 @@ export default function EinsatzplanerSeite() {
                     <input type="number" min="0" step="5" value={form.planned_minutes} onChange={(e) => setForm({ ...form, planned_minutes: e.target.value })} className={feldClass} />
                   </Feld>
                 </div>
+
+                {/* Ein Einsatz am Feiertag kostet fast das Doppelte. Das gehört
+                    vor die Entscheidung, nicht in die Lohnabrechnung. */}
+                {feiertage.get(clean(form.task_date)) ? (
+                  <p className="mt-3 rounded-xl bg-danger-50 px-3.5 py-3 text-[13px] text-danger-700">
+                    {feiertage.get(clean(form.task_date))} — gesetzlicher Feiertag.{" "}
+                    {hoherFeiertag(feiertage.get(clean(form.task_date)))
+                      ? "Einer der vier Tage mit 200 % Zuschlag (Rahmentarifvertrag Gebäudereinigung, § 3 Nr. 4.7 c)."
+                      : "Die Stunden kosten 80 % Zuschlag (Rahmentarifvertrag Gebäudereinigung, § 3 Nr. 4.7 b)."}
+                  </p>
+                ) : null}
 
                 {/*
                   Uhrzeiten sind freiwillig. Gestempelt wird ueber den Aufkleber

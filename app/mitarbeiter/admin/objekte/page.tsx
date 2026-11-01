@@ -64,6 +64,13 @@ function euro(value: unknown) {
   return zahl.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
 }
 
+/** 2026-12-24 wird zu 24.12.2026. */
+function datumText(wert: unknown) {
+  const text = clean(wert).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "–";
+  return `${text.slice(8, 10)}.${text.slice(5, 7)}.${text.slice(0, 4)}`;
+}
+
 function tagsVon(wert: unknown) {
   return clean(wert).split(",").map((teil) => teil.trim()).filter(Boolean);
 }
@@ -100,6 +107,10 @@ export default function ObjekteSeite() {
   const [tagFilter, setTagFilter] = useState("");
 
   const [blattOffen, setBlattOffen] = useState(false);
+  const [schliessungen, setSchliessungen] = useState<Row[]>([]);
+  const [urlaub, setUrlaub] = useState<Row>({ von: "", bis: "", grund: "", faellt_aus: true });
+  const [urlaubLaeuft, setUrlaubLaeuft] = useState(false);
+  const [urlaubHinweis, setUrlaubHinweis] = useState<string | null>(null);
   const [standortLaeuft, setStandortLaeuft] = useState(false);
   const [standortHinweis, setStandortHinweis] = useState<string | null>(null);
   const [form, setForm] = useState<Row>({ ...leeresObjekt });
@@ -233,6 +244,9 @@ export default function ObjekteSeite() {
     setBlattOffen(true);
     setError(null);
     setMessage(null);
+    setSchliessungen([]);
+    setUrlaub({ von: "", bis: "", grund: "", faellt_aus: true });
+    setUrlaubHinweis(null);
   }
 
   function bearbeiten(objekt: Row) {
@@ -252,6 +266,72 @@ export default function ObjekteSeite() {
     setBlattOffen(true);
     setError(null);
     setMessage(null);
+    schliessungenLaden(clean(objekt.id));
+  }
+
+  /**
+   * Wann der Kunde zumacht.
+   *
+   * Steht hier am Objekt, weil es hier auffällt: Wer die Objektmaske offen
+   * hat, weiß gerade, dass die Praxis zwei Wochen zu hat. Der Urlaubsplaner
+   * zeigt dieselben Zeiträume und kann sie für alle Objekte eines Kunden auf
+   * einmal setzen — hier geht es immer nur um dieses eine.
+   */
+  async function schliessungenLaden(objektId: string) {
+    setSchliessungen([]);
+    if (!objektId || !token) return;
+    try {
+      const antwort = await fetch(`/api/admin/urlaubsplaner?objekt=${encodeURIComponent(objektId)}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const ergebnis = await antwort.json();
+      if (ergebnis.ok) setSchliessungen(ergebnis.schliessungen || []);
+      else setUrlaubHinweis(ergebnis.error || null);
+    } catch {
+      setUrlaubHinweis("Die Schließzeiten konnten nicht geladen werden.");
+    }
+  }
+
+  async function schliessungAnlegen() {
+    if (!clean(form.id) || !clean(urlaub.von)) return;
+    setUrlaubLaeuft(true);
+    setUrlaubHinweis(null);
+    try {
+      const antwort = await fetch("/api/admin/urlaubsplaner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          work_site_id: clean(form.id),
+          von: urlaub.von,
+          bis: clean(urlaub.bis) || urlaub.von,
+          grund: clean(urlaub.grund),
+          faellt_aus: urlaub.faellt_aus !== false
+        })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Konnte nicht gespeichert werden.");
+      setUrlaub({ von: "", bis: "", grund: "", faellt_aus: true });
+      await schliessungenLaden(clean(form.id));
+    } catch (fehler) {
+      setUrlaubHinweis(fehler instanceof Error ? fehler.message : "Konnte nicht gespeichert werden.");
+    } finally {
+      setUrlaubLaeuft(false);
+    }
+  }
+
+  async function schliessungLoeschen(id: string) {
+    setUrlaubLaeuft(true);
+    try {
+      await fetch("/api/admin/urlaubsplaner", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id })
+      });
+      await schliessungenLaden(clean(form.id));
+    } finally {
+      setUrlaubLaeuft(false);
+    }
   }
 
   /** Anschrift des Kunden übernehmen — das ist bei den meisten Objekten dieselbe. */
@@ -531,6 +611,59 @@ export default function ObjekteSeite() {
               </div>
 
               <Feld label="Notiz"><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className={feldClass} /></Feld>
+
+              {/*
+                Betriebsferien des Kunden. Erst wenn das Objekt steht, sonst
+                gäbe es nichts, woran der Zeitraum hängt.
+              */}
+              {form.id ? (
+                <div className="rounded-2xl border border-paper-200 p-4">
+                  <p className="text-[15px] font-semibold text-ink-900">Kunde hat zu</p>
+                  <p className="mt-0.5 text-[13px] text-ink-400">
+                    Betriebsferien, Feiertagsschließung, Umbau. In dieser Zeit ist hier nichts zu tun — der Urlaubsplaner zeigt dann, wer dadurch frei wird.
+                  </p>
+
+                  {schliessungen.length ? (
+                    <ul className="mt-3 space-y-2">
+                      {schliessungen.map((zeile) => (
+                        <li key={zeile.id} className="flex items-center justify-between gap-3 rounded-xl bg-paper-100 px-3.5 py-2.5">
+                          <span className="min-w-0">
+                            <span className="block text-[14px] font-semibold text-ink-800">
+                              {datumText(zeile.von)} bis {datumText(zeile.bis)}
+                            </span>
+                            <span className="block truncate text-[12px] text-ink-500">
+                              {clean(zeile.grund) || "ohne Grund"} · {zeile.faellt_aus === false ? "nur Hinweis, Einsätze bleiben" : "Reinigung fällt aus"}
+                            </span>
+                          </span>
+                          <button type="button" onClick={() => schliessungLoeschen(clean(zeile.id))} disabled={urlaubLaeuft} className="shrink-0 text-[13px] font-semibold text-danger-600 disabled:opacity-40">
+                            Entfernen
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-[13px] text-ink-400">Noch nichts eingetragen.</p>
+                  )}
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <Feld label="Von"><input type="date" value={urlaub.von} onChange={(e) => setUrlaub({ ...urlaub, von: e.target.value })} className={feldClass} /></Feld>
+                    <Feld label="Bis" hinweis="Leer heißt: nur der eine Tag."><input type="date" value={urlaub.bis} onChange={(e) => setUrlaub({ ...urlaub, bis: e.target.value })} className={feldClass} /></Feld>
+                  </div>
+                  <div className="mt-3">
+                    <Feld label="Grund"><input value={urlaub.grund} onChange={(e) => setUrlaub({ ...urlaub, grund: e.target.value })} placeholder="z. B. Betriebsferien" className={feldClass} /></Feld>
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-start gap-3">
+                    <input type="checkbox" checked={urlaub.faellt_aus !== false} onChange={(e) => setUrlaub({ ...urlaub, faellt_aus: e.target.checked })} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" />
+                    <span className="text-[13px] text-ink-600">Die Reinigung fällt in dieser Zeit aus. Ohne Haken bleibt sie stehen und es ist nur ein Hinweis.</span>
+                  </label>
+
+                  {urlaubHinweis ? <p className="mt-3 text-[13px] text-danger-600">{urlaubHinweis}</p> : null}
+
+                  <button type="button" onClick={schliessungAnlegen} disabled={!clean(urlaub.von) || urlaubLaeuft} className="mt-3 rounded-xl border border-paper-300 bg-white px-4 py-2.5 text-[14px] font-semibold text-ink-700 disabled:opacity-40">
+                    {urlaubLaeuft ? "Einen Moment …" : "Zeitraum eintragen"}
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 border-t border-paper-200 px-5 py-3">
