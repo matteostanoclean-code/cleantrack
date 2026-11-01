@@ -17,6 +17,8 @@ type Aufgaben = {
   material: number;
   qualitaet: number;
   ohneMitarbeiter: number;
+  kundenAbwesenheit: number;
+  kundenAbwesenheitPersonen: number;
   chat: number;
   notizen: number;
   nichtGestempelt: number;
@@ -628,7 +630,31 @@ export default function AdminDashboardPage() {
                   <AufgabenKachel zahl={aufgaben.urlaub} titel="Urlaub und Abwesenheit" hinweis="Anträge ohne Entscheidung" icon="plane" href="/mitarbeiter/admin/urlaub" />
                   <AufgabenKachel zahl={aufgaben.material} titel="Materialbestellungen" hinweis="Noch nicht bestellt oder geliefert" icon="box" href="/mitarbeiter/admin/bestellungen" />
                   <AufgabenKachel zahl={aufgaben.qualitaet} titel="Qualitätsnachweise" hinweis="Noch nicht angesehen" icon="check" href="/mitarbeiter/admin/freigaben" />
-                  <AufgabenKachel zahl={aufgaben.ohneMitarbeiter} titel="Einsätze ohne Mitarbeiter" hinweis="Noch niemand eingeteilt" icon="users" href="/mitarbeiter/admin/einsatzplaner" dringend />
+                  <AufgabenKachel
+                    zahl={aufgaben.ohneMitarbeiter}
+                    titel="Ungeplante Einsätze"
+                    hinweis="Noch niemand eingeteilt"
+                    icon="users"
+                    href="/mitarbeiter/admin/einsatzplaner"
+                    dringend
+                  />
+                  {/*
+                    Der Kunde hat zu, der Einsatz steht trotzdem im Plan. Das
+                    ist kein Fehler, sondern eine Entscheidung: Der Mitarbeiter
+                    hat an dem Tag frei — oder er fährt woandershin.
+                  */}
+                  <AufgabenKachel
+                    zahl={aufgaben.kundenAbwesenheit}
+                    titel="Kundenabwesenheit"
+                    hinweis={
+                      aufgaben.kundenAbwesenheitPersonen > 1
+                        ? `Kunde hat zu — ${aufgaben.kundenAbwesenheitPersonen} Mitarbeiter umplanen`
+                        : "Kunde hat zu — Mitarbeiter umplanen"
+                    }
+                    icon="calendar"
+                    href="/mitarbeiter/admin/einsatzplaner"
+                    dringend
+                  />
                 </div>
               )}
             </section>

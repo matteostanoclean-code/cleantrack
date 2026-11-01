@@ -49,7 +49,7 @@ export async function GET(request: Request) {
       supabase.from("absence_requests").select("id, status").limit(500),
       supabase.from("material_reports").select("id, status").limit(500),
       supabase.from("quality_reports").select("id, status").limit(500),
-      supabase.from("tasks").select("id, task_date, employee_name, status, done").gte("task_date", heute).limit(2000),
+      supabase.from("tasks").select("id, task_date, employee_name, status, done, site, work_site_id").gte("task_date", heute).limit(2000),
       supabase.from("chat_messages").select("id, sender_role, read_by_admin").limit(500),
       supabase.from("notes").select("id, faellig_am, erledigt").eq("erledigt", false).limit(500),
       supabase
@@ -67,6 +67,36 @@ export async function GET(request: Request) {
     const tasks = (tasksResult.data || []) as AnyRow[];
     const chat = (chatResult.data || []) as AnyRow[];
     const entries = (entriesResult.data || []) as AnyRow[];
+
+    /**
+     * Einsätze, die auf eine Schließzeit des Kunden fallen.
+     *
+     * Das ist der Punkt, an dem umgeplant werden muss: Der Mitarbeiter steht
+     * sonst vor verschlossener Tür, und seine Stunden fehlen woanders. Fehlt
+     * die Tabelle noch, ist die Zahl null statt ein Fehler.
+     */
+    const schliessungen = await supabase
+      .from("site_closures")
+      .select("work_site_id, object_name, von, bis, faellt_aus, bestaetigt")
+      .lte("von", tagVersetzt(400))
+      .gte("bis", heute)
+      .limit(1000);
+    const zeitraeume = (schliessungen.error ? [] : (schliessungen.data || []) as AnyRow[])
+      .filter((zeile) => zeile.bestaetigt !== false && zeile.faellt_aus !== false);
+
+    const inSchliesszeit = tasks.filter((task) => {
+      if (task.done || ["done", "cancelled", "storniert"].includes(String(task.status || "").toLowerCase())) return false;
+      const tag = String(task.task_date || "").slice(0, 10);
+      return zeitraeume.some((zeile) => {
+        const passt = task.work_site_id && zeile.work_site_id
+          ? zeile.work_site_id === task.work_site_id
+          : String(zeile.object_name || "") === String(task.site || "");
+        return passt && String(zeile.von).slice(0, 10) <= tag && tag <= String(zeile.bis).slice(0, 10);
+      });
+    });
+    const betroffenePersonen = new Set(
+      inSchliesszeit.map((task) => String(task.employee_name || "").trim()).filter(Boolean)
+    ).size;
 
     // Zeiten über dieselbe Rechnung wie die Zeitenfreigabe, sonst weichen die
     // Zahlen voneinander ab und keiner traut mehr einer von beiden.
@@ -131,7 +161,7 @@ export async function GET(request: Request) {
     const notizenFaellig = ((notizenResult.data || []) as AnyRow[])
       .filter((notiz) => { const tag = text(notiz.faellig_am).slice(0, 10); return tag && tag <= heute; }).length;
 
-    const gesamt = zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen + notizenFaellig;
+    const gesamt = zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen + notizenFaellig + inSchliesszeit.length;
 
     return NextResponse.json({
       ok: true,
@@ -145,6 +175,8 @@ export async function GET(request: Request) {
       material: materialOffen,
       qualitaet: qualitaetOffen,
       ohneMitarbeiter,
+      kundenAbwesenheit: inSchliesszeit.length,
+      kundenAbwesenheitPersonen: betroffenePersonen,
       chat: chatUngelesen,
       notizen: notizenFaellig,
       // Für die Sammelzeile in der Seitenleiste.

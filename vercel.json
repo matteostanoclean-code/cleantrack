@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/birthdays",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/auto-stempeln",
+      "schedule": "0 22 * * *"
     }
   ]
 }
