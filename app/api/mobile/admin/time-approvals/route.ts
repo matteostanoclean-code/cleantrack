@@ -4,7 +4,8 @@ import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
 import { localDayIso, minutesBetweenHm, minutesToHm, parseHm } from "@/lib/format";
 import { AnyRow, TASK_SPALTEN, TOLERANCE_MINUTES, buildRecords, numberOrNull, plannedMinutesFromTask, text } from "@/lib/zeiten";
 import { safeSelect } from "@/lib/safeWrite";
-import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { feiertagsKarte, zuschlaegeFuerZeitraum, zuschlagsMinuten } from "@/lib/zuschlaege";
+import { zeitgrenzenLaden, listeLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,25 @@ export async function GET(request: Request) {
       .select("id, name, active")
       .order("name", { ascending: true });
 
-    const records = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
+    const gebaut = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
+
+    /**
+     * Zuschläge je Satz. Hier und nicht erst im Lohn, weil hier entschieden
+     * wird: Wer einen Satz freigibt, der nachts lag, soll sehen, was er
+     * freigibt (RTV § 3 Nr. 4.7).
+     */
+    const feiertage = feiertagsKarte(
+      (await listeLaden(supabase, "feiertage")).map((zeile: AnyRow) => ({
+        name: text(zeile.name),
+        datum: text((zeile.daten as AnyRow)?.datum).slice(0, 10)
+      }))
+    );
+    const records = gebaut.map((record: AnyRow) => {
+      if (!record.actualStart || !record.actualEnd) return record;
+      const anteile = zuschlaegeFuerZeitraum(new Date(record.actualStart), new Date(record.actualEnd), feiertage);
+      return { ...record, zuschlagAnteile: anteile, zuschlagMinuten: zuschlagsMinuten(anteile) };
+    });
+
     const summary = {
       open: records.filter((record) => record.state === "open").length,
       approved: records.filter((record) => record.state === "approved").length,

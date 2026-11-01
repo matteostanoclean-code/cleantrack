@@ -94,9 +94,19 @@ type TimeRecord = {
   latestStart?: string | null;
   spaeterBeginn?: boolean;
   verspaetungMinuten?: number | null;
+  zuschlagAnteile?: Record<string, number>;
+  zuschlagMinuten?: number;
   incomplete: boolean;
   log: LogRow[];
 };
+
+/** Die Zeitzuschläge nach RTV § 3 Nr. 4.7, zum Anzeigen. Gerechnet wird in lib/zuschlaege.ts. */
+const ZUSCHLAGSARTEN = [
+  { art: "hoher-feiertag", label: "Hoher Feiertag", satz: 200 },
+  { art: "feiertag", label: "Feiertag", satz: 80 },
+  { art: "sonntag", label: "Sonntag", satz: 80 },
+  { art: "nacht", label: "Nacht", satz: 30 }
+];
 
 type ApiResponse = {
   ok: boolean;
@@ -366,6 +376,11 @@ export default function TimeApprovalPage() {
                       const spaet = Number(record.verspaetungMinuten || 0);
                       fehler.push(spaet >= 60 ? `Zu spät angefangen (${Math.floor(spaet / 60)}:${String(spaet % 60).padStart(2, "0")} Std.)` : `Zu spät angefangen (${spaet} Min.)`);
                     }
+                    // Zuschlagspflichtige Zeit ist kein Fehler, aber Geld. Sie
+                    // steht deshalb neben den Hinweisen, nur in anderer Farbe.
+                    const zuschlag = ZUSCHLAGSARTEN
+                      .filter((eintrag) => Number(record.zuschlagAnteile?.[eintrag.art] || 0) > 0)
+                      .map((eintrag) => `${eintrag.label} ${eintrag.satz} %`);
                     if (Math.abs(record.deviationMinutes) > 5) fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
                     return (
                       <tr key={record.id} className="border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
@@ -380,7 +395,15 @@ export default function TimeApprovalPage() {
                             <span className="rounded-md bg-brand-100 px-2 py-1 text-[12px] font-semibold text-brand-700">
                               {fehler[0]}{fehler.length > 1 ? ` +${fehler.length - 1}` : ""}
                             </span>
-                          ) : <span className="text-[13px] text-ink-300">–</span>}
+                          ) : !zuschlag.length ? <span className="text-[13px] text-ink-300">–</span> : null}
+                          {zuschlag.length ? (
+                            <span
+                              className="ml-1 inline-block rounded-md bg-amber-100 px-2 py-1 text-[12px] font-semibold text-amber-800"
+                              title={`Zuschlagspflichtig: ${hhmm(Number(record.zuschlagMinuten || 0))} Std.`}
+                            >
+                              {zuschlag.join(", ")}
+                            </span>
+                          ) : null}
                         </td>
                         <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3 text-right text-[14px] text-ink-700">{hhmm(record.plannedMinutes)} Std.</td>
                         <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-3 py-3 text-right">

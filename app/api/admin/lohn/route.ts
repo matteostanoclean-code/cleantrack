@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { TASK_SPALTEN, buildRecords, plannedMinutesFromTask } from "@/lib/zeiten";
-import { zeitgrenzenLaden } from "@/lib/einstellungen";
+import { zeitgrenzenLaden, listeLaden } from "@/lib/einstellungen";
 import { safeSelect } from "@/lib/safeWrite";
+import {
+  LEERE_ANTEILE,
+  anteileAddieren,
+  feiertagsKarte,
+  zuschlaegeFuerZeitraum,
+  zuschlagsEuro,
+  zuschlagsMinuten
+} from "@/lib/zuschlaege";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +121,14 @@ export async function GET(request: Request) {
 
     const saetze = buildRecords(eintraege, tasksById, await zeitgrenzenLaden(supabase));
 
+    // Feiertage für die Zuschläge. Dieselbe Liste wie im Wochenplan.
+    const feiertage = feiertagsKarte(
+      (await listeLaden(supabase, "feiertage")).map((zeile: AnyRow) => ({
+        name: clean(zeile.name),
+        datum: clean((zeile.daten as AnyRow)?.datum).slice(0, 10)
+      }))
+    );
+
     const zeilen = ((personen.data || []) as AnyRow[])
       .filter((person) => clean(person.name) && person.active !== false && clean(person.role).toLowerCase() !== "admin")
       .map((person) => {
@@ -134,6 +150,22 @@ export async function GET(request: Request) {
             const geplant = Number(satz.plannedMinutes || 0);
             return summe + (festeZeit && geplant > 0 ? Math.max(gestempelt, geplant) : gestempelt);
           }, 0);
+
+        /**
+         * Zuschläge nach § 3 Nr. 4.7 RTV, aus der wirklich gestempelten Zeit.
+         *
+         * Bewusst nicht aus der Lohnzeit: Zuschlagspflichtig ist, wann
+         * gearbeitet wurde, nicht wie viel bezahlt wird. Bei fester Zeit kann
+         * die Lohnzeit höher sein als die Stempelzeit — diese Minuten lagen
+         * aber nie in der Nacht.
+         */
+        const anteile = eigene
+          .filter((satz: AnyRow) => satz.state === "approved" && satz.actualStart && satz.actualEnd)
+          .reduce(
+            (summe: AnyRow, satz: AnyRow) =>
+              anteileAddieren(summe as any, zuschlaegeFuerZeitraum(new Date(satz.actualStart), new Date(satz.actualEnd), feiertage)),
+            { ...LEERE_ANTEILE } as AnyRow
+          );
 
         const soll = aufgaben
           .filter((aufgabe) => clean(aufgabe.employee_name) === name && clean(aufgabe.status).toLowerCase() !== "cancelled")
@@ -181,7 +213,10 @@ export async function GET(request: Request) {
           abwesenheitMinuten: abwesenheit,
           lohnMinuten: lohnzeit,
           saldoMinuten: vertrag > 0 ? lohnzeit - vertrag : 0,
-          stundensatz: zahl(person.hourly_rate)
+          stundensatz: zahl(person.hourly_rate),
+          zuschlagAnteile: anteile,
+          zuschlagMinuten: zuschlagsMinuten(anteile as any),
+          zuschlagEuro: zuschlagsEuro(anteile as any, zahl(person.hourly_rate))
         };
       });
 
@@ -195,7 +230,9 @@ export async function GET(request: Request) {
         offen: zeilen.reduce((s, z) => s + z.offen, 0),
         arbeitMinuten: zeilen.reduce((s, z) => s + z.arbeitMinuten, 0),
         abwesenheitMinuten: zeilen.reduce((s, z) => s + z.abwesenheitMinuten, 0),
-        lohnMinuten: zeilen.reduce((s, z) => s + z.lohnMinuten, 0)
+        lohnMinuten: zeilen.reduce((s, z) => s + z.lohnMinuten, 0),
+        zuschlagMinuten: zeilen.reduce((s, z) => s + z.zuschlagMinuten, 0),
+        zuschlagEuro: Math.round(zeilen.reduce((s, z) => s + z.zuschlagEuro, 0) * 100) / 100
       }
     });
   } catch (fehler) {

@@ -25,7 +25,21 @@ type Zeile = {
   lohnMinuten: number;
   saldoMinuten: number;
   stundensatz: number;
+  zuschlagAnteile?: Record<string, number>;
+  zuschlagMinuten?: number;
+  zuschlagEuro?: number;
 };
+
+const ZUSCHLAGSARTEN: { art: string; label: string; satz: number }[] = [
+  { art: "hoher-feiertag", label: "Hoher Feiertag", satz: 200 },
+  { art: "feiertag", label: "Feiertag", satz: 80 },
+  { art: "sonntag", label: "Sonntag", satz: 80 },
+  { art: "nacht", label: "Nacht", satz: 30 }
+];
+
+function euroText(wert: number) {
+  return wert.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+}
 
 function aktuellerMonat() {
   return new Date().toISOString().slice(0, 7);
@@ -106,7 +120,9 @@ export default function LohnSeite() {
     offen: gefiltert.reduce((s, z) => s + z.offen, 0),
     arbeit: gefiltert.reduce((s, z) => s + z.arbeitMinuten, 0),
     abwesenheit: gefiltert.reduce((s, z) => s + z.abwesenheitMinuten, 0),
-    lohn: gefiltert.reduce((s, z) => s + z.lohnMinuten, 0)
+    lohn: gefiltert.reduce((s, z) => s + z.lohnMinuten, 0),
+    zuschlagMinuten: gefiltert.reduce((s, z) => s + Number(z.zuschlagMinuten || 0), 0),
+    zuschlagEuro: Math.round(gefiltert.reduce((s, z) => s + Number(z.zuschlagEuro || 0), 0) * 100) / 100
   }), [gefiltert]);
 
   async function herunterladen() {
@@ -208,6 +224,7 @@ export default function LohnSeite() {
                 <th className="px-3 py-3 text-right">Arbeitszeit</th>
                 <th className="px-3 py-3 text-right">Abwesenheit</th>
                 <th className="px-3 py-3 text-right">Lohnzeit</th>
+                <th className="px-3 py-3 text-right">Zuschläge</th>
                 <th className="px-3 py-3 text-right">Saldo</th>
               </tr>
             </thead>
@@ -228,13 +245,36 @@ export default function LohnSeite() {
                   <td className="px-3 py-3 text-right text-[14px] text-ink-800">{stunden(zeile.arbeitMinuten)}</td>
                   <td className="px-3 py-3 text-right text-[14px] text-ink-600">{stunden(zeile.abwesenheitMinuten)}</td>
                   <td className="px-3 py-3 text-right text-[15px] font-bold text-ink-900">{stunden(zeile.lohnMinuten)}</td>
+                  {/*
+                    Zuschläge stehen neben der Lohnzeit, weil sie dasselbe
+                    Thema sind: was der Monat kostet. Die Aufteilung steht im
+                    Titel, damit die Spalte schmal bleibt.
+                  */}
+                  <td className="px-3 py-3 text-right text-[14px]">
+                    {Number(zeile.zuschlagMinuten || 0) > 0 ? (
+                      <span
+                        className="cursor-help font-semibold text-amber-700"
+                        title={ZUSCHLAGSARTEN
+                          .filter((eintrag) => Number(zeile.zuschlagAnteile?.[eintrag.art] || 0) > 0)
+                          .map((eintrag) => `${eintrag.label} ${eintrag.satz} %: ${stunden(Number(zeile.zuschlagAnteile?.[eintrag.art] || 0))}`)
+                          .join("\n")}
+                      >
+                        {stunden(Number(zeile.zuschlagMinuten))}
+                        {Number(zeile.zuschlagEuro || 0) > 0 ? (
+                          <span className="block text-[12px] font-normal text-ink-500">{euroText(Number(zeile.zuschlagEuro))}</span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-ink-300">–</span>
+                    )}
+                  </td>
                   <td className={cx("px-3 py-3 text-right text-[14px] font-semibold", zeile.saldoMinuten < 0 ? "text-danger-600" : zeile.saldoMinuten > 0 ? "text-amber-700" : "text-ink-500")}>
                     {zeile.vertragMinuten ? stunden(zeile.saldoMinuten) : "–"}
                   </td>
                 </tr>
               ))}
               {!gefiltert.length && !lade ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-[14px] text-ink-400">Keine Mitarbeiter in dieser Auswahl.</td></tr>
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-[14px] text-ink-400">Keine Mitarbeiter in dieser Auswahl.</td></tr>
               ) : null}
             </tbody>
             {gefiltert.length ? (
@@ -244,6 +284,14 @@ export default function LohnSeite() {
                   <td className="px-3 py-3 text-right text-[14px] font-bold">{stunden(summe.arbeit)}</td>
                   <td className="px-3 py-3 text-right text-[14px] font-bold">{stunden(summe.abwesenheit)}</td>
                   <td className="px-3 py-3 text-right text-[15px] font-bold text-ink-900">{stunden(summe.lohn)}</td>
+                  <td className="px-3 py-3 text-right text-[14px] font-bold text-amber-700">
+                    {summe.zuschlagMinuten > 0 ? (
+                      <>
+                        {stunden(summe.zuschlagMinuten)}
+                        {summe.zuschlagEuro > 0 ? <span className="block text-[12px] font-normal text-ink-500">{euroText(summe.zuschlagEuro)}</span> : null}
+                      </>
+                    ) : "–"}
+                  </td>
                   <td />
                 </tr>
               </tfoot>
@@ -255,6 +303,16 @@ export default function LohnSeite() {
           <p><strong className="text-ink-600">Vertrag</strong> ist das Vereinbarte, aus den Wochenstunden auf den Monat gerechnet. Ohne hinterlegte Stunden steht dort ein Strich.</p>
           <p className="mt-1"><strong className="text-ink-600">Soll</strong> ist die Summe der Zeitvorgaben aller Einsätze im Monat, <strong className="text-ink-600">Arbeitszeit</strong> das, was freigegeben ist.</p>
           <p className="mt-1"><strong className="text-ink-600">Lohnzeit</strong> ist Arbeitszeit plus gutgeschriebene Abwesenheit — das geht in den Lohn.</p>
+          <p className="mt-1">
+            <strong className="text-ink-600">Zuschläge</strong> sind die gestempelten Stunden, auf die nach Rahmentarifvertrag ein Zeitzuschlag
+            fällt: Nacht 30 %, Sonn- und Feiertag 80 %, an Neujahr, 1. Mai und den beiden Weihnachtsfeiertagen 200 % (§ 3 Nr. 4.7).
+            Treffen mehrere zusammen, zählt nur der höchste (§ 3 Nr. 4.8). Der Euro-Betrag ist der Zuschlag allein, ohne den Lohn darunter,
+            und nur dort, wo am Mitarbeiter ein Stundensatz hinterlegt ist. Mit der Maus über die Zahl zeigt die Aufteilung.
+          </p>
+          <p className="mt-1">
+            In die Exceldatei für die Lohnbuchhaltung gehen die Zuschläge <strong className="text-ink-600">nicht</strong> ein — deren Sammeldatei
+            hat dafür keine Spalte. Die Zahl hier ist zum Nachrechnen der Abrechnung.
+          </p>
         </div>
       </div>
     </main>
