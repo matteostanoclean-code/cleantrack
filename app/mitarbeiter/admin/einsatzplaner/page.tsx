@@ -108,6 +108,12 @@ function hoherFeiertag(name: unknown) {
   return ["neujahr", "tag der arbeit", "1. weihnachtsfeiertag", "2. weihnachtsfeiertag"].some((eintrag) => text.includes(eintrag));
 }
 
+/** 2026-12-24 wird zu 24.12. */
+function datumKurz(wert: unknown) {
+  const text = clean(wert).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text.slice(8, 10)}.${text.slice(5, 7)}.` : "–";
+}
+
 function aktiv(task: Row) {
   const status = clean(task.status || "open").toLowerCase();
   return !task.done && !["done", "cancelled", "storniert"].includes(status);
@@ -205,6 +211,27 @@ export default function EinsatzplanerSeite() {
     return liste.length ? liste : AUFTRAGSARTEN_ERSATZ;
   }, [data?.auftragsarten]);
 
+  /**
+   * Wann welcher Kunde zu hat.
+   *
+   * Der Planer kennt die Zeiträume nicht von sich aus — man plant sonst
+   * fröhlich eine Reinigung in die Betriebsferien hinein und merkt es erst,
+   * wenn jemand vor verschlossener Tür steht.
+   */
+  const schliessungen = useMemo(() => (data?.schliessungen || []) as Row[], [data?.schliessungen]);
+
+  function geschlossenAm(task: Row, tag: string) {
+    const objektId = clean(task.work_site_id);
+    const name = clean(task.site);
+    return schliessungen.find((zeile) => {
+      const passt = objektId && clean(zeile.work_site_id)
+        ? clean(zeile.work_site_id) === objektId
+        : name && clean(zeile.object_name) === name;
+      if (!passt) return false;
+      return clean(zeile.von).slice(0, 10) <= tag && tag <= clean(zeile.bis).slice(0, 10);
+    }) || null;
+  }
+
   /** Tag → Name des Feiertags. Aus den Einstellungen, Baden-Württemberg. */
   const feiertage = useMemo(() => {
     const karte = new Map<string, string>();
@@ -226,6 +253,19 @@ export default function EinsatzplanerSeite() {
   }, [data?.tasks, tage, suche, nurUnbesetzt]);
 
   const unbesetzt = useMemo(() => einsaetze.filter((task) => !clean(task.employee_name) && aktiv(task)), [einsaetze]);
+
+  /** Die Einsätze dieser Woche, die auf eine Schließzeit fallen. */
+  const geschlosseneEinsaetze = useMemo(() => {
+    const treffer: { task: Row; zu: Row }[] = [];
+    for (const task of einsaetze) {
+      if (!aktiv(task)) continue;
+      const zu = geschlossenAm(task, clean(task.task_date).slice(0, 10));
+      if (zu) treffer.push({ task, zu });
+    }
+    return treffer.sort((a, b) => clean(a.task.task_date).localeCompare(clean(b.task.task_date)));
+    // geschlossenAm liest nur aus schliessungen, deshalb reichen die beiden.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [einsaetze, schliessungen]);
 
   function einsaetzeVon(name: string, tag: string) {
     return einsaetze
@@ -441,6 +481,38 @@ export default function EinsatzplanerSeite() {
           </select>
         </div>
 
+        {/*
+          Einsätze, die auf eine Schließzeit fallen. Steht vor dem Plan, weil
+          es die Frage ist, die man sonst erst am Tag selbst stellt.
+        */}
+        {geschlosseneEinsaetze.length ? (
+          <section className="mt-4 rounded-2xl border border-danger-100 bg-danger-50 p-4">
+            <p className="text-[15px] font-bold text-danger-700">
+              {geschlosseneEinsaetze.length === 1
+                ? "Ein Einsatz liegt in einer Schließzeit"
+                : `${geschlosseneEinsaetze.length} Einsätze liegen in einer Schließzeit`}
+            </p>
+            <p className="mt-0.5 text-[13px] text-ink-500">Der Kunde hat an diesem Tag zu. Verschieben, oder den Eintrag am Objekt korrigieren.</p>
+            <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {geschlosseneEinsaetze.map(({ task, zu }) => (
+                <li key={task.id}>
+                  <button onClick={() => bearbeiten(task)} className="w-full rounded-xl border border-danger-100 bg-white p-3 text-left">
+                    <p className="text-[13px] text-ink-400">
+                      {new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }).format(parseIso(clean(task.task_date)))}
+                      {clean(task.employee_name) ? ` · ${clean(task.employee_name)}` : " · ohne Mitarbeiter"}
+                    </p>
+                    <p className="truncate text-[15px] font-semibold text-danger-600">{clean(task.site) || clean(task.customer_name) || "Ohne Objekt"}</p>
+                    <p className="truncate text-[12px] text-ink-500">
+                      {zu.faellt_aus === false ? "eingeschränkt" : "geschlossen"} {datumKurz(zu.von)} bis {datumKurz(zu.bis)}
+                      {clean(zu.grund) ? ` · ${clean(zu.grund)}` : ""}
+                    </p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {/* Unbesetzte Einsätze der Woche */}
         {unbesetzt.length ? (
           <section className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
@@ -529,22 +601,36 @@ export default function EinsatzplanerSeite() {
                     const feiertag = feiertage.has(tag);
                     return (
                       <div key={tag} className={cx("min-h-[92px] min-w-0 flex-1 border-l border-paper-200 p-1.5", wochenende && "bg-paper-100/60", feiertag && "bg-danger-50/50", tag === heute && "bg-brand-50/40")}>
-                        {eigene.slice(0, maxProTag).map((task) => (
-                          <button
-                            key={task.id}
-                            onClick={() => bearbeiten(task)}
-                            className={cx(
-                              "mb-1.5 block w-full rounded-md border-l-[3px] bg-white px-2 py-1.5 text-left shadow-sm",
-                              aktiv(task) ? "border-brand-600" : "border-paper-300 opacity-60"
-                            )}
-                          >
-                            <span className="block text-[11px] text-ink-400">{zeitText(task)}</span>
-                            <span className="block truncate text-[12px] font-semibold text-ink-900">{clean(task.site) || clean(task.customer_name) || "Ohne Objekt"}</span>
-                            <span className="mt-0.5 inline-block max-w-full truncate rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                              {clean(task.title) || "Einsatz"}
-                            </span>
-                          </button>
-                        ))}
+                        {eigene.slice(0, maxProTag).map((task) => {
+                          const zu = geschlossenAm(task, tag);
+                          return (
+                            <button
+                              key={task.id}
+                              onClick={() => bearbeiten(task)}
+                              title={zu ? `${clean(zu.customer_name) || clean(zu.object_name)} hat zu: ${clean(zu.grund) || "Kundenurlaub"}` : undefined}
+                              className={cx(
+                                "mb-1.5 block w-full rounded-md border-l-[3px] px-2 py-1.5 text-left shadow-sm",
+                                zu ? "border-danger-500 bg-danger-50" : "bg-white",
+                                aktiv(task) ? !zu && "border-brand-600" : "border-paper-300 opacity-60"
+                              )}
+                            >
+                              <span className="block text-[11px] text-ink-400">{zeitText(task)}</span>
+                              <span className={cx("block truncate text-[12px] font-semibold", zu ? "text-danger-600" : "text-ink-900")}>
+                                {clean(task.site) || clean(task.customer_name) || "Ohne Objekt"}
+                              </span>
+                              {zu ? (
+                                <span className="mt-0.5 block truncate text-[10px] font-semibold text-danger-600">
+                                  {zu.faellt_aus === false ? "Kunde eingeschränkt" : "Kunde hat zu"}
+                                  {clean(zu.grund) ? ` · ${clean(zu.grund)}` : ""}
+                                </span>
+                              ) : (
+                                <span className="mt-0.5 inline-block max-w-full truncate rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                                  {clean(task.title) || "Einsatz"}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                         {eigene.length > maxProTag ? (
                           <button onClick={() => setMaxProTag(99)} className="w-full rounded-md px-2 py-1 text-left text-[11px] text-brand-700">
                             + weitere {eigene.length - maxProTag}

@@ -245,7 +245,7 @@ async function loadAdminData(supabase: any) {
   const toDate = new Date(now);
   toDate.setDate(toDate.getDate() + 365);
 
-  const [employees, customers, sites, tasks, timeEntries, absences, materialReports, notifications] = await Promise.all([
+  const [employees, customers, sites, tasks, timeEntries, absences, materialReports, notifications, schliessungen] = await Promise.all([
     supabase
       .from("employee_profiles")
       .select("*")
@@ -288,7 +288,15 @@ async function loadAdminData(supabase: any) {
       .from("admin_notifications")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(100)
+      .limit(100),
+    // Schließzeiten der Kunden. Fehlt die Tabelle, bleibt die Liste leer —
+    // der Planer soll deswegen nicht stehen.
+    supabase
+      .from("site_closures")
+      .select("work_site_id, object_name, customer_name, von, bis, grund, faellt_aus")
+      .gte("bis", fromDate.toISOString().slice(0, 10))
+      .lte("von", toDate.toISOString().slice(0, 10))
+      .limit(1000)
   ]);
 
   const errors = [employees.error, customers.error, sites.error, tasks.error, timeEntries.error, absences.error, materialReports.error, notifications.error].filter(Boolean);
@@ -315,7 +323,8 @@ async function loadAdminData(supabase: any) {
     materialReports: materialReports.data || [],
     notifications: notifications.data || [],
     auftragsarten: auftragsarten.map((zeile: AnyRow) => clean(zeile.name)).filter(Boolean),
-    feiertage
+    feiertage,
+    schliessungen: schliessungen.error ? [] : (schliessungen.data || [])
   };
 }
 

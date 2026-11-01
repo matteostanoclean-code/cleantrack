@@ -647,6 +647,21 @@ export default function AdminPlanningPage() {
   }, [data?.absences, weekDays]);
   const unassignedTasks = useMemo(() => tasks.filter((task) => !clean(task.employee_name) && activeStatus(task)), [tasks]);
 
+  /** Wann welcher Kunde zu hat — dieselbe Prüfung wie im Einsatzplaner. */
+  const schliessungen = useMemo(() => ((data as any)?.schliessungen || []) as Row[], [data]);
+
+  function geschlossenAm(task: Row, tag: string) {
+    const objektId = clean(task.work_site_id);
+    const name = clean(task.site);
+    return schliessungen.find((zeile) => {
+      const passt = objektId && clean(zeile.work_site_id)
+        ? clean(zeile.work_site_id) === objektId
+        : name && clean(zeile.object_name) === name;
+      if (!passt) return false;
+      return clean(zeile.von).slice(0, 10) <= tag && tag <= clean(zeile.bis).slice(0, 10);
+    }) || null;
+  }
+
   /** Tag → Name des Feiertags. Aus den Einstellungen, Baden-Württemberg. */
   const feiertage = useMemo(() => {
     const karte = new Map<string, string>();
@@ -781,13 +796,21 @@ export default function AdminPlanningPage() {
                       </div>
                     ))}
 
-                    {dayTasks.map((task) => (
-                      <div key={task.id} className="rounded-2xl border border-paper-300 bg-white p-3">
+                    {dayTasks.map((task) => {
+                      const zu = geschlossenAm(task, day);
+                      return (
+                      <div key={task.id} className={`rounded-2xl border p-3 ${zu ? "border-danger-500 bg-danger-50" : "border-paper-300 bg-white"}`}>
                         <button onClick={() => openEdit(task)} className="block w-full text-left">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-bold">{clean(task.start_time).slice(0, 5) || hoursLabel(minutesFromTask(task))} · {task.title || "Einsatz"}</p>
-                              <p className="truncate text-xs text-ink-400">{taskPlace(task)}</p>
+                              <p className={`truncate text-xs ${zu ? "font-semibold text-danger-600" : "text-ink-400"}`}>{taskPlace(task)}</p>
+                              {zu ? (
+                                <p className="truncate text-[11px] font-semibold text-danger-600">
+                                  {zu.faellt_aus === false ? "Kunde eingeschränkt" : "Kunde hat zu"}
+                                  {clean(zu.grund) ? ` · ${clean(zu.grund)}` : ""}
+                                </p>
+                              ) : null}
                               <p className="mt-1 truncate text-xs text-ink-400">{task.employee_name || "Ohne Mitarbeiter"}</p>
                             </div>
                             <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${activeStatus(task) ? "bg-brand-100 text-brand-700" : "bg-paper-300 text-ink-600"}`}>{task.status || (task.done ? "done" : "open")}</span>
@@ -801,7 +824,8 @@ export default function AdminPlanningPage() {
                           <button disabled={saving} onClick={() => patch({ type: "task_assign", id: task.id, employee_name: assignments[task.id] ?? clean(task.employee_name) }, "Einsatz wurde zugewiesen.")} className="rounded-2xl bg-brand-600 px-3 text-xs font-bold text-white disabled:opacity-50">OK</button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {!dayTasks.length && (
                       <button onClick={() => openNew(day)} className="w-full rounded-2xl border border-dashed border-paper-300 bg-white p-3 text-sm text-ink-400">
                         Nichts geplant. Hier tippen zum Anlegen.
