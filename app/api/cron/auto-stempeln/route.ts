@@ -30,7 +30,7 @@ type AnyRow = Record<string, any>;
  * eigenen Unterlagen.
  */
 
-const VERMERK = "Automatisch nach Plan gebucht, nicht gestempelt.";
+const VERMERK = "Ankunft und Abfahrt nach Plan gebucht, nicht gestempelt.";
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
@@ -74,7 +74,14 @@ async function buchen(request: Request) {
 
   const supabase = getSupabaseAdmin();
 
-  const personen = await supabase.from("employee_profiles").select("id, name, inhaber").eq("inhaber", true);
+  // Nur das Konto, das auch arbeitet. Das Büro-Konto trägt dasselbe
+  // Kennzeichen, bekommt aber keine Einsätze und soll nichts gebucht
+  // bekommen.
+  const personen = await supabase
+    .from("employee_profiles")
+    .select("id, name, inhaber, role")
+    .eq("inhaber", true)
+    .neq("role", "admin");
   // Fehlt die Spalte, gibt es keinen Inhaber und damit nichts zu tun.
   if (personen.error) return NextResponse.json({ ok: true, gebucht: 0, hinweis: "Kein Inhaber-Kennzeichen vorhanden." });
 
