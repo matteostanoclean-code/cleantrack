@@ -210,6 +210,28 @@ function LohnDokumente({ mitarbeiterId, mitarbeiterName, token }: { mitarbeiterI
     }
   }
 
+  async function entfernen(dokument: Row) {
+    const monatsname = MONATSNAMEN[Math.max(0, Math.min(11, Number(dokument.monat) - 1))];
+    if (!window.confirm(`${monatsname} ${dokument.jahr} entfernen?\n\n${mitarbeiterName} sieht sie dann nicht mehr in der App. Die Datei in der Personalakte bleibt unberührt.`)) return;
+    setArbeitet(true);
+    setFehler("");
+    setMeldung("");
+    try {
+      const antwort = await fetch(`/api/admin/lohn-dokumente?id=${encodeURIComponent(clean(dokument.id))}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Entfernen fehlgeschlagen.");
+      setMeldung(`${monatsname} ${dokument.jahr} ist entfernt.`);
+      await laden();
+    } catch (problem) {
+      setFehler(problem instanceof Error ? problem.message : "Entfernen fehlgeschlagen.");
+    } finally {
+      setArbeitet(false);
+    }
+  }
+
   async function oeffnen(id: string) {
     setFehler("");
     try {
@@ -268,18 +290,33 @@ function LohnDokumente({ mitarbeiterId, mitarbeiterName, token }: { mitarbeiterI
         <p className="mt-5 text-[14px] text-ink-400">Lade …</p>
       ) : dokumente.length ? (
         <ul className="mt-5 divide-y divide-paper-200">
+          {/* Die ganze Zeile ist der Knopf. Vorher war "Ansehen" nur Text
+              daneben — man tippt darauf, und nichts passiert. */}
           {dokumente.map((dokument) => (
-            <li key={clean(dokument.id)} className="flex items-center justify-between gap-3 py-3">
-              <button onClick={() => oeffnen(clean(dokument.id))} className="min-w-0 flex-1 text-left">
-                <span className="block text-[15px] font-semibold text-ink-900">
-                  {MONATSNAMEN[Math.max(0, Math.min(11, Number(dokument.monat) - 1))]} {dokument.jahr}
+            <li key={clean(dokument.id)} className="flex items-center gap-2">
+              <button
+                onClick={() => oeffnen(clean(dokument.id))}
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 py-3 text-left hover:bg-paper-100"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-semibold text-ink-900">
+                    {MONATSNAMEN[Math.max(0, Math.min(11, Number(dokument.monat) - 1))]} {dokument.jahr}
+                  </span>
+                  <span className="block text-[12px] text-ink-400">
+                    hochgeladen von {clean(dokument.hochgeladen_von) || "Büro"} am {datumText(dokument.hochgeladen_at)}
+                    {dokument.gesehen_at ? ` · geöffnet am ${datumText(dokument.gesehen_at)}` : " · noch nicht geöffnet"}
+                  </span>
                 </span>
-                <span className="block text-[12px] text-ink-400">
-                  {clean(dokument.hochgeladen_von) || "Büro"} · {datumText(dokument.hochgeladen_at)}
-                  {dokument.gesehen_at ? ` · geöffnet am ${datumText(dokument.gesehen_at)}` : " · noch nicht geöffnet"}
-                </span>
+                <span className="shrink-0 text-[13px] font-semibold text-brand-700">Ansehen</span>
               </button>
-              <span className="shrink-0 text-[13px] font-semibold text-brand-700">Ansehen</span>
+              <button
+                onClick={() => entfernen(dokument)}
+                disabled={arbeitet}
+                title="Diese Abrechnung entfernen"
+                className="shrink-0 rounded-lg px-2 py-2 text-[13px] font-semibold text-danger-600 hover:bg-danger-50 disabled:opacity-40"
+              >
+                Entfernen
+              </button>
             </li>
           ))}
         </ul>

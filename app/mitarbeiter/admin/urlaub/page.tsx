@@ -469,12 +469,10 @@ export default function AdminVacationPage() {
           <button onClick={logout} className="rounded-2xl border border-paper-300 bg-paper-100 px-3 py-2 text-xs font-bold text-ink-600">Logout</button>
         </header>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Link href="/mitarbeiter/admin" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Admin</Link>
-          <Link href="/mitarbeiter/admin/planung" className="rounded-2xl border border-paper-300 bg-paper-100 px-4 py-3 text-center text-sm font-bold text-brand-700">Planung</Link>
-        </div>
+        {/* Die beiden Knöpfe nach Admin und Planung sind raus: dieselben Wege
+            stehen links in der Seitenleiste (Ansage 02.11.2026). */}
 
-        {error && <p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
+        {error &&<p className="rounded-2xl border border-rose-500/30 bg-rose-100 px-3 py-2 text-sm text-rose-700">{error}</p>}
         {message && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">{message}</p>}
         {loading && <p className="rounded-2xl border border-brand-500/30 bg-brand-50 px-3 py-2 text-sm text-brand-700">Aktualisiere Daten…</p>}
 

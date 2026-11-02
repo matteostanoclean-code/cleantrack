@@ -165,6 +165,8 @@ export type Zeitgrenzen = {
   fehler_nachtrag: boolean;
   /** Ob ein Beginn nach dem spätesten Start zur Vorlage führt. */
   fehler_spaeter_beginn: boolean;
+  /** Jede gestempelte Zeit vorlegen, auch die unauffällige. */
+  alles_vorlegen: boolean;
   /** Ist die Standortprüfung aus, zählt kein Standortfehler mehr. */
   gps_aktiv: boolean;
 };
@@ -189,6 +191,7 @@ export const ZEITGRENZEN_VORGABE: Zeitgrenzen = {
   fehler_freie_zeit: true,
   fehler_nachtrag: true,
   fehler_spaeter_beginn: true,
+  alles_vorlegen: true,
   gps_aktiv: true
 };
 
@@ -305,6 +308,15 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
        * Prüfung liefe er ungeprüft in Lohn und Auswertung.
        */
       const gruende = [
+        /**
+         * Jede gestempelte Zeit wird vorgelegt, nicht nur die auffällige.
+         *
+         * Vorher lief alles Unauffällige still durch. Wer wissen will, was
+         * im Monat wirklich gearbeitet wurde, hat es damit nie gesehen und
+         * konnte es auch nicht korrigieren (Ansage 02.11.2026). Abschaltbar
+         * unter Einstellungen, Zeiterfassung.
+         */
+        grenzen.alles_vorlegen,
         // Ohne Standortprüfung gibt es auch keinen Standortfehler. Sonst läge
         // nach dem Abschalten alles in der Freigabe, was man gerade
         // losgeworden ist.

@@ -342,6 +342,7 @@ export const BEREICHE: Bereich[] = [
           {
             titel: "Zur Kontrolle vorlegen",
             felder: [
+              { art: "schalter", schluessel: "alles_vorlegen", label: "Jede gestempelte Zeit vorlegen", hinweis: "Aus: nur Auffälliges kommt in die Freigabe, der Rest läuft still durch." },
               { art: "schalter", schluessel: "fehler_standort", label: "Standortfehler", hinweis: "Gestempelt wurde außerhalb des Objektradius." },
               { art: "schalter", schluessel: "fehler_standort_freigabe", label: "Standortfreigabe war aus" },
               { art: "schalter", schluessel: "fehler_freie_zeit", label: "Freie Zeiterfassung", hinweis: "Gestempelt ohne geplanten Einsatz." },

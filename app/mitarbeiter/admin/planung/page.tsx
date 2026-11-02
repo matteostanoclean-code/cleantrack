@@ -795,8 +795,10 @@ export default function AdminPlanningPage() {
               const dayTasks = weekTasks.filter((task) => task.task_date === day);
               const isToday = day === today;
               const feiertag = feiertage.get(day);
+              // Grauer Tageshintergrund, damit sich die Spalten vom weißen
+              // Blatt abheben und man den Tag als Block sieht.
               return (
-                <div key={day} className={`rounded-2xl border p-3 ${feiertag ? "border-danger-500/40 bg-danger-50" : isToday ? "border-brand-500/40 bg-brand-50" : "border-paper-200 bg-paper-100/80"}`}>
+                <div key={day} className={`rounded-2xl border p-3 ${feiertag ? "border-danger-500/40 bg-danger-50" : isToday ? "border-brand-500/40 bg-brand-50" : "border-paper-300 bg-paper-200/70"}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className={`font-bold ${feiertag ? "text-danger-600" : ""}`}>{dateText(day)}</p>

@@ -620,18 +620,17 @@ export default function AdminDashboardPage() {
                     href="/mitarbeiter/admin/notizen"
                     dringend
                   />
+                  {/* Eine Kachel, nicht zwei: "Gestern nicht gestempelt" war
+                      nur eine Teilmenge davon und stand doppelt da. Der
+                      Vortag steht jetzt im Hinweis (Ansage 02.11.2026). */}
                   <AufgabenKachel
                     zahl={aufgaben.nichtGestempelt}
                     titel="Vergessen zu stempeln"
-                    hinweis="Nicht ausgestempelt oder gar nicht erst gebucht"
-                    icon="stopwatch"
-                    href="/mitarbeiter/admin/zeiten"
-                    dringend
-                  />
-                  <AufgabenKachel
-                    zahl={aufgaben.gesternOffen}
-                    titel="Gestern nicht gestempelt"
-                    hinweis="Vom Vortag ohne Buchung oder ohne Ausstempeln"
+                    hinweis={
+                      aufgaben.gesternOffen > 0
+                        ? `${aufgaben.gesternOffen} davon von gestern`
+                        : "Nicht ausgestempelt oder gar nicht erst gebucht"
+                    }
                     icon="stopwatch"
                     href="/mitarbeiter/admin/zeiten"
                     dringend

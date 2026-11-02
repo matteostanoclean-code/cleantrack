@@ -126,6 +126,40 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * Eine Abrechnung wieder entfernen.
+ *
+ * Beim Hochladen von Hand ist der falsche Monat schnell gewählt, und dann
+ * liegt sie beim Mitarbeiter in der App. Erst die Datei, dann der Eintrag:
+ * Bleibt die Datei liegen, zahlt man für Platz, den niemand sieht.
+ */
+export async function DELETE(request: Request) {
+  try {
+    const wache = await pruefen(request);
+    if (!wache.ok) return wache.antwort;
+    const supabase = wache.auth.supabase;
+
+    const id = clean(new URL(request.url).searchParams.get("id"));
+    if (!id) return NextResponse.json({ ok: false, error: "Welche Abrechnung?" }, { status: 400 });
+
+    const { data, error } = await supabase.from("lohn_dokumente").select("id, pfad, jahr, monat").eq("id", id).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return NextResponse.json({ ok: false, error: "Diese Abrechnung gibt es nicht mehr." }, { status: 404 });
+
+    const dokument = data as AnyRow;
+    if (clean(dokument.pfad)) {
+      await supabase.storage.from(BUCKET).remove([clean(dokument.pfad)]);
+    }
+    const weg = await supabase.from("lohn_dokumente").delete().eq("id", id);
+    if (weg.error) throw new Error(weg.error.message);
+
+    return NextResponse.json({ ok: true, jahr: dokument.jahr, monat: dokument.monat });
+  } catch (fehler) {
+    const text = fehler instanceof Error ? fehler.message : "Löschen fehlgeschlagen.";
+    return NextResponse.json({ ok: false, error: text }, { status: 500 });
+  }
+}
+
 /** Eine Adresse zum Ansehen, fünf Minuten gültig. */
 export async function PATCH(request: Request) {
   try {
