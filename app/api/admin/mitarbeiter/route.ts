@@ -140,6 +140,10 @@ function aktenDaten(body: AnyRow) {
       // Inhaber: taucht in Team-Übersichten nicht auf.
       inhaber: body.inhaber === true,
       annual_vacation_days: nullableZahl(body.annual_vacation_days),
+      // Urlaubstage aus der Zeit vor Schichtklar. Das Jahr gehört dazu,
+      // sonst schleppt sich der Wert in den nächsten Januar.
+      urlaub_bereits_genommen: nullableZahl(body.urlaub_bereits_genommen),
+      urlaub_genommen_jahr: nullableZahl(body.urlaub_genommen_jahr),
       absence_pay_per_day: nullableZahl(body.absence_pay_per_day),
       monthly_hour_limit: nullableZahl(body.monthly_hour_limit),
 

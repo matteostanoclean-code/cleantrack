@@ -548,7 +548,12 @@ export default function MitarbeiterSeite() {
     const istUrlaub = (eintrag: Row) =>
       clean(eintrag.request_type || eintrag.absence_type).toLowerCase().includes("urlaub");
 
-    let genommen = 0;
+    // Der Altbestand aus der Excel-Zeit, aber nur wenn er zum laufenden Jahr
+    // gehört. Sonst stünde im Januar bei jedem der Vorjahresverbrauch.
+    const vorherJahr = Number(offen?.urlaub_genommen_jahr || 0);
+    const vorher = vorherJahr === jahr ? Number(offen?.urlaub_bereits_genommen || 0) : 0;
+
+    let genommen = vorher;
     let beantragt = 0;
     for (const eintrag of eigeneAbwesenheiten) {
       if (!istUrlaub(eintrag)) continue;
@@ -560,7 +565,7 @@ export default function MitarbeiterSeite() {
     }
 
     const anspruch = Number(offen?.annual_vacation_days || offen?.vacation_days || 0);
-    return { jahr, anspruch, genommen, beantragt, offen: anspruch - genommen };
+    return { jahr, anspruch, genommen, beantragt, vorher, offen: anspruch - genommen };
   }, [eigeneAbwesenheiten, offen, daten]);
 
   const eigeneKontrollen = useMemo(
@@ -899,6 +904,20 @@ export default function MitarbeiterSeite() {
                                 <input inputMode="decimal" value={zahlText(form.absence_pay_per_day)} onChange={(e) => setForm({ ...form, absence_pay_per_day: e.target.value })} className={feldClass} />
                               </Feld>
                             </div>
+                            {/*
+                              Der Altbestand aus der Excel-Zeit. Das Jahr steht
+                              ausdrücklich dabei: ohne das schleppte sich der
+                              Wert in den nächsten Januar, und jeder hätte dort
+                              schon zwanzig Tage verbraucht.
+                            */}
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                              <Feld label="Bereits genommen" hinweis="Tage, die in diesem Jahr schon genommen sind, ohne Eintrag in der App.">
+                                <input inputMode="decimal" value={zahlText(form.urlaub_bereits_genommen)} onChange={(e) => setForm({ ...form, urlaub_bereits_genommen: e.target.value })} className={feldClass} />
+                              </Feld>
+                              <Feld label="Zu welchem Jahr" hinweis="Stimmt das Jahr nicht mehr, zählt der Wert nicht mit.">
+                                <input inputMode="numeric" value={zahlText(form.urlaub_genommen_jahr) || String(new Date().getFullYear())} onChange={(e) => setForm({ ...form, urlaub_genommen_jahr: e.target.value })} className={feldClass} />
+                              </Feld>
+                            </div>
                           </Abschnitt>
                         </>
                       ) : null}
@@ -1024,6 +1043,9 @@ export default function MitarbeiterSeite() {
                   </div>
                   <p className="mb-4 text-[12px] text-ink-400">
                     Gezählt werden Werktage ohne Wochenende und ohne Feiertage, nur Urlaub und nur im laufenden Jahr.
+                    {urlaubsstand.vorher > 0
+                      ? ` Darin ${urlaubsstand.vorher} Tage aus „Bereits genommen“, die vor Schichtklar liegen.`
+                      : " Was vor Schichtklar genommen wurde, trägst du beim Mitarbeiter unter Vertrag als „Bereits genommen“ ein."}
                   </p>
                   {eigeneAbwesenheiten.length ? (
                     <table className="w-full min-w-[620px] text-left">
