@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const von = tagVersetzt(-45);
 
     const [absencesResult, materialResult, qualityResult, tasksResult, chatResult, notizenResult, entriesResult] = await Promise.all([
-      supabase.from("absence_requests").select("id, status").limit(500),
+      supabase.from("absence_requests").select("id, status, employee_name, start_date, end_date").limit(500),
       supabase.from("material_reports").select("id, status").limit(500),
       supabase.from("quality_reports").select("id, status").limit(500),
       supabase.from("tasks").select("id, task_date, employee_name, status, done, site, work_site_id").gte("task_date", heute).limit(2000),
@@ -142,12 +142,65 @@ export async function GET(request: Request) {
     const nichtGestempelt = nichtAusgestempelt + nieGestempelt;
 
     /**
+     * Dasselbe, aber nur für gestern. Das ist die Zahl, die morgens zählt:
+     * Was gestern liegen blieb, lässt sich heute noch klären — wer vor drei
+     * Wochen nicht gestempelt hat, weiß es ohnehin nicht mehr.
+     */
+    const gestern = tagVersetzt(-1);
+    const gesternOffen =
+      records.filter((record: AnyRow) => record.incomplete && text(record.date).slice(0, 10) === gestern).length +
+      ((vergangene.data || []) as AnyRow[]).filter((task) => {
+        if (task.done || text(task.status || "open").toLowerCase() === "cancelled") return false;
+        if (!text(task.employee_name)) return false;
+        if (text(task.task_date).slice(0, 10) !== gestern) return false;
+        return !mitBuchung.has(text(task.id));
+      }).length;
+
+    /**
      * Über der Zeitvorgabe. Dieselbe Grenze wie in der Zeitenfreigabe, damit
      * die Kachel und die Liste dieselbe Zahl meinen.
      */
     const ueberZeit = records.filter((record: AnyRow) => {
       const abweichung = Number(record.deviationMinutes || 0);
       return Number(record.plannedMinutes || 0) > 0 && abweichung > Math.max(0, grenzen.ueber_minuten);
+    }).length;
+
+    /**
+     * Abweichungen von der Zeitvorgabe, nach oben wie nach unten. Dieselben
+     * Grenzen wie in der Zeitenfreigabe: nach oben die Minutengrenze, nach
+     * unten müssen Prozent und Minuten beide überschritten sein.
+     */
+    const abweichungen = records.filter((record: AnyRow) => {
+      const plan = Number(record.plannedMinutes || 0);
+      if (!plan) return false;
+      const abweichung = Number(record.deviationMinutes || 0);
+      if (abweichung > Math.max(0, grenzen.ueber_minuten)) return true;
+      const fehlend = Math.abs(Math.min(0, abweichung));
+      return fehlend > Math.max(0, grenzen.unter_minuten) && (fehlend / plan) * 100 >= Math.max(0, grenzen.unter_prozent);
+    }).length;
+
+    /**
+     * Einsätze, deren Mitarbeiter an dem Tag abwesend ist.
+     *
+     * Beantragt zählt wie genehmigt: Wer Urlaub eingereicht hat, ist in der
+     * Planung schon weg — besser einmal zu viel umgeplant als am Morgen ein
+     * Objekt ohne Reinigung.
+     */
+    const abwesend = absences.filter((eintrag) => {
+      const status = text(eintrag.status).toLowerCase();
+      return status !== "rejected" && status !== "abgelehnt" && text(eintrag.employee_name);
+    });
+    const urlaubsLuecken = tasks.filter((task) => {
+      if (task.done || text(task.status || "open").toLowerCase() === "cancelled") return false;
+      const name = text(task.employee_name);
+      if (!name) return false;
+      const tag = text(task.task_date).slice(0, 10);
+      return abwesend.some((eintrag) => {
+        if (text(eintrag.employee_name) !== name) return false;
+        const von = text(eintrag.start_date).slice(0, 10);
+        const bis = text(eintrag.end_date || eintrag.start_date).slice(0, 10);
+        return von && tag >= von && tag <= bis;
+      });
     }).length;
 
     const urlaub = absences.filter(istOffen).length;
@@ -175,6 +228,9 @@ export async function GET(request: Request) {
       material: materialOffen,
       qualitaet: qualitaetOffen,
       ohneMitarbeiter,
+      gesternOffen,
+      abweichungen,
+      urlaubsLuecken,
       kundenAbwesenheit: inSchliesszeit.length,
       kundenAbwesenheitPersonen: betroffenePersonen,
       chat: chatUngelesen,

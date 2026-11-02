@@ -17,6 +17,9 @@ type Aufgaben = {
   material: number;
   qualitaet: number;
   ohneMitarbeiter: number;
+  gesternOffen: number;
+  abweichungen: number;
+  urlaubsLuecken: number;
   kundenAbwesenheit: number;
   kundenAbwesenheitPersonen: number;
   chat: number;
@@ -211,33 +214,45 @@ function LoginBox({ onLogin }: { onLogin: (token: string) => Promise<void> }) {
 /**
  * Kachel für einen offenen Punkt auf dem Dashboard.
  *
- * Steht die Zahl auf null, wird gar nichts gezeigt — eine Kachel mit einer
- * Null ist keine Aufgabe. Dringendes bekommt einen roten Rand, alles andere
+ * Steht die Zahl auf null, bleibt die Kachel stehen, wird aber still: graue
+ * Null, kein roter Rand. Vorher verschwand sie ganz — das las sich wie "die
+ * Kachel gibt es nicht" statt "da ist nichts offen", und man suchte sie
+ * (Ansage 02.11.2026). Dringendes bekommt einen roten Rand, alles andere
  * bleibt blau; sonst schreit die ganze Seite und man sieht nicht mehr, was
  * wirklich eilt.
+ *
+ * `nurWennOffen` ist für die Kacheln, die wirklich nur im Ausnahmefall
+ * etwas bedeuten.
  */
-function AufgabenKachel({ zahl, titel, hinweis, icon, href, dringend }: {
+function AufgabenKachel({ zahl, titel, hinweis, icon, href, dringend, nurWennOffen }: {
   zahl: number;
   titel: string;
   hinweis: string;
   icon: string;
   href: string;
   dringend?: boolean;
+  nurWennOffen?: boolean;
 }) {
-  if (!zahl) return null;
+  if (!zahl && nurWennOffen) return null;
+  const offen = zahl > 0;
+  const rot = Boolean(dringend) && offen;
   return (
     <a
       href={href}
-      className={`group flex items-start gap-4 rounded-2xl border bg-white p-4 transition hover:shadow-md ${dringend ? "border-danger-500/40" : "border-paper-200"}`}
+      className={`group flex items-start gap-4 rounded-2xl border p-4 transition hover:shadow-md ${
+        rot ? "border-danger-500/40 bg-white" : offen ? "border-paper-200 bg-white" : "border-paper-200 bg-paper-100/60"
+      }`}
     >
-      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${dringend ? "bg-danger-50 text-danger-600" : "bg-brand-50 text-brand-600"}`}>
+      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${
+        rot ? "bg-danger-50 text-danger-600" : offen ? "bg-brand-50 text-brand-600" : "bg-paper-200 text-ink-300"
+      }`}>
         <UiIcon name={icon} className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-semibold text-ink-900">{titel}</span>
-        <span className="mt-0.5 block text-[13px] leading-snug text-ink-400">{hinweis}</span>
+        <span className={`block text-[15px] font-semibold ${offen ? "text-ink-900" : "text-ink-500"}`}>{titel}</span>
+        <span className="mt-0.5 block text-[13px] leading-snug text-ink-400">{offen ? hinweis : "nichts offen"}</span>
       </span>
-      <span className={`shrink-0 text-[30px] font-bold leading-none ${dringend ? "text-danger-600" : "text-brand-600"}`}>{zahl}</span>
+      <span className={`shrink-0 text-[30px] font-bold leading-none ${rot ? "text-danger-600" : offen ? "text-brand-600" : "text-ink-200"}`}>{zahl}</span>
     </a>
   );
 }
@@ -535,10 +550,16 @@ export default function AdminDashboardPage() {
     .slice(0, 6), [data?.employees]);
 
 
+  /**
+   * Nur heute. Vorher standen hier die nächsten fünf Einsätze, egal von
+   * welchem Tag — bei Jahresplanung sind das fünf Zeilen vom selben Objekt
+   * aus der nächsten Woche. Was auf dem Dashboard zählt, ist der heutige Tag
+   * (Ansage 02.11.2026).
+   */
   const upcomingTasks = useMemo(() => (data?.tasks || [])
-    .filter((task) => String(task.task_date || "") >= today)
-    .sort((a, b) => `${a.task_date || "9999-12-31"}-${a.start_time || "99:99"}`.localeCompare(`${b.task_date || "9999-12-31"}-${b.start_time || "99:99"}`))
-    .slice(0, 5), [data?.tasks]);
+    .filter((task) => String(task.task_date || "").slice(0, 10) === today)
+    .sort((a, b) => `${a.start_time || "99:99"}-${a.employee_name || ""}`.localeCompare(`${b.start_time || "99:99"}-${b.employee_name || ""}`)),
+    [data?.tasks, today]);
 
   const selectedCustomer = (data?.customers || []).find((customer) => customer.id === siteForm.customer_id || customer.id === taskForm.customer_id);
   const sitesForTask = (data?.workSites || []).filter((site) => !taskForm.customer_id || site.customer_id === taskForm.customer_id || clean(site.customer_name).toLowerCase() === labelCustomer(selectedCustomer).toLowerCase());
@@ -581,18 +602,14 @@ export default function AdminDashboardPage() {
             */}
             {/*
               Kacheln statt Zeilen. Eine Kachel je Sache, die Zahl gross, damit
-              man sie im Vorbeigehen liest. Was auf null steht, verschwindet —
-              eine Kachel mit einer Null ist keine Aufgabe, sondern Ballast.
+              man sie im Vorbeigehen liest. Was auf null steht, bleibt stehen,
+              wird aber grau: Eine fehlende Kachel liest sich wie "gibt es
+              nicht", und man sucht sie (Ansage 02.11.2026).
             */}
             <section className="pt-3">
               <h2 className="pb-2 text-[17px] font-bold text-ink-900">Zu erledigen</h2>
               {aufgaben === null ? (
                 <p className="py-3 text-[14px] text-ink-400">Zähle offene Punkte…</p>
-              ) : aufgaben.gesamt === 0 ? (
-                <div className="rounded-2xl border border-paper-200 bg-white px-4 py-8 text-center">
-                  <p className="text-[17px] font-semibold text-ink-900">Nichts offen</p>
-                  <p className="mt-1 text-[14px] text-ink-400">Keine Zeiten, Anträge oder Meldungen, die auf dich warten.</p>
-                </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <AufgabenKachel
@@ -612,9 +629,17 @@ export default function AdminDashboardPage() {
                     dringend
                   />
                   <AufgabenKachel
-                    zahl={aufgaben.ueberZeit}
-                    titel="Über der Zeitvorgabe"
-                    hinweis="Länger gebraucht als eingeplant"
+                    zahl={aufgaben.gesternOffen}
+                    titel="Gestern nicht gestempelt"
+                    hinweis="Vom Vortag ohne Buchung oder ohne Ausstempeln"
+                    icon="stopwatch"
+                    href="/mitarbeiter/admin/zeiten"
+                    dringend
+                  />
+                  <AufgabenKachel
+                    zahl={aufgaben.abweichungen}
+                    titel="Abweichungen"
+                    hinweis="Länger oder kürzer als die Zeitvorgabe"
                     icon="priority"
                     href="/mitarbeiter/admin/zeiten"
                   />
@@ -643,6 +668,19 @@ export default function AdminDashboardPage() {
                     ist kein Fehler, sondern eine Entscheidung: Der Mitarbeiter
                     hat an dem Tag frei — oder er fährt woandershin.
                   */}
+                  {/*
+                    Mitarbeiter im Urlaub, Einsatz steht noch auf ihm. Der
+                    Klick führt dorthin, wo man ihn in einem Zug neu
+                    zuweisen kann.
+                  */}
+                  <AufgabenKachel
+                    zahl={aufgaben.urlaubsLuecken}
+                    titel="Einsatz trotz Urlaub"
+                    hinweis="Mitarbeiter ist abwesend — neu zuweisen"
+                    icon="plane"
+                    href="/mitarbeiter/admin/planung#abwesend"
+                    dringend
+                  />
                   <AufgabenKachel
                     zahl={aufgaben.kundenAbwesenheit}
                     titel="Kundenabwesenheit"
@@ -744,7 +782,10 @@ export default function AdminDashboardPage() {
 
             <section className="rounded-2xl border border-paper-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="font-bold">Kommende Einsätze</p>
+                <div>
+                  <p className="font-bold">Heute</p>
+                  <p className="text-xs text-ink-400">{dateText(today)} · {upcomingTasks.length === 1 ? "ein Einsatz" : `${upcomingTasks.length} Einsätze`}</p>
+                </div>
                 <button onClick={() => load(token)} className="text-xs font-bold text-brand-700">Neu laden</button>
               </div>
               {/*
@@ -762,13 +803,13 @@ export default function AdminDashboardPage() {
                         {task.site || task.customer_name || "Ohne Objekt"}
                       </p>
                       <p className="truncate text-[12px] text-ink-400">
-                        {dateText(task.task_date)} · {task.start_time || "—"} – {task.end_time || "—"} · {task.title || "Einsatz"}
+                        {task.start_time ? `${String(task.start_time).slice(0, 5)} – ${task.end_time ? String(task.end_time).slice(0, 5) : "offen"}` : "ohne Uhrzeit"} · {task.title || "Einsatz"}
                       </p>
                     </div>
                     <StatusPill value={task.done ? "done" : task.status} />
                   </div>
                 ))}
-                {!upcomingTasks.length && <EmptyCard title="Keine kommenden Einsätze" text="Hier werden nur heutige und zukünftige Termine angezeigt." />}
+                {!upcomingTasks.length && <EmptyCard title="Heute steht nichts an" text="Für den morgigen Tag und weiter geht es in den Einsatzplaner." />}
               </div>
             </section>
           </div>

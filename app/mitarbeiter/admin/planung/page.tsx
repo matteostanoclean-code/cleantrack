@@ -647,6 +647,34 @@ export default function AdminPlanningPage() {
   }, [data?.absences, weekDays]);
   const unassignedTasks = useMemo(() => tasks.filter((task) => !clean(task.employee_name) && activeStatus(task)), [tasks]);
 
+  /**
+   * Einsätze, deren Mitarbeiter an dem Tag abwesend ist.
+   *
+   * Beantragt zählt wie genehmigt: Wer Urlaub eingereicht hat, ist in der
+   * Planung schon weg. Lieber einmal zu viel umgeplant als am Morgen ein
+   * Objekt ohne Reinigung.
+   */
+  const abwesenheitsLuecken = useMemo(() => {
+    const abwesend = (data?.absences || []).filter((eintrag: Row) => {
+      const status = clean(eintrag.status).toLowerCase();
+      return status !== "rejected" && status !== "abgelehnt" && clean(eintrag.employee_name);
+    });
+    return tasks
+      .filter((task) => activeStatus(task) && clean(task.employee_name))
+      .map((task) => {
+        const tag = clean(task.task_date).slice(0, 10);
+        const grund = abwesend.find((eintrag: Row) => {
+          if (clean(eintrag.employee_name) !== clean(task.employee_name)) return false;
+          const von = clean(eintrag.start_date).slice(0, 10);
+          const bis = clean(eintrag.end_date || eintrag.start_date).slice(0, 10);
+          return von && tag >= von && tag <= bis;
+        });
+        return grund ? { task, grund } : null;
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => clean(a.task.task_date).localeCompare(clean(b.task.task_date))) as { task: Row; grund: Row }[];
+  }, [tasks, data?.absences]);
+
   /** Wann welcher Kunde zu hat — dieselbe Prüfung wie im Einsatzplaner. */
   const schliessungen = useMemo(() => ((data as any)?.schliessungen || []) as Row[], [data]);
 
@@ -837,6 +865,60 @@ export default function AdminPlanningPage() {
             })}
           </div>
         </section>
+
+        {/*
+          Mitarbeiter im Urlaub, Einsatz steht noch auf ihm. Eigener Abschnitt
+          und nicht unter "Nicht zugewiesen": dort stehen Einsätze ohne
+          Namen, hier steht ein Name drauf, der an dem Tag nicht kann.
+        */}
+        {abwesenheitsLuecken.length ? (
+          <section id="abwesend" className="rounded-2xl border border-danger-100 bg-danger-50 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="font-bold text-danger-700">Einsatz trotz Urlaub</p>
+                <p className="text-xs text-ink-500">Der eingeteilte Mitarbeiter ist an dem Tag abwesend. Objekt bleibt sonst offen.</p>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-danger-700">{abwesenheitsLuecken.length}</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {abwesenheitsLuecken.slice(0, 40).map(({ task, grund }) => (
+                <div key={task.id} className="rounded-2xl border border-paper-200 bg-white p-3">
+                  <button onClick={() => openEdit(task)} className="block w-full text-left">
+                    <p className="font-bold">
+                      {dateText(task.task_date)} · {clean(task.start_time) ? `${clean(task.start_time).slice(0, 5)} - ${clean(task.end_time).slice(0, 5)}` : hoursLabel(minutesFromTask(task))}
+                    </p>
+                    <p className="text-sm text-ink-600">{taskPlace(task)}</p>
+                    <p className="text-xs font-semibold text-danger-600">
+                      {clean(task.employee_name)} ist weg
+                      {clean(grund.request_type || grund.absence_type) ? ` · ${clean(grund.request_type || grund.absence_type)}` : ""}
+                      {` · ${dateText(grund.start_date)} bis ${dateText(grund.end_date || grund.start_date)}`}
+                      {clean(grund.status).toLowerCase() === "approved" ? "" : " (beantragt)"}
+                    </p>
+                  </button>
+                  <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                    <select
+                      value={assignments[task.id] ?? ""}
+                      onChange={(event) => setAssignments({ ...assignments, [task.id]: event.target.value })}
+                      className={inputClass}
+                    >
+                      <option value="">Wer übernimmt?</option>
+                      {(data?.employees || [])
+                        .filter((employee) => clean(employee.name) !== clean(task.employee_name))
+                        .map((employee) => <option key={employee.id} value={employee.name}>{labelEmployee(employee)}</option>)}
+                    </select>
+                    <button
+                      disabled={saving || !assignments[task.id]}
+                      onClick={() => patch({ type: "task_assign", id: task.id, employee_name: assignments[task.id] }, "Einsatz wurde übertragen.")}
+                      className="rounded-2xl bg-brand-600 px-3 text-xs font-bold text-white disabled:opacity-50"
+                    >
+                      Übertragen
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border border-paper-200 bg-white p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
