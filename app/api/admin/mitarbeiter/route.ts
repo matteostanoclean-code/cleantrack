@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
+import { listeLaden } from "@/lib/einstellungen";
 
 export const dynamic = "force-dynamic";
 
@@ -64,8 +65,15 @@ export async function GET(request: Request) {
 
     if (profileResult.error) throw new Error(profileResult.error.message);
 
+    // Feiertage, damit die Resturlaubstage stimmen: ein Feiertag im Urlaub
+    // kostet keinen Urlaubstag.
+    const feiertage = (await listeLaden(supabase, "feiertage"))
+      .map((zeile: AnyRow) => clean((zeile.daten as AnyRow)?.datum).slice(0, 10))
+      .filter(Boolean);
+
     return NextResponse.json({
       ok: true,
+      feiertage,
       employees: ((profileResult.data || []) as AnyRow[]).filter((row) => clean(row.name)),
       tasks: tasksResult.data || [],
       timeEntries: entriesResult.data || [],

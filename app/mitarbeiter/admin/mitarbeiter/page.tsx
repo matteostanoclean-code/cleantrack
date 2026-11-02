@@ -134,6 +134,162 @@ function Leer({ text }: { text: string }) {
   );
 }
 
+const MONATSNAMEN = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+
+/**
+ * Entgeltabrechnungen je Mitarbeiter: ansehen und von Hand hochladen.
+ *
+ * Normalerweise legt der Lohn-Wächter sie ab, sobald die Mail vom Lohnbüro
+ * kommt. Das hier ist der Weg für einen älteren Monat oder eine Korrektur.
+ * Hochgeladen wird genau auf diesen Mitarbeiter — deshalb steht sein Name
+ * im Knopf, damit niemand im falschen Blatt landet.
+ */
+function LohnDokumente({ mitarbeiterId, mitarbeiterName, token }: { mitarbeiterId: string; mitarbeiterName: string; token: string }) {
+  const heute = new Date();
+  const [dokumente, setDokumente] = useState<Row[]>([]);
+  const [laedt, setLaedt] = useState(true);
+  const [jahr, setJahr] = useState(String(heute.getFullYear()));
+  const [monat, setMonat] = useState(String(heute.getMonth() + 1));
+  const [arbeitet, setArbeitet] = useState(false);
+  const [meldung, setMeldung] = useState("");
+  const [fehler, setFehler] = useState("");
+
+  const laden = useCallback(async () => {
+    if (!mitarbeiterId || !token) return;
+    setLaedt(true);
+    try {
+      const antwort = await fetch(`/api/admin/lohn-dokumente?mitarbeiter=${encodeURIComponent(mitarbeiterId)}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const ergebnis = await antwort.json();
+      setDokumente(ergebnis.ok ? ergebnis.dokumente || [] : []);
+      if (ergebnis.ok && ergebnis.eingerichtet === false) {
+        setFehler("Die Ablage ist noch nicht eingerichtet: supabase/lohndokumente.sql ausführen.");
+      }
+    } catch {
+      setFehler("Die Abrechnungen konnten nicht geladen werden.");
+    } finally {
+      setLaedt(false);
+    }
+  }, [mitarbeiterId, token]);
+
+  useEffect(() => { laden(); }, [laden]);
+
+  async function hochladen(datei: File) {
+    setArbeitet(true);
+    setFehler("");
+    setMeldung("");
+    try {
+      const puffer = await datei.arrayBuffer();
+      // In Haeppchen umwandeln: String.fromCharCode mit einer ganzen PDF auf
+      // einmal sprengt den Aufrufstapel.
+      const bytes = new Uint8Array(puffer);
+      let roh = "";
+      for (let i = 0; i < bytes.length; i += 8192) roh += String.fromCharCode(...bytes.subarray(i, i + 8192));
+
+      const antwort = await fetch("/api/admin/lohn-dokumente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          employee_profile_id: mitarbeiterId,
+          jahr: Number(jahr),
+          monat: Number(monat),
+          dateiname: datei.name,
+          inhalt: btoa(roh)
+        })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Hochladen fehlgeschlagen.");
+      setMeldung(`${MONATSNAMEN[Number(monat) - 1]} ${jahr} liegt jetzt bei ${mitarbeiterName}. Er sieht sie in der App unter „Deine Abrechnungen".`);
+      await laden();
+    } catch (problem) {
+      setFehler(problem instanceof Error ? problem.message : "Hochladen fehlgeschlagen.");
+    } finally {
+      setArbeitet(false);
+    }
+  }
+
+  async function oeffnen(id: string) {
+    setFehler("");
+    try {
+      const antwort = await fetch("/api/admin/lohn-dokumente", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id })
+      });
+      const ergebnis = await antwort.json();
+      if (!antwort.ok || !ergebnis.ok) throw new Error(ergebnis.error || "Konnte nicht geöffnet werden.");
+      const link = document.createElement("a");
+      link.href = ergebnis.adresse;
+      link.target = "_blank";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (problem) {
+      setFehler(problem instanceof Error ? problem.message : "Konnte nicht geöffnet werden.");
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-[15px] font-semibold text-ink-900">Entgeltabrechnungen</p>
+      <p className="mt-0.5 text-[13px] text-ink-400">
+        Was hier liegt, sieht {mitarbeiterName || "der Mitarbeiter"} in der App unter „Deine Abrechnungen". Der Lohn-Wächter
+        legt sie jeden Monat von selbst ab — hier geht ein älterer Monat oder eine Korrektur von Hand.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-end gap-3 rounded-2xl border border-paper-200 bg-paper-100/60 p-4">
+        <Feld label="Monat">
+          <select value={monat} onChange={(e) => setMonat(e.target.value)} className={feldClass}>
+            {MONATSNAMEN.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+          </select>
+        </Feld>
+        <Feld label="Jahr">
+          <input inputMode="numeric" value={jahr} onChange={(e) => setJahr(e.target.value)} className={feldClass} />
+        </Feld>
+        <label className={cx("cursor-pointer rounded-xl bg-brand-600 px-5 py-3 text-[14px] font-semibold text-white", arbeitet && "opacity-50")}>
+          {arbeitet ? "Lädt hoch …" : "PDF auswählen"}
+          <input
+            type="file"
+            accept="application/pdf"
+            disabled={arbeitet}
+            className="hidden"
+            onChange={(e) => { const datei = e.target.files?.[0]; e.target.value = ""; if (datei) hochladen(datei); }}
+          />
+        </label>
+      </div>
+
+      {meldung ? <p className="mt-3 rounded-xl bg-success-100 px-4 py-3 text-[14px] text-success-700">{meldung}</p> : null}
+      {fehler ? <p className="mt-3 rounded-xl bg-danger-50 px-4 py-3 text-[14px] text-danger-700">{fehler}</p> : null}
+
+      {laedt ? (
+        <p className="mt-5 text-[14px] text-ink-400">Lade …</p>
+      ) : dokumente.length ? (
+        <ul className="mt-5 divide-y divide-paper-200">
+          {dokumente.map((dokument) => (
+            <li key={clean(dokument.id)} className="flex items-center justify-between gap-3 py-3">
+              <button onClick={() => oeffnen(clean(dokument.id))} className="min-w-0 flex-1 text-left">
+                <span className="block text-[15px] font-semibold text-ink-900">
+                  {MONATSNAMEN[Math.max(0, Math.min(11, Number(dokument.monat) - 1))]} {dokument.jahr}
+                </span>
+                <span className="block text-[12px] text-ink-400">
+                  {clean(dokument.hochgeladen_von) || "Büro"} · {datumText(dokument.hochgeladen_at)}
+                  {dokument.gesehen_at ? ` · geöffnet am ${datumText(dokument.gesehen_at)}` : " · noch nicht geöffnet"}
+                </span>
+              </button>
+              <span className="shrink-0 text-[13px] font-semibold text-brand-700">Ansehen</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-5 text-[14px] text-ink-400">Noch keine Abrechnung hinterlegt.</p>
+      )}
+    </div>
+  );
+}
+
 export default function MitarbeiterSeite() {
   const [token, setToken] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
@@ -324,6 +480,51 @@ export default function MitarbeiterSeite() {
     () => (daten?.absences || []).filter((eintrag) => clean(eintrag.employee_name) === clean(offen?.name)),
     [daten?.absences, offen?.name]
   );
+
+  /**
+   * Urlaubsstand: Anspruch, genommen, offen.
+   *
+   * Gezählt werden Werktage ohne Wochenende und ohne Feiertage — ein
+   * Feiertag im Urlaub kostet keinen Urlaubstag. Nur Urlaub zählt,
+   * Krankheit und unbezahlte Freistellung nicht, und nur das laufende Jahr.
+   */
+  const urlaubsstand = useMemo(() => {
+    const jahr = new Date().getFullYear();
+    const feiertage = new Set<string>((daten as any)?.feiertage || []);
+
+    const tageZaehlen = (von: string, bis: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(von)) return 0;
+      const ende = /^\d{4}-\d{2}-\d{2}$/.test(bis) ? bis : von;
+      let zahl = 0;
+      const lauf = new Date(`${von}T12:00:00`);
+      const schluss = new Date(`${ende}T12:00:00`);
+      while (lauf <= schluss) {
+        const tag = lauf.toISOString().slice(0, 10);
+        const wochentag = lauf.getDay();
+        if (tag.startsWith(String(jahr)) && wochentag !== 0 && wochentag !== 6 && !feiertage.has(tag)) zahl += 1;
+        lauf.setDate(lauf.getDate() + 1);
+        if (zahl > 400) break;
+      }
+      return zahl;
+    };
+
+    const istUrlaub = (eintrag: Row) =>
+      clean(eintrag.request_type || eintrag.absence_type).toLowerCase().includes("urlaub");
+
+    let genommen = 0;
+    let beantragt = 0;
+    for (const eintrag of eigeneAbwesenheiten) {
+      if (!istUrlaub(eintrag)) continue;
+      const tage = tageZaehlen(clean(eintrag.start_date).slice(0, 10), clean(eintrag.end_date || eintrag.start_date).slice(0, 10));
+      if (!tage) continue;
+      const status = clean(eintrag.status).toLowerCase();
+      if (status === "approved") genommen += tage;
+      else if (status !== "rejected" && status !== "abgelehnt") beantragt += tage;
+    }
+
+    const anspruch = Number(offen?.annual_vacation_days || offen?.vacation_days || 0);
+    return { jahr, anspruch, genommen, beantragt, offen: anspruch - genommen };
+  }, [eigeneAbwesenheiten, offen, daten]);
 
   const eigeneKontrollen = useMemo(
     () => (daten?.qualityReports || []).filter((eintrag) => clean(eintrag.employee_name) === clean(offen?.name)),
@@ -700,7 +901,11 @@ export default function MitarbeiterSeite() {
                       ) : null}
 
                       {abschnitt === "dokumente" ? (
-                        <Leer text="Verträge, Nachweise und Bescheinigungen je Person. Dieser Bereich ist noch nicht gebaut." />
+                        <LohnDokumente
+                          mitarbeiterId={clean(offen.id)}
+                          mitarbeiterName={clean(offen.name)}
+                          token={token}
+                        />
                       ) : null}
                     </div>
                   </div>
@@ -766,11 +971,23 @@ export default function MitarbeiterSeite() {
 
               {bereich === "abwesenheiten" ? (
                 <div className="min-w-0 flex-1 overflow-y-auto px-5 py-5">
-                  <div className="mb-4 grid max-w-[420px] grid-cols-3 gap-3 rounded-2xl border border-paper-200 p-4">
-                    <div><p className="text-[22px] font-bold">{Number(offen.annual_vacation_days || 0)}</p><p className="text-[12px] text-ink-400">Anspruch</p></div>
-                    <div><p className="text-[22px] font-bold">{eigeneAbwesenheiten.filter((a) => clean(a.status).toLowerCase() === "approved").length}</p><p className="text-[12px] text-ink-400">Genehmigt</p></div>
-                    <div><p className="text-[22px] font-bold">{eigeneAbwesenheiten.filter((a) => !["approved", "rejected"].includes(clean(a.status).toLowerCase())).length}</p><p className="text-[12px] text-ink-400">Offen</p></div>
+                  {/*
+                    Anspruch, genommen, offen — wie in der Urlaubsliste.
+                    Vorher standen hier Anträge statt Tage, das beantwortete
+                    die eigentliche Frage nicht (Ansage 02.11.2026).
+                  */}
+                  <div className="mb-4 grid max-w-[560px] grid-cols-4 gap-3 rounded-2xl border border-paper-200 p-4">
+                    <div><p className="text-[22px] font-bold">{urlaubsstand.anspruch}</p><p className="text-[12px] text-ink-400">Anspruch {urlaubsstand.jahr}</p></div>
+                    <div><p className="text-[22px] font-bold">{urlaubsstand.genommen}</p><p className="text-[12px] text-ink-400">genommen</p></div>
+                    <div>
+                      <p className={cx("text-[22px] font-bold", urlaubsstand.offen < 0 ? "text-danger-600" : "text-success-700")}>{urlaubsstand.offen}</p>
+                      <p className="text-[12px] text-ink-400">offen</p>
+                    </div>
+                    <div><p className="text-[22px] font-bold text-amber-700">{urlaubsstand.beantragt}</p><p className="text-[12px] text-ink-400">beantragt</p></div>
                   </div>
+                  <p className="mb-4 text-[12px] text-ink-400">
+                    Gezählt werden Werktage ohne Wochenende und ohne Feiertage, nur Urlaub und nur im laufenden Jahr.
+                  </p>
                   {eigeneAbwesenheiten.length ? (
                     <table className="w-full min-w-[620px] text-left">
                       <thead>
