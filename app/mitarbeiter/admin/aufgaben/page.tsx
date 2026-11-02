@@ -149,6 +149,18 @@ export default function AufgabenSeite() {
   const [artFilter, setArtFilter] = useState("");
   const [ansicht, setAnsicht] = useState<"liste" | "board">("liste");
 
+  /**
+   * Art aus der Adresse übernehmen (?art=REKL). Damit landet die Kachel
+   * "Kundenreklamationen" vom Dashboard gleich auf den Reklamationen statt
+   * auf allen Vorgängen. Einmal beim Öffnen, danach gehört der Filter dem,
+   * der hier sitzt.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const art = new URLSearchParams(window.location.search).get("art");
+    if (art && ARTEN.some((eintrag) => eintrag.code === art.toUpperCase())) setArtFilter(art.toUpperCase());
+  }, []);
+
   const [blattOffen, setBlattOffen] = useState(false);
   const [abschnitt, setAbschnitt] = useState("allgemein");
   const [form, setForm] = useState<Row>({ ...leereAufgabe });

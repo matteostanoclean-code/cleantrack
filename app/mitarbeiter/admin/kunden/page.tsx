@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import { UiIcon, cx } from "@/components/ui";
+import PortalQr from "@/components/PortalQr";
 
 /**
  * Kunden.
@@ -383,6 +384,7 @@ export default function KundenSeite() {
                       <p className="mt-2 text-[12px] text-ink-400">
                         „Neuen Link erzeugen" macht den alten sofort ungültig — danach den neuen verschicken.
                       </p>
+                      <PortalQr wert={portalLink(form)} name={clean(form.name)} />
                     </>
                   ) : (
                     <button type="button" onClick={() => portalSetzen("an")} disabled={saving} className="mt-3 rounded-xl bg-brand-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50">

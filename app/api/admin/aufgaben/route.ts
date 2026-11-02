@@ -26,7 +26,9 @@ function text(value: unknown) {
 /** Alles, was noch niemand entschieden hat. */
 function istOffen(row: AnyRow) {
   const status = text(row.status || "open").toLowerCase();
-  return !["approved", "rejected", "done", "resolved", "closed", "erledigt"].includes(status);
+  // "abgeschlossen" ist der Endzustand der Vorgänge (Reklamationen), die
+  // übrigen Wörter kommen von Urlaub, Material und Qualität.
+  return !["approved", "rejected", "done", "resolved", "closed", "erledigt", "abgeschlossen"].includes(status);
 }
 
 function tagVersetzt(tage: number) {
@@ -45,7 +47,7 @@ export async function GET(request: Request) {
     const heute = tagVersetzt(0);
     const von = tagVersetzt(-45);
 
-    const [absencesResult, materialResult, qualityResult, tasksResult, chatResult, notizenResult, entriesResult] = await Promise.all([
+    const [absencesResult, materialResult, qualityResult, tasksResult, chatResult, notizenResult, entriesResult, reklamationResult] = await Promise.all([
       supabase.from("absence_requests").select("id, status, employee_name, start_date, end_date").limit(500),
       supabase.from("material_reports").select("id, status").limit(500),
       supabase.from("quality_reports").select("id, status").limit(500),
@@ -57,7 +59,15 @@ export async function GET(request: Request) {
         .select("*")
         .gte("created_at", `${von}T00:00:00.000Z`)
         .order("created_at", { ascending: true })
-        .limit(2000)
+        .limit(2000),
+      // Reklamationen der Kunden. Die kamen bisher nur als Push und standen
+      // danach nirgends mehr — auf dem Dashboard war davon nichts zu sehen
+      // (Ansage 02.11.2026).
+      supabase
+        .from("tickets")
+        .select("id, status, created_at, quelle, archived")
+        .eq("ticket_type", "REKL")
+        .limit(1000)
     ]);
 
     // Einzelne Tabellen dürfen fehlen, ohne dass die ganze Übersicht ausfällt.
@@ -67,6 +77,18 @@ export async function GET(request: Request) {
     const tasks = (tasksResult.data || []) as AnyRow[];
     const chat = (chatResult.data || []) as AnyRow[];
     const entries = (entriesResult.data || []) as AnyRow[];
+
+    /**
+     * Offene Reklamationen. "Abgeschlossen" und archiviert zählen nicht mehr.
+     * Fehlt die Tabelle, bleibt die Zahl null statt einen Fehler zu werfen —
+     * das Dashboard soll deswegen nicht stehen.
+     */
+    const reklamationen = (reklamationResult.error ? [] : (reklamationResult.data || []) as AnyRow[])
+      .filter((zeile) => zeile.archived !== true && istOffen(zeile));
+    const reklamationenNeu = reklamationen.filter((zeile) => {
+      const tag = text(zeile.created_at).slice(0, 10);
+      return tag >= tagVersetzt(-2);
+    }).length;
 
     /**
      * Einsätze, die auf eine Schließzeit des Kunden fallen.
@@ -214,7 +236,9 @@ export async function GET(request: Request) {
     const notizenFaellig = ((notizenResult.data || []) as AnyRow[])
       .filter((notiz) => { const tag = text(notiz.faellig_am).slice(0, 10); return tag && tag <= heute; }).length;
 
-    const gesamt = zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen + notizenFaellig + inSchliesszeit.length;
+    const gesamt =
+      zeitenOffen + urlaub + materialOffen + qualitaetOffen + ohneMitarbeiter + chatUngelesen +
+      notizenFaellig + inSchliesszeit.length + reklamationen.length;
 
     return NextResponse.json({
       ok: true,
@@ -231,6 +255,8 @@ export async function GET(request: Request) {
       gesternOffen,
       abweichungen,
       urlaubsLuecken,
+      reklamationen: reklamationen.length,
+      reklamationenNeu,
       kundenAbwesenheit: inSchliesszeit.length,
       kundenAbwesenheitPersonen: betroffenePersonen,
       chat: chatUngelesen,

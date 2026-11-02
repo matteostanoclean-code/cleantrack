@@ -16,11 +16,18 @@ const config: Config = {
           200: "#EEF0F3",
           300: "#E1E4E9"
         },
+        // Graustufen für Text. 300, 500 und 700 fehlten lange, wurden aber an
+        // 244 Stellen benutzt — Tailwind erzeugt für eine unbekannte Stufe
+        // keine Regel, also erbte dieser Text die Farbe seines Kastens und
+        // stand fast schwarz da, wo eigentlich ein leises Grau gemeint war.
         ink: {
           900: "#0F1720",
           800: "#1A2430",
+          700: "#333F4B",
           600: "#4B5563",
+          500: "#5B6472",
           400: "#6B7280",
+          300: "#838A97",
           200: "#9CA3AF"
         },
         // Primary accent — the blue from the reference screenshots.

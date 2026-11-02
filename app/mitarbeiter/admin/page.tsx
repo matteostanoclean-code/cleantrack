@@ -20,6 +20,8 @@ type Aufgaben = {
   gesternOffen: number;
   abweichungen: number;
   urlaubsLuecken: number;
+  reklamationen: number;
+  reklamationenNeu: number;
   kundenAbwesenheit: number;
   kundenAbwesenheitPersonen: number;
   chat: number;
@@ -612,6 +614,22 @@ export default function AdminDashboardPage() {
                 <p className="py-3 text-[14px] text-ink-400">Zähle offene Punkte…</p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {/*
+                    Reklamationen zuerst. Das ist das Einzige hier, bei dem
+                    ein Kunde wartet — alles andere ist eigene Hausarbeit.
+                  */}
+                  <AufgabenKachel
+                    zahl={aufgaben.reklamationen ?? 0}
+                    titel="Kundenreklamationen"
+                    hinweis={
+                      (aufgaben.reklamationenNeu ?? 0) > 0
+                        ? `${aufgaben.reklamationenNeu} davon aus den letzten drei Tagen`
+                        : "Noch nicht abgeschlossen"
+                    }
+                    icon="warning"
+                    href="/mitarbeiter/admin/aufgaben?art=REKL"
+                    dringend
+                  />
                   <AufgabenKachel
                     zahl={aufgaben.notizen}
                     titel="Notizen fällig"

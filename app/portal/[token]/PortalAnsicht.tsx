@@ -17,11 +17,32 @@ import { antwortLesen, bilderVerkleinern } from "@/lib/bild";
 
 type Besuch = { datum: string; objektId: string; objekt: string; leistungen: string[] };
 type Objekt = { id: string; name: string; anschrift: string };
+type Reklamation = {
+  kuerzel: string;
+  datum: string;
+  objekt: string;
+  text: string;
+  stand: "eingegangen" | "in_arbeit" | "erledigt";
+  erledigtAm: string | null;
+};
+
+/** Wie der Stand einer Reklamation aussieht: Wort, Farbe, Zeichen. */
+const STAND: Record<Reklamation["stand"], { wort: string; farbe: string; icon: string }> = {
+  eingegangen: { wort: "Eingegangen", farbe: "bg-paper-200 text-ink-600", icon: "clock" },
+  in_arbeit: { wort: "In Arbeit", farbe: "bg-brand-50 text-brand-700", icon: "stopwatch" },
+  erledigt: { wort: "Erledigt", farbe: "bg-success-100 text-success-700", icon: "check" }
+};
 
 function datumText(wert: string) {
   const datum = new Date(`${wert}T12:00:00`);
   if (Number.isNaN(datum.getTime())) return wert;
   return new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(datum);
+}
+
+/** TT/MM/JJJJ — die Schreibweise, die im ganzen Haus gilt. */
+function datumKurz(wert: string) {
+  const teile = String(wert || "").slice(0, 10).split("-");
+  return teile.length === 3 ? `${teile[2]}/${teile[1]}/${teile[0]}` : wert;
 }
 
 function monatText(wert: string) {
@@ -36,7 +57,12 @@ export default function PortalAnsicht({ token }: { token: string }) {
   const [kunde, setKunde] = useState<{ name: string } | null>(null);
   const [objekte, setObjekte] = useState<Objekt[]>([]);
   const [besuche, setBesuche] = useState<Besuch[]>([]);
+  const [reklamationen, setReklamationen] = useState<Reklamation[]>([]);
   const [objektFilter, setObjektFilter] = useState("");
+  // Aufgeklappte Monate. Der neueste geht beim Laden von allein auf, die
+  // älteren bleiben zu — sonst scrollt man durch ein halbes Jahr Termine.
+  const [offeneMonate, setOffeneMonate] = useState<string[]>([]);
+  const [listeOffen, setListeOffen] = useState(false);
 
   const [meldenOffen, setMeldenOffen] = useState(false);
   const [sendet, setSendet] = useState(false);
@@ -44,8 +70,10 @@ export default function PortalAnsicht({ token }: { token: string }) {
   const [form, setForm] = useState({ work_site_id: "", beschreibung: "", name: "", email: "", telefon: "" });
   const [bilder, setBilder] = useState<File[]>([]);
 
-  const holen = useCallback(async () => {
-    setLaden(true);
+  // `still` lädt nach, ohne die Seite gegen "Wird geladen …" zu tauschen —
+  // nach dem Absenden einer Meldung soll die Bestätigung stehen bleiben.
+  const holen = useCallback(async (still = false) => {
+    if (!still) setLaden(true);
     setFehler(null);
     try {
       const antwort = await fetch(`/api/portal/${encodeURIComponent(token)}`, { cache: "no-store" });
@@ -54,7 +82,21 @@ export default function PortalAnsicht({ token }: { token: string }) {
       setKunde(ergebnis.kunde);
       setObjekte(ergebnis.objekte || []);
       setBesuche(ergebnis.besuche || []);
-      if ((ergebnis.objekte || []).length === 1) setForm((alt) => ({ ...alt, work_site_id: ergebnis.objekte[0].id }));
+      setReklamationen(ergebnis.reklamationen || []);
+      // Immer genau ein Objekt im Blick. Eine Sammelansicht über alle Objekte
+      // mischte Treppenhaus und Büro in dieselbe Liste und half niemandem
+      // (Ansage 02.11.2026).
+      //
+      // Offen ist das Objekt mit dem jüngsten Termin, nicht das erste im
+      // Alphabet: Wer das Portal aufmacht, will sehen, wo zuletzt gereinigt
+      // wurde — nicht ein Objekt, unter dem nichts steht.
+      const objekteListe: Objekt[] = ergebnis.objekte || [];
+      const zuletzt = (ergebnis.besuche || [])[0]?.objektId;
+      const start = objekteListe.find((objekt) => objekt.id === zuletzt) || objekteListe[0];
+      if (start) {
+        setObjektFilter((alt) => alt || start.id);
+        setForm((alt) => ({ ...alt, work_site_id: alt.work_site_id || start.id }));
+      }
     } catch (ladeFehler) {
       setFehler(ladeFehler instanceof Error ? ladeFehler.message : "Das hat nicht geklappt.");
     } finally {
@@ -78,6 +120,18 @@ export default function PortalAnsicht({ token }: { token: string }) {
     }
     return Array.from(karte.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [gefiltert]);
+
+  // Der neueste Monat geht auf, sobald die Liste steht oder das Objekt
+  // wechselt. Ohne das stünde man vor lauter zugeklappten Kästen.
+  useEffect(() => {
+    const neuester = nachMonat[0]?.[0];
+    setOffeneMonate(neuester ? [neuester] : []);
+  }, [nachMonat]);
+
+  const offeneMeldungen = useMemo(
+    () => reklamationen.filter((eintrag) => eintrag.stand !== "erledigt").length,
+    [reklamationen]
+  );
 
   async function senden() {
     if (!form.beschreibung.trim()) { setFehler("Bitte beschreiben Sie kurz, was nicht gepasst hat."); return; }
@@ -108,8 +162,11 @@ export default function PortalAnsicht({ token }: { token: string }) {
 
       setGesendet(ergebnis.kuerzel);
       setMeldenOffen(false);
-      setForm({ work_site_id: objekte.length === 1 ? objekte[0].id : "", beschreibung: "", name: "", email: "", telefon: "" });
+      setForm({ work_site_id: objektFilter || objekte[0]?.id || "", beschreibung: "", name: "", email: "", telefon: "" });
       setBilder([]);
+      // Neu laden, damit die frische Meldung gleich in der Liste steht.
+      await holen(true);
+      setListeOffen(true);
     } catch (sendeFehler) {
       setFehler(sendeFehler instanceof Error ? sendeFehler.message : "Die Meldung konnte nicht gesendet werden.");
     } finally {
@@ -164,20 +221,73 @@ export default function PortalAnsicht({ token }: { token: string }) {
           Etwas reklamieren
         </button>
 
+        {/*
+          Was schon gemeldet wurde, mit Stand. Vorher sah der Kunde nach dem
+          Absenden nie wieder, was aus seiner Meldung geworden ist — und rief
+          an, um genau das zu fragen (Ansage 02.11.2026).
+        */}
+        {reklamationen.length ? (
+          <button
+            type="button"
+            onClick={() => setListeOffen((alt) => !alt)}
+            className="mt-2 flex w-full items-center justify-between gap-3 rounded-2xl border border-paper-200 bg-white px-4 py-3 text-left"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-paper-200 text-ink-600">
+                <UiIcon name="list" className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[15px] font-semibold">Eingereichte Reklamationen</span>
+                <span className="mt-0.5 block text-[13px] text-ink-400">
+                  {reklamationen.length} {reklamationen.length === 1 ? "Meldung" : "Meldungen"}
+                  {offeneMeldungen ? ` · ${offeneMeldungen} in Bearbeitung` : " · alle erledigt"}
+                </span>
+              </span>
+            </span>
+            <UiIcon name={listeOffen ? "chevronDown" : "chevronRight"} className="h-5 w-5 shrink-0 text-ink-300" />
+          </button>
+        ) : null}
+
+        {listeOffen ? (
+          <div className="mt-2 space-y-2">
+            {reklamationen.map((eintrag) => {
+              const stand = STAND[eintrag.stand] || STAND.eingegangen;
+              return (
+                <div key={eintrag.kuerzel} className="rounded-2xl border border-paper-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[13px] text-ink-400">
+                        {datumText(eintrag.datum)}
+                        {eintrag.objekt ? ` · ${eintrag.objekt}` : ""}
+                      </p>
+                      <p className="mt-1 text-[15px] leading-snug">{eintrag.text}</p>
+                    </div>
+                    <span className={cx("flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-semibold", stand.farbe)}>
+                      <UiIcon name={stand.icon} className="h-3.5 w-3.5" />
+                      {stand.wort}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[12px] text-ink-300">
+                    {eintrag.kuerzel}
+                    {eintrag.stand === "erledigt" && eintrag.erledigtAm ? ` · erledigt am ${datumKurz(eintrag.erledigtAm)}` : ""}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/*
+          Ein Objekt zur Zeit. Ein Knopf "Alle Objekte" gab es, er mischte
+          aber Treppenhaus und Büro in eine Liste (Ansage 02.11.2026).
+        */}
         {objekte.length > 1 ? (
           <div className="mt-5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setObjektFilter("")}
-              className={cx("rounded-lg px-3 py-2 text-[14px] font-semibold", !objektFilter ? "bg-ink-900 text-white" : "border border-paper-200 bg-white text-ink-600")}
-            >
-              Alle Objekte
-            </button>
             {objekte.map((objekt) => (
               <button
                 key={objekt.id}
                 type="button"
-                onClick={() => setObjektFilter(objekt.id === objektFilter ? "" : objekt.id)}
+                onClick={() => setObjektFilter(objekt.id)}
                 className={cx("rounded-lg px-3 py-2 text-[14px] font-semibold", objektFilter === objekt.id ? "bg-ink-900 text-white" : "border border-paper-200 bg-white text-ink-600")}
               >
                 {objekt.name}
@@ -191,38 +301,52 @@ export default function PortalAnsicht({ token }: { token: string }) {
             Für diesen Zeitraum ist noch kein Termin erfasst.
           </p>
         ) : (
-          <div className="mt-5 space-y-5">
-            {nachMonat.map(([monat, eintraege]) => (
-              <section key={monat}>
-                <p className="text-[12px] font-bold uppercase tracking-wide text-ink-400">
-                  {monatText(`${monat}-01`)} · {eintraege.length} {eintraege.length === 1 ? "Termin" : "Termine"}
-                </p>
-                <div className="mt-2 overflow-hidden rounded-2xl border border-paper-200 bg-white">
-                  {eintraege.map((besuch) => (
-                    <div key={`${besuch.datum}-${besuch.objektId}`} className="flex items-start gap-3 border-b border-paper-100 px-4 py-3 last:border-0">
-                      <span className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-success-100 text-success-700">
-                        <UiIcon name="check" className="h-4 w-4" />
+          /*
+            Monatsweise zum Aufklappen. Der neueste Monat steht offen, die
+            älteren als Zeile mit Anzahl — ein halbes Jahr Termine am Stück
+            war nicht zu überblicken (Ansage 02.11.2026).
+          */
+          <div className="mt-5 space-y-2">
+            {nachMonat.map(([monat, eintraege]) => {
+              const auf = offeneMonate.includes(monat);
+              return (
+                <section key={monat} className="overflow-hidden rounded-2xl border border-paper-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => setOffeneMonate((alt) => (auf ? alt.filter((eintrag) => eintrag !== monat) : [...alt, monat]))}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[15px] font-semibold capitalize">{monatText(`${monat}-01`)}</span>
+                      <span className="mt-0.5 block text-[13px] text-ink-400">
+                        {eintraege.length} {eintraege.length === 1 ? "Termin" : "Termine"}
                       </span>
-                      <div className="min-w-0">
-                        <p className="text-[15px] font-semibold">{datumText(besuch.datum)}</p>
-                        <p className="text-[13px] text-ink-400">
-                          {besuch.objekt}
-                          {besuch.leistungen.length ? ` · ${besuch.leistungen.join(", ")}` : ""}
-                        </p>
-                      </div>
+                    </span>
+                    <UiIcon name={auf ? "chevronDown" : "chevronRight"} className="h-5 w-5 shrink-0 text-ink-300" />
+                  </button>
+                  {auf ? (
+                    <div className="border-t border-paper-100">
+                      {eintraege.map((besuch) => (
+                        <div key={`${besuch.datum}-${besuch.objektId}`} className="flex items-start gap-3 border-b border-paper-100 px-4 py-3 last:border-0">
+                          <span className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-success-100 text-success-700">
+                            <UiIcon name="check" className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-[15px] font-semibold">{datumText(besuch.datum)}</p>
+                            <p className="text-[13px] text-ink-400">
+                              {besuch.objekt}
+                              {besuch.leistungen.length ? ` · ${besuch.leistungen.join(", ")}` : ""}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </section>
-            ))}
+                  ) : null}
+                </section>
+              );
+            })}
           </div>
         )}
-
-        <p className="mt-8 text-[12px] leading-relaxed text-ink-400">
-          Angezeigt werden Tage, an denen vor Ort gearbeitet wurde. Arbeitszeiten, Preise und Namen unserer
-          Mitarbeiterinnen und Mitarbeiter werden hier bewusst nicht gezeigt. Fragen zum Vertrag oder zur Rechnung
-          beantworten wir gern persönlich.
-        </p>
       </div>
 
       {/* Reklamation */}

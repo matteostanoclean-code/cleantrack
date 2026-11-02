@@ -28,6 +28,21 @@ function tagVor(monate: number) {
   return datum.toISOString().slice(0, 10);
 }
 
+/**
+ * Der Stand einer Reklamation in einem Wort, das ein Kunde versteht.
+ *
+ * Die Zustände im Büro heißen neu, offen, in_arbeit, in_pruefung und
+ * abgeschlossen. Dem Kunden sagt das nichts, und die Unterscheidung zwischen
+ * "in Arbeit" und "in Prüfung" geht ihn auch nichts an. Übrig bleiben die drei
+ * Stufen, die er wirklich wissen will: angekommen, wird bearbeitet, erledigt.
+ */
+function standText(status: unknown) {
+  const wert = sauber(status).toLowerCase();
+  if (["abgeschlossen", "erledigt", "done", "closed", "resolved"].includes(wert)) return "erledigt";
+  if (["in_arbeit", "in_pruefung", "in arbeit"].includes(wert)) return "in_arbeit";
+  return "eingegangen";
+}
+
 export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
   try {
     const { token } = await params;
@@ -37,9 +52,38 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
     if (!kunde) return NextResponse.json({ ok: false, error: "Dieser Zugang ist nicht gültig." }, { status: 404 });
 
     const supabase = getSupabaseAdmin();
+
+    /**
+     * Die eigenen Reklamationen. Nur die, die der Kunde selbst über das
+     * Portal eingereicht hat (quelle = kunde) — was das Büro intern als
+     * Vorgang anlegt, hat hier nichts verloren, auch wenn es denselben Kunden
+     * betrifft.
+     *
+     * Gezeigt wird der eigene Text, nicht der interne Titel: Der Kunde soll
+     * wiedererkennen, was er geschrieben hat.
+     */
+    const reklamationen = await supabase
+      .from("tickets")
+      .select("identifier, description, status, created_at, completed_at, link_work_site_name")
+      .eq("link_customer_id", kunde.id)
+      .eq("ticket_type", "REKL")
+      .eq("quelle", "kunde")
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    const meldungen = (reklamationen.error ? [] : (reklamationen.data || []) as AnyRow[]).map((zeile) => ({
+      kuerzel: sauber(zeile.identifier),
+      datum: sauber(zeile.created_at).slice(0, 10),
+      objekt: sauber(zeile.link_work_site_name),
+      text: sauber(zeile.description),
+      stand: standText(zeile.status),
+      erledigtAm: sauber(zeile.completed_at).slice(0, 10) || null
+    }));
+
     const objektIds = kunde.objekte.map((objekt) => sauber(objekt.id)).filter(Boolean);
     if (!objektIds.length) {
-      return NextResponse.json({ ok: true, kunde: { name: kunde.name }, objekte: [], besuche: [] });
+      return NextResponse.json({ ok: true, kunde: { name: kunde.name }, objekte: [], besuche: [], reklamationen: meldungen });
     }
 
     const von = tagVor(MONATE_ZURUECK);
@@ -90,6 +134,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json({
       ok: true,
       kunde: { name: kunde.name },
+      reklamationen: meldungen,
       objekte: kunde.objekte.map((objekt) => ({
         id: objekt.id,
         name: sauber(objekt.name),
