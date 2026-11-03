@@ -212,6 +212,19 @@ function abweichungVorlegen(abweichung: number, planminuten: number, grenzen: Ze
   return fehlend > Math.max(0, grenzen.unter_minuten) && prozent >= Math.max(0, grenzen.unter_prozent);
 }
 
+/**
+ * Gebucht ist gebucht, egal ob Ist- oder Soll-Zeit.
+ *
+ * In der Datenbank heißt "approved" die gestempelte Zeit und "rejected" die
+ * stattdessen gebuchte Vorgabe. Das Wort "rejected" liest sich wie "nicht
+ * gebucht", und genau so wurde es auch gelesen: Lohn und Auswertung zählten
+ * jede Soll-Buchung als nicht vorhanden, die Monatsübersicht zeigte 0:00
+ * Arbeitszeit (Ansage 03.11.2026). Wer Zeit zu Geld macht, fragt hier.
+ */
+export function istGebucht(state: unknown) {
+  return state === "approved" || state === "rejected";
+}
+
 export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, grenzen: Zeitgrenzen = ZEITGRENZEN_VORGABE) {
   const groups = new Map<string, AnyRow[]>();
 
@@ -237,6 +250,22 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
     const storedApproved = numberOrNull(clockOut?.approved_minutes);
     const actualMinutes = numberOrNull(clockOut?.actual_minutes) ?? workMinutes;
     const deviationMinutes = plannedMinutes ? actualMinutes - plannedMinutes : 0;
+
+    /**
+     * Ein nachgetragener Satz hat nur einen Stempel.
+     *
+     * Trägt das Büro eine Zeit ein, steht in der Tabelle eine einzige Zeile:
+     * das Ende. Anfang und Ende sind dann dieselbe Uhrzeit, der Zeitraum ist
+     * null Minuten lang — und damit auch jeder Zuschlag. Eine nachgetragene
+     * Nachtschicht brächte so keinen Nachtzuschlag (RTV § 3 Nr. 4.2 und 4.7).
+     * Der Anfang ergibt sich aus Ende minus Dauer; bei einer Schicht über
+     * Mitternacht landet er dadurch auch wieder auf dem richtigen Tag.
+     */
+    const gestempelterBeginn = sorted.some((row) => row.action === "clock_in");
+    const beginnIso =
+      !gestempelterBeginn && clockOut?.created_at && actualMinutes > 0
+        ? new Date(new Date(clockOut.created_at).getTime() - actualMinutes * 60000).toISOString()
+        : clockIn?.created_at || null;
     const locationIssue = sorted.some(entryHasLocationProblem);
     const ausserRadius = sorted.some(ausserhalbRadius);
     const standortFehlt = sorted.some(ohneStandort);
@@ -265,7 +294,7 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
       const zeit = new Date(String(wert || ""));
       return Number.isNaN(zeit.getTime()) ? null : zeit.getHours() * 60 + zeit.getMinutes();
     };
-    const beginn = minutenAmTag(clockIn?.created_at);
+    const beginn = minutenAmTag(beginnIso);
     const ende = minutenAmTag(clockOut?.created_at);
 
     let windowIssue = false;
@@ -330,7 +359,7 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
       state = gruende.some(Boolean) ? "open" : "approved";
     }
 
-    const day = localDayIso(clockIn?.created_at);
+    const day = localDayIso(beginnIso);
 
     return {
       id: key,
@@ -348,7 +377,7 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
       spaeterBeginn,
       verspaetungMinuten,
       plannedMinutes,
-      actualStart: clockIn?.created_at || null,
+      actualStart: beginnIso,
       actualEnd: clockOut?.created_at || null,
       actualMinutes,
       breakMinutes,

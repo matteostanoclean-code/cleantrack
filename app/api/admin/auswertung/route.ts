@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { TASK_SPALTEN, buildRecords } from "@/lib/zeiten";
+import { TASK_SPALTEN, buildRecords, istGebucht } from "@/lib/zeiten";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
 import { safeSelect } from "@/lib/safeWrite";
 
@@ -153,7 +153,7 @@ export async function GET(request: Request) {
 
       const minuten = Number(satz.approvedMinutes ?? satz.actualMinutes ?? 0) || 0;
 
-      if (satz.state === "approved") {
+      if (istGebucht(satz.state)) {
         topf.minutenFrei += minuten;
         const lohn = lohnJePerson.get(person.toLowerCase());
         if (lohn === null || lohn === undefined) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { TASK_SPALTEN, buildRecords, plannedMinutesFromTask } from "@/lib/zeiten";
+import { TASK_SPALTEN, buildRecords, istGebucht, plannedMinutesFromTask } from "@/lib/zeiten";
 import { zeitgrenzenLaden, listeLaden } from "@/lib/einstellungen";
 import { safeSelect } from "@/lib/safeWrite";
 import {
@@ -144,7 +144,7 @@ export async function GET(request: Request) {
          */
         const festeZeit = person.fixed_paid_time === true;
         const arbeitszeit = eigene
-          .filter((satz: AnyRow) => satz.state === "approved")
+          .filter((satz: AnyRow) => istGebucht(satz.state))
           .reduce((summe: number, satz: AnyRow) => {
             const gestempelt = Number(satz.approvedMinutes ?? satz.actualMinutes ?? 0) || 0;
             const geplant = Number(satz.plannedMinutes || 0);
@@ -160,7 +160,7 @@ export async function GET(request: Request) {
          * aber nie in der Nacht.
          */
         const anteile = eigene
-          .filter((satz: AnyRow) => satz.state === "approved" && satz.actualStart && satz.actualEnd)
+          .filter((satz: AnyRow) => istGebucht(satz.state) && satz.actualStart && satz.actualEnd)
           .reduce(
             (summe: AnyRow, satz: AnyRow) =>
               anteileAddieren(summe as any, zuschlaegeFuerZeitraum(new Date(satz.actualStart), new Date(satz.actualEnd), feiertage)),
