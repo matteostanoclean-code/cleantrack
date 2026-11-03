@@ -6,7 +6,7 @@
  * Getrennte Rechnungen wuerden frueher oder spaeter auseinanderlaufen.
  */
 
-import { localDayIso, parseHm } from "@/lib/format";
+import { addDaysIso, berlinZeitpunkt, localDayIso, parseHm } from "@/lib/format";
 
 /**
  * Erklärung, die der Mitarbeiter beim Nachtragen abhaken muss.
@@ -420,6 +420,42 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
 }
 
 /**
+ * Karenz nach dem geplanten Ende, bevor ein Einsatz als vergessen gilt.
+ *
+ * Wer um 22:00 fertig wird und um 22:02 ans Handy denkt, hat nichts
+ * vergessen. Eine halbe Stunde reicht dafür und ist kurz genug, dass der
+ * Abend noch am selben Abend auffällt.
+ */
+export const STEMPEL_KARENZ_MINUTEN = 30;
+
+/**
+ * Ist das Zeitfenster eines Einsatzes vorbei?
+ *
+ * Gerechnet wird in Berliner Zeit, nicht in der Zeit des Servers: der läuft
+ * in Weltzeit und hielte 22:00 für 23:00.
+ *
+ * Steht kein Ende am Einsatz, zählt der Tag -- dann ist er ab Mitternacht
+ * vorbei, wie bisher.
+ */
+export function einsatzVorbei(task: AnyRow, jetzt: Date) {
+  const tag = text(task.task_date).slice(0, 10);
+  if (!tag) return false;
+
+  const bis = text(task.end_time).slice(0, 5);
+  const schluss = parseHm(bis);
+  if (schluss === null) {
+    const mitternacht = berlinZeitpunkt(addDaysIso(tag, 1), "00:00");
+    return mitternacht ? jetzt.getTime() >= mitternacht.getTime() : false;
+  }
+
+  // Schicht über Mitternacht: das Ende liegt am Folgetag.
+  const anfang = parseHm(text(task.start_time).slice(0, 5));
+  const endtag = anfang !== null && schluss <= anfang ? addDaysIso(tag, 1) : tag;
+  const ende = berlinZeitpunkt(endtag, bis);
+  return ende ? jetzt.getTime() > ende.getTime() + STEMPEL_KARENZ_MINUTEN * 60000 : false;
+}
+
+/**
  * Einsätze, auf die niemand gestempelt hat.
  *
  * Die Zeitenfreigabe baute ihre Liste bisher ausschließlich aus Stempeln.
@@ -431,17 +467,17 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
  * geht nur mit Von und Bis: Das Büro trägt nach, was wirklich war. Die
  * Freigabe-Route kennt diesen Weg schon, sie legt dann eine Buchung an.
  *
- * Nur vergangene Tage. Ein Einsatz von heute Abend ist nicht vergessen,
- * sondern noch nicht dran.
+ * Vergessen ist ein Einsatz, sobald sein Zeitfenster vorbei ist -- nicht erst
+ * am nächsten Tag.
  */
-export function buildFehlendeRecords(tasks: AnyRow[], heute: string) {
+export function buildFehlendeRecords(tasks: AnyRow[], jetzt: Date = new Date()) {
   return tasks
     .filter((task) => {
       if (task.done === true) return false;
       const status = text(task.status || "open").toLowerCase();
       if (["cancelled", "storniert", "done", "erledigt"].includes(status)) return false;
       if (!text(task.employee_name)) return false;
-      return text(task.task_date).slice(0, 10) < heute;
+      return einsatzVorbei(task, jetzt);
     })
     .map((task) => {
       const plannedMinutes = plannedMinutesFromTask(task);

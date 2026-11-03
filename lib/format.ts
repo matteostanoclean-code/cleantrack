@@ -100,6 +100,42 @@ export function localDayIso(value?: string | null) {
   return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`;
 }
 
+/**
+ * Ein Datum mit Uhrzeit als echter Zeitpunkt, gelesen als Ortszeit in Berlin.
+ *
+ * Im Browser waere das einfach -- dort laeuft die Uhr des Bueros. Auf dem
+ * Server laeuft sie in Weltzeit, und "2026-11-03T22:00" waere dort 23:00
+ * Berliner Zeit, im Sommer sogar Mitternacht. Wer damit rechnet, ob ein
+ * Einsatz vorbei ist, liegt eine bis zwei Stunden daneben.
+ *
+ * Deshalb wird der Abstand bei genau diesem Zeitpunkt erfragt und abgezogen.
+ * Der zweite Durchgang faengt die beiden Nächte im Jahr ab, in denen die Uhr
+ * umgestellt wird und der Abstand vor und nach der Rechnung verschieden ist.
+ */
+function berlinVersatzMinuten(zeitpunkt: Date) {
+  const teile = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }).formatToParts(zeitpunkt).reduce<Record<string, string>>((sammel, teil) => {
+    sammel[teil.type] = teil.value;
+    return sammel;
+  }, {});
+  const alsWeltzeit = Date.UTC(
+    Number(teile.year), Number(teile.month) - 1, Number(teile.day),
+    Number(teile.hour) % 24, Number(teile.minute), Number(teile.second)
+  );
+  return (alsWeltzeit - zeitpunkt.getTime()) / 60000;
+}
+
+export function berlinZeitpunkt(tag: string, uhrzeit: string) {
+  const roh = Date.parse(`${tag}T${uhrzeit.slice(0, 5)}:00Z`);
+  if (Number.isNaN(roh)) return null;
+  const erster = roh - berlinVersatzMinuten(new Date(roh)) * 60000;
+  return new Date(roh - berlinVersatzMinuten(new Date(erster)) * 60000);
+}
+
 export function addDaysIso(iso: string, days: number) {
   const date = new Date(`${iso}T12:00:00`);
   if (Number.isNaN(date.getTime())) return iso;

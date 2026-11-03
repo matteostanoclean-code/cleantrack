@@ -70,7 +70,6 @@ export async function GET(request: Request) {
      * Die reichen einen Tag über den Zeitraum hinaus, damit eine Schicht über
      * Mitternacht nicht fälschlich als vergessen gilt.
      */
-    const heute = localDayIso(new Date().toISOString());
     const mitBuchung = new Set(
       ((entriesResult.data || []) as AnyRow[]).map((eintrag) => text(eintrag.task_id)).filter(Boolean)
     );
@@ -80,8 +79,7 @@ export async function GET(request: Request) {
     const fehlend = geplant.error
       ? []
       : buildFehlendeRecords(
-          ((geplant.data || []) as AnyRow[]).filter((task) => !mitBuchung.has(text(task.id))),
-          heute
+          ((geplant.data || []) as AnyRow[]).filter((task) => !mitBuchung.has(text(task.id)))
         );
 
     /**

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
-import { TASK_SPALTEN, buildRecords } from "@/lib/zeiten";
+import { TASK_SPALTEN, buildFehlendeRecords, buildRecords } from "@/lib/zeiten";
 import { zeitgrenzenLaden } from "@/lib/einstellungen";
 import { safeSelect } from "@/lib/safeWrite";
 
@@ -140,26 +140,30 @@ export async function GET(request: Request) {
      * Angefangen und nie beendet: es gibt ein Einstempeln ohne Ausstempeln.
      * Das fällt hier auf, solange der Satz unvollständig ist.
      *
-     * Gar nicht gestempelt: der Einsatz war gestern oder früher, ist nicht
-     * abgehakt, und zu ihm gibt es keine einzige Buchung. Dafür müssen die
-     * vergangenen Einsätze eigens geholt werden, die Liste oben beginnt heute.
+     * Gar nicht gestempelt: das Zeitfenster des Einsatzes ist vorbei, er ist
+     * nicht abgehakt, und zu ihm gibt es keine einzige Buchung. Dafür müssen
+     * die vergangenen Einsätze eigens geholt werden, die Liste oben beginnt
+     * heute.
+     *
+     * Gerechnet wird mit derselben Funktion wie in der Zeitenfreigabe. Vorher
+     * stand die Regel hier ein zweites Mal und zählte erst ab dem nächsten
+     * Tag: Um kurz vor Mitternacht meldete die Kachel null, während vier
+     * Einsätze des Abends ungestempelt dastanden (Ansage 03.11.2026).
      */
     const nichtAusgestempelt = records.filter((record: AnyRow) => record.incomplete).length;
 
     const vergangene = await supabase
       .from("tasks")
-      .select("id, task_date, employee_name, status, done")
+      .select("id, task_date, start_time, end_time, employee_name, status, done")
       .gte("task_date", von)
-      .lt("task_date", heute)
+      .lte("task_date", heute)
       .limit(2000);
 
     const mitBuchung = new Set(entries.map((eintrag) => text(eintrag.task_id)).filter(Boolean));
-    const nieGestempelt = ((vergangene.data || []) as AnyRow[]).filter((task) => {
-      if (task.done) return false;
-      if (text(task.status || "open").toLowerCase() === "cancelled") return false;
-      if (!text(task.employee_name)) return false;
-      return !mitBuchung.has(text(task.id));
-    }).length;
+    const nieGestempelteSaetze = buildFehlendeRecords(
+      ((vergangene.data || []) as AnyRow[]).filter((task) => !mitBuchung.has(text(task.id)))
+    );
+    const nieGestempelt = nieGestempelteSaetze.length;
 
     const nichtGestempelt = nichtAusgestempelt + nieGestempelt;
 
@@ -171,12 +175,7 @@ export async function GET(request: Request) {
     const gestern = tagVersetzt(-1);
     const gesternOffen =
       records.filter((record: AnyRow) => record.incomplete && text(record.date).slice(0, 10) === gestern).length +
-      ((vergangene.data || []) as AnyRow[]).filter((task) => {
-        if (task.done || text(task.status || "open").toLowerCase() === "cancelled") return false;
-        if (!text(task.employee_name)) return false;
-        if (text(task.task_date).slice(0, 10) !== gestern) return false;
-        return !mitBuchung.has(text(task.id));
-      }).length;
+      nieGestempelteSaetze.filter((satz) => text(satz.date).slice(0, 10) === gestern).length;
 
     /**
      * Über der Zeitvorgabe. Dieselbe Grenze wie in der Zeitenfreigabe, damit
