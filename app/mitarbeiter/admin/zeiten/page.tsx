@@ -97,6 +97,8 @@ type TimeRecord = {
   zuschlagAnteile?: Record<string, number>;
   zuschlagMinuten?: number;
   incomplete: boolean;
+  /** Auf diesen Einsatz wurde überhaupt nicht gestempelt. */
+  nieGestempelt?: boolean;
   log: LogRow[];
 };
 
@@ -154,11 +156,30 @@ export default function TimeApprovalPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [range, setRange] = useState<RangeKey>("month");
+  /**
+   * Zeitraum und Fehlerfilter dürfen aus der Adresse kommen.
+   *
+   * Die Kachel "Vergessen zu stempeln" zählt über 45 Tage, diese Seite stand
+   * auf "Dieser Monat". Am Monatsanfang zeigte der Klick deshalb eine leere
+   * Liste, obwohl die Kachel eine Zahl hatte (Ansage 03.11.2026). Jetzt bringt
+   * die Kachel ihren Zeitraum mit.
+   *
+   * Gelesen wird beim ersten Rendern, nicht in einem Effekt — sonst lädt die
+   * Seite einmal mit dem alten Zeitraum und holt gleich darauf noch einmal.
+   */
+  const [range, setRange] = useState<RangeKey>(() => {
+    if (typeof window === "undefined") return "month";
+    const wunsch = new URLSearchParams(window.location.search).get("zeitraum");
+    const erlaubt: RangeKey[] = ["today", "week", "month", "all"];
+    return erlaubt.includes(wunsch as RangeKey) ? (wunsch as RangeKey) : "month";
+  });
   const [stateFilter, setStateFilter] = useState<StateKey>("open");
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
-  const [onlyIssues, setOnlyIssues] = useState(false);
+  const [onlyIssues, setOnlyIssues] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("fehler") === "1";
+  });
   const [query, setQuery] = useState("");
 
   const [openRecord, setOpenRecord] = useState<TimeRecord | null>(null);
@@ -370,7 +391,7 @@ export default function TimeApprovalPage() {
     if (record.ohneEinsatz) fehler.push("Ohne Einsatz");
     if (record.nachgetragen) fehler.push("Nachgetragen");
     if (record.locationIssue && !record.ausserRadius && !record.standortFehlt) fehler.push("Standortfehler");
-                    if (record.incomplete) fehler.push("Kein Ausstempeln");
+                    if (record.incomplete) fehler.push(record.nieGestempelt ? "Nicht gestempelt" : "Kein Ausstempeln");
                     if (record.windowIssue) fehler.push("Ausserhalb Zeitfenster");
                     if (record.spaeterBeginn) {
                       const spaet = Number(record.verspaetungMinuten || 0);
@@ -381,7 +402,12 @@ export default function TimeApprovalPage() {
                     const zuschlag = ZUSCHLAGSARTEN
                       .filter((eintrag) => Number(record.zuschlagAnteile?.[eintrag.art] || 0) > 0)
                       .map((eintrag) => `${eintrag.label} ${eintrag.satz} %`);
-                    if (Math.abs(record.deviationMinutes) > 5) fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
+                    // Bei einem Einsatz ohne jeden Stempel fehlt die ganze
+                    // Planzeit. "Unterschreitung" danebenzuschreiben sagt
+                    // nichts Neues und verdeckt nur den eigentlichen Punkt.
+                    if (!record.nieGestempelt && Math.abs(record.deviationMinutes) > 5) {
+                      fehler.push(record.deviationMinutes < 0 ? "Unterschreitung" : "Überschreitung");
+                    }
                     return (
                       <tr key={record.id} className="border-b border-paper-200 last:border-0 hover:bg-paper-100/60">
                         <td onClick={() => setOpenRecord(record)} className="cursor-pointer px-4 py-3 text-[14px] font-semibold text-ink-900">{formatDateDE(record.date)}</td>
@@ -463,7 +489,11 @@ export default function TimeApprovalPage() {
                       {record.standortFehlt ? <StatusPill tone="info">Ohne Standort</StatusPill> : null}
                       {record.ohneEinsatz ? <StatusPill tone="warn">Ohne Einsatz</StatusPill> : null}
                       {record.nachgetragen ? <StatusPill tone="warn">Nachgetragen</StatusPill> : null}
-                        {record.incomplete ? <StatusPill tone="warn">Kein Ausstempeln</StatusPill> : null}
+                        {record.incomplete ? (
+                          <StatusPill tone={record.nieGestempelt ? "danger" : "warn"}>
+                            {record.nieGestempelt ? "Nicht gestempelt" : "Kein Ausstempeln"}
+                          </StatusPill>
+                        ) : null}
                       </div>
                       <p className="mt-1 text-[14px] text-ink-400">{record.employeeName} · {record.siteName}</p>
                       <p className="mt-2 text-[14px] text-ink-400">Soll: {hhmm(record.plannedMinutes)}</p>
@@ -605,7 +635,11 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
 
           {record.incomplete ? (
             <div className="px-4 py-3">
-              <Banner tone="warn">Es wurde nicht ausgestempelt. Trage unten Von und Bis ein, dann kannst du die Zeit nachtragen und freigeben.</Banner>
+              <Banner tone="warn">
+                {record.nieGestempelt
+                  ? "Auf diesen Einsatz wurde gar nicht gestempelt. Trage unten Von und Bis ein, dann wird die Zeit nachgetragen und freigegeben. War niemand da, drück stattdessen auf Ablehnen."
+                  : "Es wurde nicht ausgestempelt. Trage unten Von und Bis ein, dann kannst du die Zeit nachtragen und freigeben."}
+              </Banner>
             </div>
           ) : null}
 

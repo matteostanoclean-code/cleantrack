@@ -650,7 +650,7 @@ export default function AdminDashboardPage() {
                         : "Nicht ausgestempelt oder gar nicht erst gebucht"
                     }
                     icon="stopwatch"
-                    href="/mitarbeiter/admin/zeiten"
+                    href="/mitarbeiter/admin/zeiten?zeitraum=all&fehler=1"
                     dringend
                   />
                   <AufgabenKachel

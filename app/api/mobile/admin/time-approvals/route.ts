@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedMobileProfile } from "@/lib/mobileAuth";
 import { safeInsert, safeUpdateById } from "@/lib/safeWrite";
 import { localDayIso, minutesBetweenHm, minutesToHm, parseHm } from "@/lib/format";
-import { AnyRow, TASK_SPALTEN, TOLERANCE_MINUTES, buildRecords, numberOrNull, plannedMinutesFromTask, text } from "@/lib/zeiten";
+import { AnyRow, TASK_SPALTEN, TOLERANCE_MINUTES, buildFehlendeRecords, buildRecords, numberOrNull, plannedMinutesFromTask, text } from "@/lib/zeiten";
 import { safeSelect } from "@/lib/safeWrite";
 import { feiertagsKarte, zuschlaegeFuerZeitraum, zuschlagsMinuten } from "@/lib/zuschlaege";
 import { zeitgrenzenLaden, listeLaden } from "@/lib/einstellungen";
@@ -64,6 +64,27 @@ export async function GET(request: Request) {
     const gebaut = buildRecords(entries, tasksById, await zeitgrenzenLaden(supabase));
 
     /**
+     * Dazu die Einsätze, auf die gar nicht gestempelt wurde.
+     *
+     * Ob eine Buchung vorliegt, wird an den oben geladenen Stempeln entschieden.
+     * Die reichen einen Tag über den Zeitraum hinaus, damit eine Schicht über
+     * Mitternacht nicht fälschlich als vergessen gilt.
+     */
+    const heute = localDayIso(new Date().toISOString());
+    const mitBuchung = new Set(
+      ((entriesResult.data || []) as AnyRow[]).map((eintrag) => text(eintrag.task_id)).filter(Boolean)
+    );
+    const geplant = await safeSelect(supabase, "tasks", TASK_SPALTEN, (query) =>
+      query.gte("task_date", from).lte("task_date", to).limit(2000)
+    );
+    const fehlend = geplant.error
+      ? []
+      : buildFehlendeRecords(
+          ((geplant.data || []) as AnyRow[]).filter((task) => !mitBuchung.has(text(task.id))),
+          heute
+        );
+
+    /**
      * Zuschläge je Satz. Hier und nicht erst im Lohn, weil hier entschieden
      * wird: Wer einen Satz freigibt, der nachts lag, soll sehen, was er
      * freigibt (RTV § 3 Nr. 4.7).
@@ -74,11 +95,15 @@ export async function GET(request: Request) {
         datum: text((zeile.daten as AnyRow)?.datum).slice(0, 10)
       }))
     );
-    const records = gebaut.map((record: AnyRow) => {
-      if (!record.actualStart || !record.actualEnd) return record;
-      const anteile = zuschlaegeFuerZeitraum(new Date(record.actualStart), new Date(record.actualEnd), feiertage);
-      return { ...record, zuschlagAnteile: anteile, zuschlagMinuten: zuschlagsMinuten(anteile) };
-    });
+    const records = [...gebaut, ...fehlend]
+      .map((record: AnyRow) => {
+        if (!record.actualStart || !record.actualEnd) return record;
+        const anteile = zuschlaegeFuerZeitraum(new Date(record.actualStart), new Date(record.actualEnd), feiertage);
+        return { ...record, zuschlagAnteile: anteile, zuschlagMinuten: zuschlagsMinuten(anteile) };
+      })
+      .sort((a: AnyRow, b: AnyRow) =>
+        `${b.date}${b.actualStart || ""}`.localeCompare(`${a.date}${a.actualStart || ""}`)
+      );
 
     const summary = {
       open: records.filter((record) => record.state === "open").length,
@@ -203,6 +228,55 @@ export async function PATCH(request: Request) {
       corrected_start_time: startTime || null,
       corrected_end_time: endTime || null
     };
+
+    /**
+     * Ein Einsatz ohne jede Buchung, der abgelehnt wird: Da war niemand.
+     *
+     * Dann wird auch keine Arbeitszeit nachgetragen — es gab keine. Der
+     * Einsatz wird als nicht durchgeführt gekennzeichnet und verschwindet aus
+     * der Freigabe. Eine Buchung über null Minuten anzulegen wäre eine
+     * Behauptung über Arbeitszeit, die niemand aufgeschrieben hat
+     * (§ 17 Abs. 1 MiLoG).
+     */
+    if (!entry && !startTime && !endTime) {
+      if (action !== "reject") {
+        return NextResponse.json(
+          { ok: false, error: "Auf diesen Einsatz wurde nicht gestempelt. Für die Freigabe bitte Von- und Bis-Zeit angeben." },
+          { status: 400 }
+        );
+      }
+      if (!task?.id) {
+        return NextResponse.json({ ok: false, error: "Einsatz konnte nicht zugeordnet werden." }, { status: 400 });
+      }
+
+      await supabase
+        .from("tasks")
+        .update({
+          status: "cancelled",
+          done: false,
+          notes: [text(task.notes), `Nicht durchgeführt, eingetragen von ${profile.name} am ${localDayIso(nowIso)}.${adminResponse ? ` ${adminResponse}` : ""}`]
+            .filter(Boolean)
+            .join("\n")
+        })
+        .eq("id", task.id);
+
+      const hinweis = `Dein Einsatz am ${date || task.task_date} bei ${task.site || task.customer_name || "einem Objekt"} wurde als nicht durchgeführt eingetragen.${adminResponse ? ` ${adminResponse}` : ""}`;
+      await supabase.from("chat_messages").insert({
+        employee_name: employeeName || task.employee_name,
+        sender_name: profile.name,
+        sender_role: "admin",
+        message: hinweis,
+        body: hinweis,
+        text: hinweis,
+        read_by_admin: true,
+        read_by_employee: false,
+        status: "open",
+        todo_status: "open",
+        created_at: nowIso
+      });
+
+      return NextResponse.json({ ok: true, entry: null, approvedMinutes: 0, approvedLabel: "0:00", status: "nicht_durchgefuehrt" });
+    }
 
     let saved: AnyRow | null = null;
 

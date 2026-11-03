@@ -389,3 +389,76 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
 
   return records.sort((a, b) => `${b.date}${b.actualStart || ""}`.localeCompare(`${a.date}${a.actualStart || ""}`));
 }
+
+/**
+ * Einsätze, auf die niemand gestempelt hat.
+ *
+ * Die Zeitenfreigabe baute ihre Liste bisher ausschließlich aus Stempeln.
+ * Ein Einsatz, zu dem es gar keine Buchung gibt, konnte dort deshalb nicht
+ * vorkommen — während die Kachel "Vergessen zu stempeln" ihn mitzählte. Wer
+ * auf die Kachel drückte, landete auf einer leeren Liste (Ansage 03.11.2026).
+ *
+ * Diese Sätze sehen aus wie die anderen, haben aber keine Ist-Zeit. Freigeben
+ * geht nur mit Von und Bis: Das Büro trägt nach, was wirklich war. Die
+ * Freigabe-Route kennt diesen Weg schon, sie legt dann eine Buchung an.
+ *
+ * Nur vergangene Tage. Ein Einsatz von heute Abend ist nicht vergessen,
+ * sondern noch nicht dran.
+ */
+export function buildFehlendeRecords(tasks: AnyRow[], heute: string) {
+  return tasks
+    .filter((task) => {
+      if (task.done === true) return false;
+      const status = text(task.status || "open").toLowerCase();
+      if (["cancelled", "storniert", "done", "erledigt"].includes(status)) return false;
+      if (!text(task.employee_name)) return false;
+      return text(task.task_date).slice(0, 10) < heute;
+    })
+    .map((task) => {
+      const plannedMinutes = plannedMinutesFromTask(task);
+      return {
+        id: `fehlt:${task.id}`,
+        entryId: null,
+        taskId: task.id,
+        employeeName: text(task.employee_name),
+        siteName: text(task.site) || text(task.customer_name) || "Ohne Objekt",
+        workSiteId: task.work_site_id || null,
+        customerName: task.customer_name || null,
+        taskTitle: task.title || task.task_type || null,
+        date: text(task.task_date).slice(0, 10),
+        plannedStart: task.start_time ? text(task.start_time).slice(0, 5) : null,
+        plannedEnd: task.end_time ? text(task.end_time).slice(0, 5) : null,
+        latestStart: task.latest_start ? text(task.latest_start).slice(0, 5) : null,
+        spaeterBeginn: false,
+        verspaetungMinuten: null,
+        plannedMinutes,
+        actualStart: null,
+        actualEnd: null,
+        actualMinutes: 0,
+        breakMinutes: 0,
+        travelMinutes: 0,
+        approvedMinutes: null,
+        // Die ganze Planzeit fehlt. Damit steht der Satz in der Abweichungs-
+        // liste dort, wo er hingehört: ganz unten.
+        deviationMinutes: plannedMinutes ? -plannedMinutes : 0,
+        state: "open" as const,
+        approvalStatus: "missing",
+        adminResponse: null,
+        employeeReason: null,
+        locationIssue: false,
+        ausserRadius: false,
+        standortFehlt: false,
+        nachgetragen: false,
+        perNfc: false,
+        mitKoordinaten: false,
+        ohneEinsatz: false,
+        incomplete: true,
+        /** Das Kennzeichen: kein Stempel, nicht bloß kein Ausstempeln. */
+        nieGestempelt: true,
+        windowIssue: false,
+        windowFrom: null,
+        windowTo: null,
+        log: [] as AnyRow[]
+      };
+    });
+}
