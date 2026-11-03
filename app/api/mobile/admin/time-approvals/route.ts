@@ -314,22 +314,47 @@ export async function PATCH(request: Request) {
        */
       const sollVon = text(task?.start_time).slice(0, 5);
       const sollBis = text(task?.end_time).slice(0, 5);
-      const nachtragVon = startTime || (was === "soll" ? sollVon : "");
-      const nachtragBis = endTime || (was === "soll" ? sollBis : "");
 
-      if (was === "ist" && (!nachtragVon || !nachtragBis)) {
+      if (was === "ist" && (!startTime || !endTime)) {
         return NextResponse.json(
           { ok: false, error: "Auf diesen Einsatz wurde nicht gestempelt. Für die Ist-Zeit bitte Von und Bis eintragen." },
           { status: 400 }
         );
       }
 
+      /**
+       * Beim Soll-Buchen zählt die Soll-Dauer, nicht die Breite des Fensters.
+       *
+       * Das Zeitfenster am Einsatz ist ein Rahmen: "irgendwann zwischen 17:00
+       * und 22:00, zwei Stunden lang". Wer das Fenster als Arbeitszeit
+       * einträgt, schreibt fünf Stunden auf, wo zwei vereinbart sind — und
+       * verschiebt nebenbei die Zuschläge in die Nacht. Gebucht wird deshalb
+       * ab dem geplanten Beginn, so lange wie die Soll-Zeit.
+       */
+      let nachtragVon = startTime;
+      let nachtragBis = endTime;
+      if (!nachtragVon || !nachtragBis) {
+        const beginn = parseHm(sollVon);
+        if (beginn !== null && plannedMinutes > 0) {
+          const ende = (beginn + plannedMinutes) % 1440;
+          nachtragVon = sollVon;
+          nachtragBis = `${String(Math.floor(ende / 60)).padStart(2, "0")}:${String(ende % 60).padStart(2, "0")}`;
+        } else {
+          nachtragVon = sollVon;
+          nachtragBis = sollBis;
+        }
+      }
+
+      const nachtragBrutto = nachtragVon && nachtragBis ? minutesBetweenHm(nachtragVon, nachtragBis) : plannedMinutes;
+
+      // Schicht über Mitternacht: Das Ende liegt am Folgetag, sonst landet die
+      // Buchung 23 Stunden vor ihrem Anfang.
+      const ueberMitternacht = Boolean(nachtragVon && nachtragBis && nachtragBis < nachtragVon);
       const createdAt = new Date(`${date}T${nachtragBis || "23:59"}:00`);
       if (Number.isNaN(createdAt.getTime())) {
         return NextResponse.json({ ok: false, error: "Datum oder Uhrzeit für den Nachtrag ist ungültig." }, { status: 400 });
       }
-
-      const nachtragBrutto = nachtragVon && nachtragBis ? minutesBetweenHm(nachtragVon, nachtragBis) : plannedMinutes;
+      if (ueberMitternacht) createdAt.setDate(createdAt.getDate() + 1);
       const result = await safeInsert(supabase, "time_entries", {
         task_id: taskIdForLookup || null,
         employee_name: employeeName || task?.employee_name || null,

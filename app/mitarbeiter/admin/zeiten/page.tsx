@@ -233,21 +233,46 @@ export default function TimeApprovalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const records = useMemo(() => {
+  /**
+   * Erst alles außer Zustand und Fehlerfilter aussieben.
+   *
+   * Daraus kommen dann die Zahlen auf den Knöpfen. Vorher standen dort die
+   * Zahlen vom Server über den ganzen Zeitraum: "Nur Fehler 7", und beim
+   * Antippen blieb die Liste leer, weil die sieben längst gebucht waren
+   * (Ansage 03.11.2026). Eine Zahl auf einem Knopf muss sagen, was nach dem
+   * Drücken dasteht.
+   */
+  const grundmenge = useMemo(() => {
     const rows = data?.records || [];
     const search = query.trim().toLowerCase();
     return rows.filter((record) => {
-      if (stateFilter !== "all" && record.state !== stateFilter) return false;
       if (employeeFilter && record.employeeName !== employeeFilter) return false;
       if (siteFilter && record.siteName !== siteFilter) return false;
-      if (onlyIssues && !record.locationIssue && !record.incomplete) return false;
       if (search) {
         const haystack = `${record.employeeName} ${record.siteName} ${record.customerName || ""} ${record.taskTitle || ""}`.toLowerCase();
         if (!haystack.includes(search)) return false;
       }
       return true;
     });
-  }, [data?.records, employeeFilter, onlyIssues, query, siteFilter, stateFilter]);
+  }, [data?.records, employeeFilter, query, siteFilter]);
+
+  const records = useMemo(
+    () => grundmenge.filter((record) => {
+      if (stateFilter !== "all" && record.state !== stateFilter) return false;
+      if (onlyIssues && !record.locationIssue && !record.incomplete) return false;
+      return true;
+    }),
+    [grundmenge, onlyIssues, stateFilter]
+  );
+
+  const zaehler = useMemo(() => ({
+    offen: grundmenge.filter((record) => record.state === "open" && (!onlyIssues || record.locationIssue || record.incomplete)).length,
+    // Wie viele bleiben übrig, wenn "Nur Fehler" eingeschaltet wird — beim
+    // gerade gewählten Zustand, nicht über alles.
+    fehler: grundmenge.filter(
+      (record) => (record.locationIssue || record.incomplete) && (stateFilter === "all" || record.state === stateFilter)
+    ).length
+  }), [grundmenge, onlyIssues, stateFilter]);
 
   /**
    * Drei Wege, einen Satz zu erledigen.
@@ -333,11 +358,11 @@ export default function TimeApprovalPage() {
               setRange(next);
               load(undefined, next);
             }} />
-            <Chip label="Offen" active={stateFilter === "open"} count={data?.summary.open} onClick={() => setStateFilter("open")} />
+            <Chip label="Offen" active={stateFilter === "open"} count={zaehler.offen} onClick={() => setStateFilter("open")} />
             <Chip label="Ist gebucht" active={stateFilter === "approved"} onClick={() => setStateFilter("approved")} />
             <Chip label="Soll gebucht" active={stateFilter === "rejected"} onClick={() => setStateFilter("rejected")} />
             <Chip label="Alle" active={stateFilter === "all"} onClick={() => setStateFilter("all")} />
-            <Chip label="Nur Fehler" icon="warning" active={onlyIssues} count={data?.summary.issues} onClick={() => setOnlyIssues((value) => !value)} />
+            <Chip label="Nur Fehler" icon="warning" active={onlyIssues} count={zaehler.fehler} onClick={() => setOnlyIssues((value) => !value)} />
           </ChipRow>
 
           {(data?.employees?.length || data?.sites?.length) ? (
