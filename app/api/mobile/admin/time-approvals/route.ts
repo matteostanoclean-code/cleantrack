@@ -134,7 +134,30 @@ export async function PATCH(request: Request) {
     const { supabase, profile } = guard.auth;
 
     const body = await request.json();
+
+    /**
+     * Drei Entscheidungen, nicht zwei.
+     *
+     * Bisher hieß es "Freigeben" oder "Ablehnen", und was "Ablehnen" buchte,
+     * stand nirgends: nämlich die geplante Zeit. Das Büro soll ausdrücklich
+     * wählen, was in den Lohn geht (Ansage 03.11.2026):
+     *
+     *   ist          die gestempelte oder nachgetragene Zeit
+     *   soll         die geplante Zeit, unabhängig vom Stempel
+     *   ausgefallen  der Einsatz fand nicht statt, es wird nichts gebucht
+     *
+     * Die alten Wörter bleiben gültig, damit eine alte Seite im Browser nicht
+     * ins Leere läuft.
+     */
+    const AKTIONEN: Record<string, "ist" | "soll" | "ausgefallen"> = {
+      approve: "ist",
+      ist: "ist",
+      reject: "soll",
+      soll: "soll",
+      ausgefallen: "ausgefallen"
+    };
     const action = text(body.action).toLowerCase();
+    const was = AKTIONEN[action];
     const entryId = text(body.entryId);
     const taskId = text(body.taskId);
     const employeeName = text(body.employeeName);
@@ -145,7 +168,7 @@ export async function PATCH(request: Request) {
     const breakMinutes = Math.max(0, Math.round(numberOrNull(body.breakMinutes) ?? 0));
     const travelMinutes = Math.max(0, Math.round(numberOrNull(body.travelMinutes) ?? 0));
 
-    if (action !== "approve" && action !== "reject") {
+    if (!was) {
       return NextResponse.json({ ok: false, error: "Unbekannte Aktion." }, { status: 400 });
     }
     if (!entryId && !(taskId && employeeName && date)) {
@@ -205,8 +228,11 @@ export async function PATCH(request: Request) {
     const aufgerundet =
       (festeZeit || grenzen.auf_soll_aufrunden) && plannedMinutes > 0 && netMinutes < plannedMinutes;
     const approvedMinutes =
-      action === "approve" ? (aufgerundet ? plannedMinutes : netMinutes) : Math.max(0, plannedMinutes);
-    const statusValue = action === "approve" ? "approved" : "rejected";
+      was === "ist" ? (aufgerundet ? plannedMinutes : netMinutes) : Math.max(0, plannedMinutes);
+    // "rejected" heißt in der Datenbank seit jeher: die gestempelte Zeit wurde
+    // nicht übernommen, gebucht ist die Vorgabe. Der Wert bleibt, nur das Wort
+    // an der Oberfläche heißt jetzt "Soll gebucht" und sagt, was passiert.
+    const statusValue = was === "ist" ? "approved" : "rejected";
     const nowIso = new Date().toISOString();
 
     const wasCorrected = Boolean(startTime || endTime || breakMinutes || travelMinutes);
@@ -216,7 +242,7 @@ export async function PATCH(request: Request) {
       approved_minutes: approvedMinutes,
       approved_at: nowIso,
       approved_by: profile.id,
-      admin_response: adminResponse || (action === "approve" ? "Zeit freigegeben" : "Zeit abgelehnt"),
+      admin_response: adminResponse || (was === "ist" ? "Ist-Zeit gebucht" : "Soll-Zeit gebucht"),
       planned_minutes: plannedMinutes || null,
       // Vorhandene Spalten der Tabelle
       pause_minutes: breakMinutes,
@@ -230,7 +256,7 @@ export async function PATCH(request: Request) {
     };
 
     /**
-     * Ein Einsatz ohne jede Buchung, der abgelehnt wird: Da war niemand.
+     * Der Einsatz hat nicht stattgefunden.
      *
      * Dann wird auch keine Arbeitszeit nachgetragen — es gab keine. Der
      * Einsatz wird als nicht durchgeführt gekennzeichnet und verschwindet aus
@@ -238,13 +264,7 @@ export async function PATCH(request: Request) {
      * Behauptung über Arbeitszeit, die niemand aufgeschrieben hat
      * (§ 17 Abs. 1 MiLoG).
      */
-    if (!entry && !startTime && !endTime) {
-      if (action !== "reject") {
-        return NextResponse.json(
-          { ok: false, error: "Auf diesen Einsatz wurde nicht gestempelt. Für die Freigabe bitte Von- und Bis-Zeit angeben." },
-          { status: 400 }
-        );
-      }
+    if (was === "ausgefallen") {
       if (!task?.id) {
         return NextResponse.json({ ok: false, error: "Einsatz konnte nicht zugeordnet werden." }, { status: 400 });
       }
@@ -284,14 +304,32 @@ export async function PATCH(request: Request) {
       const result = await safeUpdateById(supabase, "time_entries", entry.id, correctionPayload);
       saved = result.data;
     } else {
-      // Kein Ausstempeln vorhanden: Zeit wird vom Büro nachgetragen.
-      if (!startTime || !endTime) {
-        return NextResponse.json({ ok: false, error: "Für einen Nachtrag bitte Von- und Bis-Zeit angeben." }, { status: 400 });
+      /**
+       * Keine Buchung vorhanden: Das Büro trägt nach.
+       *
+       * Für die Ist-Zeit müssen Von und Bis dastehen — nachtragen heißt, zu
+       * wissen, wann gearbeitet wurde. Wer die Soll-Zeit bucht, braucht das
+       * nicht: Dann gilt ohnehin das geplante Fenster, und das steht am
+       * Einsatz. Ohne Fenster endet der Nachtrag am Tagesende.
+       */
+      const sollVon = text(task?.start_time).slice(0, 5);
+      const sollBis = text(task?.end_time).slice(0, 5);
+      const nachtragVon = startTime || (was === "soll" ? sollVon : "");
+      const nachtragBis = endTime || (was === "soll" ? sollBis : "");
+
+      if (was === "ist" && (!nachtragVon || !nachtragBis)) {
+        return NextResponse.json(
+          { ok: false, error: "Auf diesen Einsatz wurde nicht gestempelt. Für die Ist-Zeit bitte Von und Bis eintragen." },
+          { status: 400 }
+        );
       }
-      const createdAt = new Date(`${date}T${endTime}:00`);
+
+      const createdAt = new Date(`${date}T${nachtragBis || "23:59"}:00`);
       if (Number.isNaN(createdAt.getTime())) {
         return NextResponse.json({ ok: false, error: "Datum oder Uhrzeit für den Nachtrag ist ungültig." }, { status: 400 });
       }
+
+      const nachtragBrutto = nachtragVon && nachtragBis ? minutesBetweenHm(nachtragVon, nachtragBis) : plannedMinutes;
       const result = await safeInsert(supabase, "time_entries", {
         task_id: taskIdForLookup || null,
         employee_name: employeeName || task?.employee_name || null,
@@ -300,15 +338,19 @@ export async function PATCH(request: Request) {
         action: "clock_out",
         success: true,
         created_at: createdAt.toISOString(),
-        actual_minutes: grossMinutes,
-        overtime_minutes: plannedMinutes ? Math.max(0, grossMinutes - plannedMinutes) : 0,
-        error_message: "Vom Büro nachgetragen.",
-        ...correctionPayload
+        actual_minutes: nachtragBrutto,
+        overtime_minutes: plannedMinutes ? Math.max(0, nachtragBrutto - plannedMinutes) : 0,
+        error_message: was === "soll" ? "Vom Büro als Soll-Zeit gebucht, nicht gestempelt." : "Vom Büro nachgetragen.",
+        ...correctionPayload,
+        corrected_start_time: nachtragVon || null,
+        corrected_end_time: nachtragBis || null
       });
       saved = result.data;
     }
 
-    if (task?.id && action === "approve") {
+    // Gebucht ist gebucht: Ob Ist- oder Soll-Zeit, der Einsatz ist damit
+    // abgerechnet und gehört nicht mehr in die offenen Punkte.
+    if (task?.id) {
       await supabase.from("tasks").update({ done: true, status: "done" }).eq("id", task.id);
     }
 
@@ -321,9 +363,13 @@ export async function PATCH(request: Request) {
     }
 
     const hours = `${Math.floor(approvedMinutes / 60)}:${String(approvedMinutes % 60).padStart(2, "0")} h`;
-    const messageText = action === "approve"
-      ? `Deine Zeit vom ${date || localDayIso(entry?.created_at)} wurde freigegeben. Gebucht sind ${hours}.${adminResponse ? ` ${adminResponse}` : ""}`
-      : `Deine Zeit vom ${date || localDayIso(entry?.created_at)} wurde abgelehnt. Gebucht bleibt die geplante Zeit ${hours}.${adminResponse ? ` ${adminResponse}` : ""}`;
+    const tag = date || localDayIso(entry?.created_at);
+    // Kein "abgelehnt" mehr: Gebucht wird in beiden Fällen, nur eben einmal
+    // die gestempelte und einmal die geplante Zeit. Das Wort "abgelehnt" las
+    // sich für den Mitarbeiter wie ein Vorwurf, obwohl er bezahlt wird.
+    const messageText = was === "ist"
+      ? `Deine Zeit vom ${tag} wurde freigegeben. Gebucht sind ${hours}.${adminResponse ? ` ${adminResponse}` : ""}`
+      : `Für deinen Einsatz am ${tag} wurde die geplante Zeit gebucht: ${hours}.${adminResponse ? ` ${adminResponse}` : ""}`;
 
     await supabase.from("chat_messages").insert({
       employee_name: employeeName || entry?.employee_name || task?.employee_name,

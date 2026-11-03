@@ -137,9 +137,14 @@ function rangeDates(range: RangeKey) {
   return { from: addDaysIso(today, -90), to: today };
 }
 
+/** Was mit einem Satz passieren kann. */
+type Entscheidung = "ist" | "soll" | "ausgefallen";
+
 function stateTone(record: TimeRecord) {
-  if (record.state === "approved") return { tone: "success" as const, label: "Freigegeben" };
-  if (record.state === "rejected") return { tone: "danger" as const, label: "Abgelehnt" };
+  if (record.state === "approved") return { tone: "success" as const, label: "Ist-Zeit gebucht" };
+  // "rejected" heißt in der Datenbank: die gestempelte Zeit wurde nicht
+  // übernommen, gebucht ist die Vorgabe. Genau das steht jetzt auch da.
+  if (record.state === "rejected") return { tone: "info" as const, label: "Soll-Zeit gebucht" };
   return { tone: "pending" as const, label: "Ausstehend" };
 }
 
@@ -244,7 +249,15 @@ export default function TimeApprovalPage() {
     });
   }, [data?.records, employeeFilter, onlyIssues, query, siteFilter, stateFilter]);
 
-  async function decide(record: TimeRecord, action: "approve" | "reject", correction?: { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string }) {
+  /**
+   * Drei Wege, einen Satz zu erledigen.
+   *
+   * "ist" bucht, was gestempelt oder eingetragen wurde. "soll" bucht die
+   * geplante Zeit. "ausgefallen" heißt: der Einsatz fand nicht statt, es wird
+   * nichts gebucht. Vorher hieß das "Freigeben" und "Ablehnen", und was
+   * dahinter gebucht wurde, stand nirgends (Ansage 03.11.2026).
+   */
+  async function decide(record: TimeRecord, action: Entscheidung, correction?: { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string }) {
     setSavingId(record.id);
     setError(null);
     setNotice(null);
@@ -263,9 +276,13 @@ export default function TimeApprovalPage() {
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Freigabe konnte nicht gespeichert werden.");
-      setNotice(action === "approve"
-        ? `${record.employeeName}: ${hoursLabel(result.approvedMinutes)} freigegeben.`
-        : `${record.employeeName}: Zeit abgelehnt, gebucht bleibt die Vorgabe.`);
+      setNotice(
+        action === "ist"
+          ? `${record.employeeName}: ${hoursLabel(result.approvedMinutes)} als Ist-Zeit gebucht.`
+          : action === "soll"
+          ? `${record.employeeName}: Soll-Zeit gebucht, ${hoursLabel(result.approvedMinutes)}.`
+          : `${record.employeeName}: Einsatz als nicht durchgeführt eingetragen, nichts gebucht.`
+      );
       setOpenRecord(null);
       await load();
     } catch (saveError) {
@@ -317,8 +334,8 @@ export default function TimeApprovalPage() {
               load(undefined, next);
             }} />
             <Chip label="Offen" active={stateFilter === "open"} count={data?.summary.open} onClick={() => setStateFilter("open")} />
-            <Chip label="Freigegeben" active={stateFilter === "approved"} onClick={() => setStateFilter("approved")} />
-            <Chip label="Abgelehnt" active={stateFilter === "rejected"} onClick={() => setStateFilter("rejected")} />
+            <Chip label="Ist gebucht" active={stateFilter === "approved"} onClick={() => setStateFilter("approved")} />
+            <Chip label="Soll gebucht" active={stateFilter === "rejected"} onClick={() => setStateFilter("rejected")} />
             <Chip label="Alle" active={stateFilter === "all"} onClick={() => setStateFilter("all")} />
             <Chip label="Nur Fehler" icon="warning" active={onlyIssues} count={data?.summary.issues} onClick={() => setOnlyIssues((value) => !value)} />
           </ChipRow>
@@ -378,8 +395,14 @@ export default function TimeApprovalPage() {
                     <th className="px-3 py-3">Fehler</th>
                     <th className="px-3 py-3 text-right">Soll-Zeit</th>
                     <th className="px-3 py-3 text-right">Abweichung</th>
-                    <th className="px-3 py-3 text-center">Freigeben</th>
-                    <th className="px-3 py-3 text-center">Ablehnen</th>
+                    {/*
+                      Zwei Spalten, eine Entscheidung: Was geht in den Lohn —
+                      die gestempelte Zeit oder die geplante? Vorher hieß das
+                      "Freigeben" und "Ablehnen", und was "Ablehnen" buchte,
+                      stand nirgends (Ansage 03.11.2026).
+                    */}
+                    <th className="px-3 py-3 text-center">Ist-Zeit</th>
+                    <th className="px-3 py-3 text-center">Soll-Zeit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -442,26 +465,42 @@ export default function TimeApprovalPage() {
 
                         {record.state === "open" ? (
                           <>
+                            {/*
+                              Fehlt die Ist-Zeit, führt der Knopf ins Blatt
+                              statt ins Leere. Ein ausgegrauter Haken ohne Weg
+                              dahinter sah aus, als ginge gar nichts.
+                            */}
                             <td className="px-3 py-3 text-center">
-                              <button
-                                onClick={() => decide(record, "approve")}
-                                disabled={savingId === record.id || record.incomplete}
-                                title={record.incomplete ? "Erst im Blatt eine Endzeit eintragen" : "Zeit freigeben"}
-                                className="grid h-9 w-9 place-items-center rounded-lg bg-success-500 text-white disabled:opacity-30"
-                                aria-label="Zeit freigeben"
-                              >
-                                <UiIcon name="check" className="h-4 w-4" />
-                              </button>
+                              {record.incomplete ? (
+                                <button
+                                  onClick={() => setOpenRecord(record)}
+                                  title="Zeit eintragen und buchen"
+                                  className="grid h-9 w-9 place-items-center rounded-lg border border-paper-300 bg-white text-ink-600"
+                                  aria-label="Zeit eintragen"
+                                >
+                                  <UiIcon name="pencil" className="h-4 w-4" />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => decide(record, "ist")}
+                                  disabled={savingId === record.id}
+                                  title={`Gestempelte Zeit buchen (${hhmm(record.actualMinutes)} Std.)`}
+                                  className="grid h-9 w-9 place-items-center rounded-lg bg-success-500 text-white disabled:opacity-30"
+                                  aria-label="Ist-Zeit buchen"
+                                >
+                                  <UiIcon name="check" className="h-4 w-4" />
+                                </button>
+                              )}
                             </td>
                             <td className="px-3 py-3 text-center">
                               <button
-                                onClick={() => decide(record, "reject")}
+                                onClick={() => decide(record, "soll")}
                                 disabled={savingId === record.id}
-                                title="Nur die geplante Zeit gutschreiben"
-                                className="grid h-9 w-9 place-items-center rounded-lg bg-danger-500 text-white disabled:opacity-30"
-                                aria-label="Zeit ablehnen"
+                                title={`Geplante Zeit buchen (${hhmm(record.plannedMinutes)} Std.)`}
+                                className="grid h-9 w-9 place-items-center rounded-lg bg-brand-600 text-white disabled:opacity-30"
+                                aria-label="Soll-Zeit buchen"
                               >
-                                <UiIcon name="close" className="h-4 w-4" />
+                                <UiIcon name="target" className="h-4 w-4" />
                               </button>
                             </td>
                           </>
@@ -509,23 +548,30 @@ export default function TimeApprovalPage() {
                   </button>
 
                   {record.state === "open" ? (
-                    <div className="mt-3 flex justify-end gap-2">
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
                       <button
-                        onClick={() => decide(record, "reject")}
+                        onClick={() => decide(record, "soll")}
                         disabled={savingId === record.id}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-danger-500 text-white disabled:opacity-50"
-                        aria-label="Zeit ablehnen"
+                        className="rounded-xl bg-brand-600 px-3 py-2.5 text-[14px] font-semibold text-white disabled:opacity-50"
                       >
-                        <UiIcon name="close" className="h-5 w-5" />
+                        Soll {hhmm(record.plannedMinutes)}
                       </button>
-                      <button
-                        onClick={() => decide(record, "approve")}
-                        disabled={savingId === record.id || record.incomplete}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-success-500 text-white disabled:opacity-50"
-                        aria-label="Zeit freigeben"
-                      >
-                        <UiIcon name="check" className="h-5 w-5" />
-                      </button>
+                      {record.incomplete ? (
+                        <button
+                          onClick={() => setOpenRecord(record)}
+                          className="rounded-xl border border-paper-300 bg-white px-3 py-2.5 text-[14px] font-semibold text-ink-700"
+                        >
+                          Zeit eintragen
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => decide(record, "ist")}
+                          disabled={savingId === record.id}
+                          className="rounded-xl bg-success-500 px-3 py-2.5 text-[14px] font-semibold text-white disabled:opacity-50"
+                        >
+                          Ist {hhmm(record.actualMinutes)}
+                        </button>
+                      )}
                     </div>
                   ) : null}
                 </article>
@@ -551,7 +597,7 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
   record: TimeRecord;
   saving: boolean;
   onClose: () => void;
-  onDecide: (record: TimeRecord, action: "approve" | "reject", correction?: { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string }) => Promise<void>;
+  onDecide: (record: TimeRecord, action: Entscheidung, correction?: { startTime?: string; endTime?: string; breakMinutes?: number; travelMinutes?: number; adminResponse?: string }) => Promise<void>;
 }) {
   const [tab, setTab] = useState<"details" | "log">("details");
   const [startTime, setStartTime] = useState(record.actualStart ? formatTimeDE(record.actualStart) : record.plannedStart || "");
@@ -568,10 +614,11 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
   const checkInUrl = mapsUrlForCoords(checkIn?.latitude, checkIn?.longitude);
   const checkOutUrl = mapsUrlForCoords(checkOut?.latitude, checkOut?.longitude);
 
-  function submit(action: "approve" | "reject") {
+  function submit(action: Entscheidung) {
     onDecide(record, action, {
-      startTime,
-      endTime,
+      // Beim Ausfall gehen keine Zeiten mit: Es wurde nicht gearbeitet, und
+      // eine mitgeschickte Uhrzeit würde dort eine Buchung anlegen.
+      ...(action === "ausgefallen" ? {} : { startTime, endTime }),
       breakMinutes: Number(breakMinutes || 0),
       travelMinutes: Number(travelMinutes || 0),
       adminResponse: note.trim()
@@ -586,9 +633,17 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
       onClose={onClose}
       tabs={<SegmentedTabs tabs={[{ key: "details", label: "Details" }, { key: "log", label: "Logbuch" }]} value={tab} onChange={setTab} />}
       footer={
+        /*
+          Drei Wege, und auf jedem Knopf steht, was gebucht wird. Vorher stand
+          dort "Freigeben" und "Ablehnen" — welche Minuten dahinter in den Lohn
+          gingen, musste man wissen (Ansage 03.11.2026).
+        */
         <ActionBar>
-          <Button variant="danger" disabled={saving} onClick={() => submit("reject")}>Ablehnen</Button>
-          <Button variant="success" disabled={saving} onClick={() => submit("approve")}>{saving ? "Speichere…" : "Freigeben"}</Button>
+          <Button variant="danger" disabled={saving} onClick={() => submit("ausgefallen")}>Ausgefallen</Button>
+          <Button variant="primary" disabled={saving} onClick={() => submit("soll")}>Soll {hhmm(record.plannedMinutes)}</Button>
+          <Button variant="success" disabled={saving || !netMinutes} onClick={() => submit("ist")}>
+            {saving ? "Speichere…" : `Ist ${hhmm(netMinutes)}`}
+          </Button>
         </ActionBar>
       }
     >
@@ -637,8 +692,8 @@ function RecordSheet({ record, saving, onClose, onDecide }: {
             <div className="px-4 py-3">
               <Banner tone="warn">
                 {record.nieGestempelt
-                  ? "Auf diesen Einsatz wurde gar nicht gestempelt. Trage unten Von und Bis ein, dann wird die Zeit nachgetragen und freigegeben. War niemand da, drück stattdessen auf Ablehnen."
-                  : "Es wurde nicht ausgestempelt. Trage unten Von und Bis ein, dann kannst du die Zeit nachtragen und freigeben."}
+                  ? "Auf diesen Einsatz wurde gar nicht gestempelt. Unten stehen die geplanten Zeiten — ändere sie auf das, was wirklich war, und buch die Ist-Zeit. Hat es genau wie geplant gedauert, reicht „Soll“. War niemand da, nimm „Ausgefallen“."
+                  : "Es wurde nicht ausgestempelt. Trage unten eine Endzeit ein und buch die Ist-Zeit, oder nimm die Soll-Zeit."}
               </Banner>
             </div>
           ) : null}
