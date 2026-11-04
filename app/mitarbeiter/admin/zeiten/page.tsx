@@ -351,7 +351,7 @@ export default function TimeApprovalPage() {
         </div>
 
         <div className="border-b border-paper-200 bg-white">
-          <ChipRow>
+          <ChipRow umbrechen>
             <Chip label={RANGE_LABEL[range]} icon="calendar" active onClick={() => {
               const order: RangeKey[] = ["today", "week", "month", "all"];
               const next = order[(order.indexOf(range) + 1) % order.length];
@@ -398,8 +398,13 @@ export default function TimeApprovalPage() {
               icon="clock"
               title={data?.records.length ? "Keine Zeiten in dieser Auswahl" : `Keine Zeiten im Zeitraum „${RANGE_LABEL[range]}“`}
               text={data?.records.length
-                ? "Wechsle oben auf „Alle“, um auch bereits freigegebene Zeiten zu sehen."
+                ? "Alles in diesem Zeitraum ist schon gebucht."
                 : "Tippe oben links auf den Zeitraum, um weiter zurück zu schauen."}
+              action={
+                data?.records.length
+                  ? { label: "Alle Zeiten zeigen", onClick: () => { setStateFilter("all"); setOnlyIssues(false); } }
+                  : undefined
+              }
             />
           ) : null}
 

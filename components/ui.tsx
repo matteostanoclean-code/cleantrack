@@ -148,8 +148,17 @@ export function Chip({ label, active, icon, count, onClick }: { label: string; a
   );
 }
 
-export function ChipRow({ children }: { children: React.ReactNode }) {
-  return <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 py-3">{children}</div>;
+/**
+ * Mit `umbrechen` laufen die Chips in eine zweite Zeile statt nach rechts aus
+ * dem Bild. Am Handy sah man sonst nur die ersten drei, und was rechts lag,
+ * wusste niemand.
+ */
+export function ChipRow({ children, umbrechen }: { children: React.ReactNode; umbrechen?: boolean }) {
+  return (
+    <div className={cx("flex gap-2 px-4 py-3", umbrechen ? "flex-wrap" : "no-scrollbar overflow-x-auto")}>
+      {children}
+    </div>
+  );
 }
 
 /* ---------------------------------------------------------------- Status */
@@ -398,7 +407,17 @@ export function Stepper({ value, onChange, min = 0, max = 999 }: { value: number
 
 /* --------------------------------------------------------------- Zustände */
 
-export function EmptyState({ title, text, icon = "list" }: { title: string; text?: string; icon?: string }) {
+export function EmptyState({
+  title,
+  text,
+  icon = "list",
+  action
+}: {
+  title: string;
+  text?: string;
+  icon?: string;
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className="px-6 py-16 text-center">
       <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-paper-100 text-ink-200">
@@ -406,6 +425,15 @@ export function EmptyState({ title, text, icon = "list" }: { title: string; text
       </div>
       <p className="mt-4 text-[16px] font-semibold text-ink-900">{title}</p>
       {text ? <p className="mx-auto mt-1 max-w-[36ch] text-[14px] text-ink-400">{text}</p> : null}
+      {action ? (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-5 rounded-full bg-brand-600 px-5 py-2.5 text-[14px] font-semibold text-white"
+        >
+          {action.label}
+        </button>
+      ) : null}
     </div>
   );
 }
