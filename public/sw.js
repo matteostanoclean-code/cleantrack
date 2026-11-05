@@ -9,7 +9,7 @@
 // Aufrufe zu fremden Adressen (Supabase) gehen immer ins Netz. Sonst würden
 // Stempelzeiten oder Einsatzpläne veraltet angezeigt.
 
-const VERSION = "schichtklar-v1";
+const VERSION = "schichtklar-v2";
 const HUELLE = `${VERSION}-huelle`;
 
 // Wird beim Einrichten geladen. Bewusst kurz gehalten.
@@ -77,7 +77,7 @@ self.addEventListener("fetch", (event) => {
           return antwort;
         } catch (fehler) {
           const speicher = await caches.open(HUELLE);
-          const gespeichert = await speicher.match(anfrage);
+          const gespeichert = await speicher.match(anfrage, { ignoreSearch: true });
           if (gespeichert) return gespeichert;
           const huelle = await speicher.match("/mitarbeiter");
           if (huelle) return huelle;
@@ -109,6 +109,38 @@ self.addEventListener("fetch", (event) => {
       })()
     );
   }
+});
+
+/**
+ * Die Aufkleber-Seiten auf Vorrat holen.
+ *
+ * Der Aufkleber am Objekt öffnet /mitarbeiter/nfc/<Objekt>. Im Keller ohne
+ * Empfang kann der Browser diese Seite nur anzeigen, wenn sie schon einmal
+ * geladen wurde. Die App meldet nach jedem Laden, auf welchen Objekten der
+ * Mitarbeiter demnächst eingeteilt ist; hier werden genau diese Adressen
+ * geholt, solange noch Netz da ist.
+ *
+ * Nur was noch fehlt, und einzeln: ein Objekt ohne Verbindung darf die
+ * anderen nicht mitreißen.
+ */
+self.addEventListener("message", (event) => {
+  const nachricht = event.data || {};
+  if (nachricht.typ !== "nfc-vorrat" || !Array.isArray(nachricht.adressen)) return;
+
+  event.waitUntil(
+    (async () => {
+      const speicher = await caches.open(HUELLE);
+      for (const adresse of nachricht.adressen.slice(0, 40)) {
+        try {
+          if (await speicher.match(adresse)) continue;
+          const antwort = await fetch(adresse, { credentials: "same-origin" });
+          if (antwort && antwort.status === 200) await speicher.put(adresse, antwort.clone());
+        } catch (fehler) {
+          // Kein Netz oder Objekt weg: beim nächsten Laden erneut versuchen.
+        }
+      }
+    })()
+  );
 });
 
 self.addEventListener("push", (event) => {

@@ -7,6 +7,18 @@ import LiveKamera from "@/components/LiveKamera";
 import { pushAnmelden } from "@/lib/pushAnmeldung";
 import { absenderName } from "@/lib/absender";
 import {
+  abgelehnte,
+  alsZeilen,
+  anzahlWartend,
+  einreihen,
+  nfcVorratMelden,
+  speicherSichern,
+  standLesen,
+  standSpeichern,
+  WARTET_EREIGNIS,
+  wartendeSenden
+} from "@/lib/offlineStempel";
+import {
   ActionBar,
   Banner,
   Button,
@@ -1529,7 +1541,25 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
     gpsRequired: selectedSite?.gps_required === true
   } : null;
 
-  const selectedTaskEntries = useMemo(() => taskEntriesForTask(data?.timeEntries || [], selectedTask), [data?.timeEntries, selectedTask]);
+  /**
+   * Stempel, die ohne Empfang gesetzt wurden und noch auf dem Telefon liegen.
+   *
+   * Sie werden wie gebuchte Zeilen behandelt, sonst stünde nach dem
+   * Einstempeln im Keller weiterhin "Bereit" da und man stempelt ein zweites
+   * Mal. Sobald sie übertragen sind, kommen dieselben Zeilen aus der
+   * Datenbank und die Liste hier ist wieder leer.
+   */
+  const [offlineZeilen, setOfflineZeilen] = useState<RawTimeEntry[]>([]);
+  const offlineAuffrischen = useCallback(() => {
+    setOfflineZeilen(alsZeilen(data?.employee?.name || "") as unknown as RawTimeEntry[]);
+  }, [data?.employee?.name]);
+  useEffect(() => { offlineAuffrischen(); }, [offlineAuffrischen, data?.timeEntries]);
+
+  const alleEintraege = useMemo(
+    () => [...(data?.timeEntries || []), ...offlineZeilen],
+    [data?.timeEntries, offlineZeilen]
+  );
+  const selectedTaskEntries = useMemo(() => taskEntriesForTask(alleEintraege, selectedTask), [alleEintraege, selectedTask]);
   const statusText = status === "working" ? "In Arbeit" : status === "break" ? "Pause läuft" : "Bereit";
   const selectedSiteName = selectedClockSite?.siteName || "Kein Termin gewählt";
   const selectedSiteHasGps = Boolean(selectedClockSite && selectedClockSite.latitude !== null && selectedClockSite.longitude !== null);
@@ -1632,23 +1662,61 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
       }
     }
 
+    const inhalt = {
+      taskId: selectedTask.id,
+      employeeName: data.employee.name,
+      employeeId: data.employee.id,
+      workSiteId: selectedTask.work_site_id,
+      action,
+      latitude: gps?.latitude ?? null,
+      longitude: gps?.longitude ?? null,
+      accuracyM: gps?.accuracy ?? null,
+      nfcObjekt: nfcAktiv ? nfcObjekt : "",
+      reason: reason || "",
+      expectedStartTime: expectedStartIso(selectedTask)
+    };
+
+    /**
+     * Ohne Netz wird der Stempel auf dem Telefon festgehalten.
+     *
+     * Die Uhrzeit ist die von jetzt, nicht die der späteren Übertragung. Es
+     * wird gar nicht erst gesendet, wenn das Telefon weiß, dass es offline
+     * ist: der Versuch läuft sonst in einen langen Zeitabbruch, und so lange
+     * steht man mit dem Telefon in der Hand im Treppenhaus.
+     */
+    function offlineMerken(grund: string) {
+      einreihen(inhalt, selectedClockSite?.siteName || "");
+      offlineAuffrischen();
+      setSaving(false);
+      setLocating(false);
+      setMessage(`${grund} Der Stempel liegt auf dem Telefon und geht raus, sobald wieder Empfang da ist.`);
+    }
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      offlineMerken("Kein Netz.");
+      return;
+    }
+
+    /**
+     * Das Senden steht für sich.
+     *
+     * Nur wenn die Anfrage gar nicht hinausgeht, war es das Netz -- dann wird
+     * gemerkt statt gemeldet. Antwortet der Server und lehnt ab, ist das ein
+     * Einwand und keine Funklücke; der gehört dem Mitarbeiter gesagt.
+     */
+    let response: Response;
     try {
-      const response = await fetch("/api/mobile/time-entry", {
+      response = await fetch("/api/mobile/time-entry", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          employeeName: data.employee.name,
-          employeeId: data.employee.id,
-          action,
-          latitude: gps?.latitude ?? null,
-          longitude: gps?.longitude ?? null,
-          accuracyM: gps?.accuracy ?? null,
-          nfcObjekt: nfcAktiv ? nfcObjekt : "",
-          reason: reason || "",
-          expectedStartTime: expectedStartIso(selectedTask)
-        })
+        body: JSON.stringify(inhalt)
       });
+    } catch {
+      offlineMerken("Die Verbindung hat nicht gereicht.");
+      return;
+    }
+
+    try {
       const result = await response.json();
 
       // Das Büro braucht eine Begründung: erst nachfragen, dann noch einmal senden.
@@ -4864,6 +4932,10 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   // Der Zeitpunkt des Scans muss den Wechsel zwischen den Reitern überleben.
   const nfcScanZeit = useRef(Date.now());
   const [data, setData] = useState<AppData | null>(null);
+  /** Gesetzt, wenn gerade der gespeicherte Stand angezeigt wird statt frischer Daten. */
+  const [standVom, setStandVom] = useState<string | null>(null);
+  /** Wie viele Stempel noch auf dem Telefon liegen. */
+  const [wartend, setWartend] = useState(0);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -4928,11 +5000,30 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Supabase konnte nicht geladen werden.");
       setData(result);
+      setStandVom(null);
       const selectedName = result.employee?.name || result.employees?.[0]?.name || "";
       setEmployeeName(selectedName);
       if (selectedName && typeof window !== "undefined") window.localStorage.setItem("cleantrack-employee-name", selectedName);
+
+      /**
+       * Den Stand mitnehmen, solange Netz da ist.
+       *
+       * Im Objekt ohne Empfang muss die App trotzdem wissen, welcher Einsatz
+       * heute ansteht und ob die Uhr schon läuft. Dazu die Aufkleber-Seiten
+       * der eingeteilten Objekte vorladen -- ohne sie öffnet der Aufkleber im
+       * Keller gar nichts (Ansage 05.11.2026).
+       */
+      standSpeichern(result);
+      nfcVorratMelden(((result.tasks || []) as RawTask[]).map((task) => String(task.work_site_id || "")));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
+      const gespeichert = standLesen();
+      if (gespeichert?.stand) {
+        setData(gespeichert.stand as AppData);
+        setStandVom(gespeichert.gespeichertAm);
+        setError(null);
+      } else {
+        setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
+      }
     } finally {
       setLoading(false);
     }
@@ -4951,7 +5042,53 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("/sw.js").catch(() => null);
+    // Der Browser soll den Speicher nicht wegräumen: dort liegen wartende
+    // Stempel. iOS tut das sonst nach einigen Tagen ohne Benutzung.
+    speicherSichern().catch(() => null);
   }, []);
+
+  /**
+   * Wartende Stempel abgeben, sobald es geht.
+   *
+   * Drei Gelegenheiten, weil keine für sich verlässlich ist: beim Start, wenn
+   * das Telefon "online" meldet (auf dem Handy oft spät oder gar nicht), und
+   * wenn die App wieder nach vorne kommt -- das ist der Moment, in dem der
+   * Mitarbeiter das Gebäude verlassen hat.
+   */
+  useEffect(() => {
+    if (!authToken || typeof window === "undefined") return;
+    let abgebrochen = false;
+
+    async function abgeben() {
+      if (abgebrochen || !anzahlWartend()) {
+        setWartend(anzahlWartend());
+        return;
+      }
+      const ergebnis = await wartendeSenden(authToken);
+      if (abgebrochen) return;
+      setWartend(ergebnis.offen);
+      if (ergebnis.gesendet) await loadData(undefined, authToken, true);
+    }
+
+    const anstossen = () => { abgeben().catch(() => null); };
+    anstossen();
+
+    const beiSichtbar = () => { if (document.visibilityState === "visible") anstossen(); };
+    // Die Stempeluhr steckt in einer anderen Komponente und meldet sich so.
+    const beiNeuem = () => setWartend(anzahlWartend());
+    window.addEventListener("online", anstossen);
+    window.addEventListener(WARTET_EREIGNIS, beiNeuem);
+    document.addEventListener("visibilitychange", beiSichtbar);
+    const takt = window.setInterval(anstossen, 60000);
+
+    return () => {
+      abgebrochen = true;
+      window.removeEventListener("online", anstossen);
+      window.removeEventListener(WARTET_EREIGNIS, beiNeuem);
+      document.removeEventListener("visibilitychange", beiSichtbar);
+      window.clearInterval(takt);
+    };
+  }, [authToken, loadData]);
 
   useEffect(() => {
     let mounted = true;
@@ -5143,6 +5280,39 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     >
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
+      {/*
+        Ohne Empfang arbeitet die App weiter, aber sie sagt es auch. Sonst
+        hält man einen alten Einsatzplan für den heutigen Stand.
+      */}
+      {!loading && standVom ? (
+        <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-[14px] font-semibold text-amber-900">Kein Netz</p>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-amber-900">
+            Angezeigt wird der Stand von {new Date(standVom).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} Uhr.
+            Stempeln geht trotzdem.
+          </p>
+        </div>
+      ) : null}
+      {!loading && wartend > 0 ? (
+        <div className="mb-3 rounded-2xl border border-brand-300 bg-brand-50 px-4 py-3">
+          <p className="text-[14px] leading-relaxed text-brand-700">
+            {wartend === 1 ? "Ein Stempel liegt" : `${wartend} Stempel liegen`} auf dem Telefon und
+            {wartend === 1 ? " geht" : " gehen"} raus, sobald wieder Empfang da ist. Die Uhrzeit von vorhin bleibt erhalten.
+          </p>
+        </div>
+      ) : null}
+      {!loading && abgelehnte().length ? (
+        <div className="mb-3 rounded-2xl border border-danger-100 bg-danger-50 px-4 py-3">
+          <p className="text-[14px] font-semibold text-danger-700">Ein Stempel kam nicht durch</p>
+          {abgelehnte().slice(0, 3).map((stempel) => (
+            <p key={stempel.id} className="mt-1 text-[13px] leading-relaxed text-danger-700">
+              {new Date(stempel.gestempeltAm).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} Uhr
+              {stempel.objekt ? ` · ${stempel.objekt}` : ""}: {stempel.fehler}
+            </p>
+          ))}
+          <p className="mt-2 text-[13px] text-danger-700">Bitte im Büro melden, damit die Zeit eingetragen wird.</p>
+        </div>
+      ) : null}
       {!loading && !error && active === "home" ? <InstallHinweis /> : null}
       {!loading && !error && siteHinweis ? (
         <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">

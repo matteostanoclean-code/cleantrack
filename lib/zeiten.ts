@@ -118,7 +118,10 @@ function ausserhalbRadius(entry: AnyRow) {
 function ohneStandort(entry: AnyRow) {
   // Wer den Aufkleber scannt, steht am Objekt. Da fehlt keine Angabe, sie wurde
   // gar nicht erst abgefragt.
-  if (text(entry.error_message) === NFC_VERMERK) return false;
+  // startsWith, nicht Gleichheit: hinter dem Vermerk kann noch ein Hinweis
+  // stehen, etwa dass der Stempel ohne Empfang gesetzt und später übertragen
+  // wurde. Das ändert nichts daran, dass am Objekt gestempelt wurde.
+  if (text(entry.error_message).startsWith(NFC_VERMERK)) return false;
   return numberOrNull(entry.latitude) === null || numberOrNull(entry.longitude) === null;
 }
 
@@ -273,7 +276,7 @@ export function buildRecords(entries: AnyRow[], tasksById: Map<string, AnyRow>, 
     // Über den Aufkleber gestempelt: der Standort wurde bewusst nicht
     // abgefragt. Das ist etwas anderes als "geprüft und in Ordnung" — die
     // Oberfläche soll das auseinanderhalten können.
-    const perNfc = sorted.some((eintrag) => text(eintrag.error_message) === NFC_VERMERK);
+    const perNfc = sorted.some((eintrag) => text(eintrag.error_message).startsWith(NFC_VERMERK));
     const mitKoordinaten = sorted.some(
       (eintrag) => numberOrNull(eintrag.latitude) !== null && numberOrNull(eintrag.longitude) !== null
     );

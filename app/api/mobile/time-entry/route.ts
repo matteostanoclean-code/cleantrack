@@ -283,6 +283,50 @@ export async function POST(request: Request) {
     const action = clean(body.action);
     const reason = clean(body.reason).slice(0, 500);
 
+    /**
+     * Wann wirklich gestempelt wurde.
+     *
+     * Im Keller gibt es keinen Empfang. Das Telefon hält den Stempel dann fest
+     * und schickt ihn, sobald wieder Netz da ist. Gebucht wird der Zeitpunkt
+     * der Arbeit, nicht der des Hochladens -- sonst stünde eine Schicht von
+     * 17 Uhr später mit 22 Uhr in den Büchern, samt erfundener Nachtzuschläge
+     * (§ 17 Abs. 1 MiLoG: aufzuzeichnen ist, wann gearbeitet wurde).
+     *
+     * Die Uhr des Telefons ist die einzige Quelle dafür, also wird sie
+     * eingegrenzt: nicht in der Zukunft, nicht älter als vierzehn Tage. Was
+     * daneben liegt, gehört ins Büro und nicht in die Lohnabrechnung.
+     */
+    const nachtraeglich = body.nachtraeglich === true;
+    const jetzt = new Date();
+    let stempelZeit = jetzt;
+    let stempelHinweis = "";
+    const gemeldet = clean(body.gestempeltAm);
+    if (gemeldet) {
+      const gelesen = new Date(gemeldet);
+      if (Number.isNaN(gelesen.getTime())) {
+        return NextResponse.json({ ok: false, error: "Die mitgeschickte Uhrzeit ist unlesbar." }, { status: 400 });
+      }
+      if (gelesen.getTime() > jetzt.getTime() + 5 * 60000) {
+        return NextResponse.json(
+          { ok: false, error: "Die Uhr des Telefons geht vor. Bitte Datum und Uhrzeit im Telefon prüfen." },
+          { status: 400 }
+        );
+      }
+      if (jetzt.getTime() - gelesen.getTime() > 14 * 86400000) {
+        return NextResponse.json(
+          { ok: false, error: "Dieser Stempel ist älter als vierzehn Tage und muss im Büro eingetragen werden." },
+          { status: 400 }
+        );
+      }
+      stempelZeit = gelesen;
+      const verzug = Math.round((jetzt.getTime() - gelesen.getTime()) / 60000);
+      if (verzug >= 2) {
+        const dauer = verzug >= 60 ? `${Math.floor(verzug / 60)} Std. ${verzug % 60} Min.` : `${verzug} Min.`;
+        stempelHinweis = `Ohne Empfang gestempelt, ${dauer} später übertragen.`;
+      }
+    }
+    const stempelIso = stempelZeit.toISOString();
+
     if (!allowedActions.has(action)) {
       return NextResponse.json({ ok: false, error: "Ungültige Stempel-Aktion." }, { status: 400 });
     }
@@ -341,7 +385,7 @@ export async function POST(request: Request) {
     // einem früheren Tag, wird sie automatisch geschlossen und zur Prüfung ins
     // Büro gemeldet. Ohne das bekäme der Mitarbeiter am nächsten Morgen nur
     // "Du bist bereits eingestempelt" und käme nicht mehr weiter.
-    if (currentStatus !== "idle" && latestEntry && localDay(latestEntry.created_at) !== localDay(new Date().toISOString())) {
+    if (currentStatus !== "idle" && latestEntry && localDay(latestEntry.created_at) !== localDay(stempelIso)) {
       autoClosed = await closeStaleClock(auth, latestEntry, employeeName, employeeId);
       currentStatus = "idle";
     }
@@ -395,7 +439,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const nowIso = new Date().toISOString();
+    const nowIso = stempelIso;
     const basePayload = {
       task_id: task.id,
       employee_name: employeeName,
@@ -473,9 +517,15 @@ export async function POST(request: Request) {
       const overtimeMinutes = plannedMinutes > 0 ? Math.max(0, actualMinutes - plannedMinutes) : 0;
       const overTime = overtimeMinutes > TOLERANCE_MINUTES;
 
-      // Begründung nur bei Überschreitung der geplanten Zeit. Ausstempeln weit
-      // weg vom Objekt wird ohne Nachfrage gebucht, aber markiert und geprüft.
-      if (overTime && !reason) {
+      /**
+       * Begründung nur bei Überschreitung der geplanten Zeit. Ausstempeln weit
+       * weg vom Objekt wird ohne Nachfrage gebucht, aber markiert und geprüft.
+       *
+       * Einen nachträglich übertragenen Stempel kann niemand mehr fragen --
+       * der Mitarbeiter stand im Keller, als er ihn gesetzt hat. Der wird
+       * gebucht und geht zur Prüfung ins Büro, statt verloren zu gehen.
+       */
+      if (overTime && !reason && !nachtraeglich) {
         return NextResponse.json({
           ok: false,
           reasonRequired: true,
@@ -492,6 +542,8 @@ export async function POST(request: Request) {
       const needsApproval = overTime || outsideRadius;
       const approvalStatus = needsApproval ? "pending" : "not_required";
       const approvedMinutes = overTime ? plannedMinutes : actualMinutes;
+      const begruendung =
+        reason || (overTime && nachtraeglich ? "Ohne Empfang gestempelt, es konnte nicht nachgefragt werden." : "");
 
       approvalPayload = {
         planned_minutes: plannedMinutes || null,
@@ -500,8 +552,8 @@ export async function POST(request: Request) {
         approved_minutes: approvedMinutes || null,
         approval_status: approvalStatus,
         admin_response: null,
-        reason: reason || null,
-        note: reason || null
+        reason: begruendung || null,
+        note: begruendung || null
       };
       approvalInfo = { plannedMinutes, actualMinutes, overtimeMinutes, approvedMinutes, approvalStatus, outsideRadius, needsApproval };
     }
@@ -510,11 +562,16 @@ export async function POST(request: Request) {
       ...basePayload,
       ...approvalPayload,
       success: true,
-      error_message: viaNfc
-        ? NFC_VERMERK
-        : outsideRadius
-        ? `Standort ausserhalb des Objekts: ${distance} m statt erlaubter ${allowedRadius} m.`
-        : `Standort geprüft: ${distance} m von ${allowedRadius} m Radius.`
+      error_message: [
+        viaNfc
+          ? NFC_VERMERK
+          : outsideRadius
+          ? `Standort ausserhalb des Objekts: ${distance} m statt erlaubter ${allowedRadius} m.`
+          : `Standort geprüft: ${distance} m von ${allowedRadius} m Radius.`,
+        stempelHinweis
+      ]
+        .filter(Boolean)
+        .join(" ")
     });
 
     if (action === "clock_out") {
