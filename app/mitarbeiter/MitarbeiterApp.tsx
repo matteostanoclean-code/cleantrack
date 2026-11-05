@@ -4777,6 +4777,39 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
 }
 
 /**
+ * Was Supabase meldet, auf Deutsch.
+ *
+ * Die Meldungen kommen englisch und technisch zurück. Am Objekt steht jemand
+ * mit dem Telefon und soll wissen, was zu tun ist -- und wenn es doch ins
+ * Büro geht, soll dort ein verwertbarer Satz ankommen statt "AuthApiError".
+ */
+function aufDeutsch(meldung: string) {
+  const text = String(meldung || "").toLowerCase();
+  if (text.includes("different from the old")) {
+    return "Das neue Passwort ist dasselbe wie das alte. Bitte ein anderes wählen.";
+  }
+  if (text.includes("reauthentication")) {
+    return "Aus Sicherheitsgründen ist eine neue Anmeldung nötig: bitte abmelden, noch einmal mit dem Startpasswort anmelden und es dann sofort ändern.";
+  }
+  if (text.includes("session") && text.includes("missing")) {
+    return "Die Anmeldung ist abgelaufen. Bitte noch einmal anmelden und das Passwort danach gleich ändern.";
+  }
+  if (text.includes("weak") || text.includes("pwned") || text.includes("leaked")) {
+    return "Dieses Passwort gilt als unsicher und ist gesperrt. Bitte ein anderes wählen.";
+  }
+  if (text.includes("at least") || text.includes("should be")) {
+    return "Das Passwort erfüllt die Vorgaben nicht. Bitte mindestens acht Zeichen, gern mit einer Zahl.";
+  }
+  if (text.includes("rate limit") || text.includes("too many")) {
+    return "Zu viele Versuche kurz hintereinander. Bitte eine Minute warten und noch einmal.";
+  }
+  if (text.includes("failed to fetch") || text.includes("network")) {
+    return "Keine Verbindung. Bitte mit Empfang noch einmal versuchen.";
+  }
+  return meldung || "Das hat nicht geklappt.";
+}
+
+/**
  * Eigenes Passwort setzen.
  *
  * Das Passwort geht direkt von hier zu Supabase, es laeuft nie durch unsere
@@ -4790,7 +4823,8 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => Promise<void> })
 function PasswortAendern({ authToken, pflicht = false, onFertig, onAbmelden, onZurueck }: {
   authToken: string;
   pflicht?: boolean;
-  onFertig: () => Promise<void> | void;
+  /** Bekommt den Schluessel der neuen Sitzung, der alte gilt nicht mehr. */
+  onFertig: (schluessel?: string) => Promise<void> | void;
   onAbmelden?: () => void;
   onZurueck?: () => void;
 }) {
@@ -4813,18 +4847,48 @@ function PasswortAendern({ authToken, pflicht = false, onFertig, onAbmelden, onZ
     try {
       const supabase = getSupabaseBrowser();
       const { error } = await supabase.auth.updateUser({ password: neu });
-      if (error) throw new Error(error.message);
-      // Erst wenn Supabase das Passwort angenommen hat, den Merker loeschen
-      const antwort = await fetch("/api/mobile/passwort", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-      const ergebnis = await antwort.json().catch(() => ({ ok: false }));
-      if (!antwort.ok || !ergebnis.ok) {
-        throw new Error("Das Passwort ist geändert, aber der Vermerk im Büro nicht. Bitte Matteo sagen.");
+      if (error) throw new Error(aufDeutsch(error.message));
+
+      /**
+       * Mit dem neuen Schluessel weiterarbeiten, nicht mit dem alten.
+       *
+       * Supabase stellt beim Passwortwechsel sofort eine neue Sitzung aus. Der
+       * Schluessel von der Anmeldung ist damit verbraucht. Wurde er trotzdem
+       * weiterbenutzt, lehnte der Server den Vermerk ab: Das Passwort war
+       * geaendert, der Merker "muss Passwort aendern" blieb stehen, und beim
+       * naechsten Anmelden kam dieselbe Seite wieder (Ansage 05.11.2026).
+       */
+      async function vermerken(schluessel: string) {
+        const antwort = await fetch("/api/mobile/passwort", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${schluessel}` }
+        });
+        const ergebnis = await antwort.json().catch(() => ({ ok: false }));
+        return { ok: antwort.ok && ergebnis.ok, status: antwort.status };
       }
+
+      const { data: sitzung } = await supabase.auth.getSession();
+      let schluessel = sitzung.session?.access_token || authToken;
+      let vermerk = await vermerken(schluessel);
+
+      // Hat der Browser die neue Sitzung noch nicht, einmal nachfassen.
+      if (!vermerk.ok && vermerk.status === 401) {
+        const { data: erneuert } = await supabase.auth.refreshSession();
+        if (erneuert.session?.access_token) {
+          schluessel = erneuert.session.access_token;
+          vermerk = await vermerken(schluessel);
+        }
+      }
+
+      if (!vermerk.ok) {
+        throw new Error(
+          "Dein neues Passwort gilt ab sofort. Nur der Vermerk im Büro hat nicht geklappt — " +
+            "bitte einmal abmelden, mit dem neuen Passwort anmelden. Kommt diese Seite wieder, sag Matteo Bescheid."
+        );
+      }
+
       setFertig(true);
-      await onFertig();
+      await onFertig(schluessel);
     } catch (f) {
       setFehler(f instanceof Error ? f.message : "Das hat nicht geklappt.");
     } finally {
@@ -5090,6 +5154,27 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     };
   }, [authToken, loadData]);
 
+  /**
+   * Den Schlüssel mit der Sitzung mitführen.
+   *
+   * Er wurde bisher einmal beim Start gelesen und nie wieder. Supabase stellt
+   * aber laufend neue aus: der alte läuft nach einer Stunde ab, und beim
+   * Passwortwechsel kommt sofort ein neuer. Die App arbeitete danach mit einem
+   * Schlüssel weiter, den der Server nicht mehr annimmt -- jede Anfrage lief
+   * ins Leere, ohne dass man sah, warum.
+   */
+  useEffect(() => {
+    const supabase = getSupabaseBrowser();
+    const { data: beobachter } = supabase.auth.onAuthStateChange((ereignis, sitzung) => {
+      if (ereignis === "SIGNED_OUT") {
+        setAuthToken("");
+        return;
+      }
+      if (sitzung?.access_token) setAuthToken(sitzung.access_token);
+    });
+    return () => beobachter.subscription.unsubscribe();
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     async function initAuth() {
@@ -5259,7 +5344,12 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       <PasswortAendern
         authToken={authToken}
         pflicht
-        onFertig={() => refreshData()}
+        onFertig={async (schluessel) => {
+          // Mit dem Schluessel der neuen Sitzung neu laden, nicht mit dem
+          // aus dem Zustand -- der ist in diesem Moment noch der alte.
+          if (schluessel) setAuthToken(schluessel);
+          await loadData(undefined, schluessel || authToken, true);
+        }}
         onAbmelden={handleLogout}
       />
     );
