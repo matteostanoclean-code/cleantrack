@@ -5,7 +5,7 @@
   "start_url": "/mitarbeiter",
   "display": "standalone",
   "background_color": "#FFFFFF",
-  "theme_color": "#F2F5F1",
+  "theme_color": "#FFFFFF",
   "orientation": "portrait",
   "icons": [
     {

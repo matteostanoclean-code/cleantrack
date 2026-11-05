@@ -30,6 +30,26 @@ function uuidOrNull(value: unknown) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text) ? text : null;
 }
 
+/**
+ * Zeitpunkt, an dem der Mitarbeiter wirklich gestempelt hat.
+ *
+ * Ohne Empfang wird auf dem Handy gespeichert und erst später gesendet. Die
+ * Buchung muss dann die Zeit vom Antippen tragen, nicht die vom Eintreffen.
+ * Unsinnige Werte (Zukunft, älter als zwei Wochen) werden ignoriert, damit
+ * niemand mit einer verstellten Handyuhr Zeiten erfinden kann.
+ */
+function clientZeit(value: unknown) {
+  const text = clean(value);
+  if (!text) return null;
+  const parsed = new Date(text);
+  const ms = parsed.getTime();
+  if (!Number.isFinite(ms)) return null;
+  const jetzt = Date.now();
+  if (ms > jetzt + 2 * 60000) return null;
+  if (ms < jetzt - 14 * 86400000) return null;
+  return parsed;
+}
+
 function sameName(a?: unknown, b?: unknown) {
   return clean(a).toLowerCase() === clean(b).toLowerCase();
 }
@@ -281,7 +301,11 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const action = clean(body.action);
-    const reason = clean(body.reason).slice(0, 500);
+    let reason = clean(body.reason).slice(0, 500);
+    // Vom Handy nachgereichte Stempelung (zuvor ohne Netz gespeichert).
+    const offline = body.offline === true;
+    const stempelZeit = clientZeit(body.clientTime) || new Date();
+    const stempelIso = stempelZeit.toISOString();
 
     if (!allowedActions.has(action)) {
       return NextResponse.json({ ok: false, error: "Ungültige Stempel-Aktion." }, { status: 400 });
@@ -324,6 +348,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Dieser Termin gehört nicht zu diesem Mitarbeiter." }, { status: 403 });
     }
 
+    // Doppelte Buchung verhindern: kam dieselbe Stempelung schon an (z. B. weil
+    // die Antwort im Funkloch verloren ging), wird sie nicht noch einmal gebucht.
+    if (clientZeit(body.clientTime)) {
+      const doppelt = await auth.supabase
+        .from("time_entries")
+        .select("*")
+        .eq("employee_name", employeeName)
+        .eq("task_id", task.id)
+        .eq("action", action)
+        .eq("created_at", stempelIso)
+        .neq("success", false)
+        .limit(1);
+      if (!doppelt.error && doppelt.data?.[0]) {
+        return NextResponse.json({ ok: true, duplicate: true, entry: doppelt.data[0], taskId: task.id });
+      }
+    }
+
     const latestResult = await auth.supabase
       .from("time_entries")
       .select("*")
@@ -341,7 +382,7 @@ export async function POST(request: Request) {
     // einem früheren Tag, wird sie automatisch geschlossen und zur Prüfung ins
     // Büro gemeldet. Ohne das bekäme der Mitarbeiter am nächsten Morgen nur
     // "Du bist bereits eingestempelt" und käme nicht mehr weiter.
-    if (currentStatus !== "idle" && latestEntry && localDay(latestEntry.created_at) !== localDay(new Date().toISOString())) {
+    if (currentStatus !== "idle" && latestEntry && localDay(latestEntry.created_at) !== localDay(stempelIso)) {
       autoClosed = await closeStaleClock(auth, latestEntry, employeeName, employeeId);
       currentStatus = "idle";
     }
@@ -395,7 +436,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const nowIso = new Date().toISOString();
+    const nowIso = stempelIso;
     const basePayload = {
       task_id: task.id,
       employee_name: employeeName,
@@ -475,6 +516,11 @@ export async function POST(request: Request) {
 
       // Begründung nur bei Überschreitung der geplanten Zeit. Ausstempeln weit
       // weg vom Objekt wird ohne Nachfrage gebucht, aber markiert und geprüft.
+      // Nachgereicht aus dem Funkloch kann niemand mehr gefragt werden: Die
+      // Stempelung wird gebucht und geht mit Vermerk zur Prüfung ins Büro.
+      if (overTime && !reason && offline) {
+        reason = "Ohne Netz gestempelt, keine Begründung möglich.";
+      }
       if (overTime && !reason) {
         return NextResponse.json({
           ok: false,

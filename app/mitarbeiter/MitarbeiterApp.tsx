@@ -5,6 +5,21 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import InstallHinweis from "@/components/InstallHinweis";
 import LiveKamera from "@/components/LiveKamera";
 import { pushAnmelden } from "@/lib/pushAnmeldung";
+import {
+  abbildLaden,
+  abbildLoeschen,
+  abbildSpeichern,
+  fetchMitZeitlimit,
+  istNetzFehler,
+  neueClientId,
+  nfcSeitenVorladen,
+  stempelEinreihen,
+  stempelVerwerfen,
+  warteschlangeAbonnieren,
+  warteschlangeLaden,
+  warteschlangeSenden,
+  type WarteStempel
+} from "@/lib/offlineStempel";
 import { absenderName } from "@/lib/absender";
 import {
   ActionBar,
@@ -1613,6 +1628,10 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
       return;
     }
 
+    // Der Zeitpunkt zählt ab dem Antippen, nicht ab Ankunft beim Server.
+    const clientId = neueClientId();
+    const clientTime = new Date().toISOString();
+
     setSaving(true);
     let gps: { latitude: number; longitude: number; accuracy: number | null } | null = null;
     if (!nfcAktiv) {
@@ -1632,23 +1651,67 @@ function Clock({ data, authToken, onReload, selectedTaskId, onOpenSchedule, auto
       }
     }
 
-    try {
-      const response = await fetch("/api/mobile/time-entry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          employeeName: data.employee.name,
-          employeeId: data.employee.id,
-          action,
-          latitude: gps?.latitude ?? null,
-          longitude: gps?.longitude ?? null,
-          accuracyM: gps?.accuracy ?? null,
-          nfcObjekt: nfcAktiv ? nfcObjekt : "",
-          reason: reason || "",
-          expectedStartTime: expectedStartIso(selectedTask)
-        })
+    /**
+     * Ohne Netz (oder bei so schlechtem Empfang, dass nichts durchkommt) wird
+     * die Stempelung auf dem Handy gespeichert und später automatisch
+     * übertragen. Der Mitarbeiter muss nichts weiter tun.
+     */
+    const imWarteSpeicher = async () => {
+      await stempelEinreihen({
+        clientId,
+        clientTime,
+        taskId: selectedTask.id,
+        employeeName: data.employee!.name,
+        employeeId: data.employee!.id,
+        action,
+        workSiteId: selectedTask.work_site_id || null,
+        siteName: selectedSiteName,
+        latitude: gps?.latitude ?? null,
+        longitude: gps?.longitude ?? null,
+        accuracyM: gps?.accuracy ?? null,
+        nfcObjekt: nfcAktiv ? nfcObjekt : "",
+        reason: reason || "",
+        expectedStartTime: expectedStartIso(selectedTask),
+        status: "wartet",
+        versuche: 0
       });
+      setReasonPrompt(null);
+      setMessage("Gespeichert. Kein Netz: Die Stempelzeit ist auf dem Handy gesichert und wird automatisch übertragen, sobald wieder Empfang da ist.");
+    };
+
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await imWarteSpeicher();
+        return;
+      }
+
+      let response: Response;
+      try {
+        response = await fetchMitZeitlimit("/api/mobile/time-entry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({
+            taskId: selectedTask.id,
+            employeeName: data.employee.name,
+            employeeId: data.employee.id,
+            action,
+            latitude: gps?.latitude ?? null,
+            longitude: gps?.longitude ?? null,
+            accuracyM: gps?.accuracy ?? null,
+            nfcObjekt: nfcAktiv ? nfcObjekt : "",
+            reason: reason || "",
+            expectedStartTime: expectedStartIso(selectedTask),
+            clientId,
+            clientTime
+          })
+        }, 10000);
+      } catch (netzFehler) {
+        if (istNetzFehler(netzFehler)) {
+          await imWarteSpeicher();
+          return;
+        }
+        throw netzFehler;
+      }
       const result = await response.json();
 
       // Das Büro braucht eine Begründung: erst nachfragen, dann noch einmal senden.
@@ -4852,6 +4915,52 @@ function PasswortAendern({ authToken, pflicht = false, onFertig, onAbmelden, onZ
   );
 }
 
+/**
+ * Zeigt, was mit den Stempelungen ohne Netz los ist: wie viele warten, ob
+ * etwas abgelehnt wurde, ob die Daten vom Gerät stammen.
+ */
+function OfflineStatus({ offline, stand, warteschlange, info, onSenden, onVerwerfen }: {
+  offline: boolean;
+  stand: string | null;
+  warteschlange: WarteStempel[];
+  info: string | null;
+  onSenden: () => void;
+  onVerwerfen: (clientId: string) => void;
+}) {
+  const wartend = warteschlange.filter((e) => e.status === "wartet");
+  const abgelehnt = warteschlange.filter((e) => e.status === "abgelehnt");
+  if (!offline && !wartend.length && !abgelehnt.length && !info) return null;
+
+  return (
+    <div className="mb-3 space-y-2">
+      {offline ? (
+        <Banner tone="warn">
+          Kein Netz. Du kannst trotzdem stempeln, alles wird auf dem Handy gesichert und automatisch übertragen, sobald wieder Empfang da ist.
+          {stand ? ` Stand der Einsätze: ${new Date(stand).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} Uhr.` : ""}
+        </Banner>
+      ) : null}
+      {wartend.length ? (
+        <Banner tone="info">
+          <span className="block">
+            {wartend.length === 1 ? "1 Stempelung wartet" : `${wartend.length} Stempelungen warten`} auf die Übertragung. Die Zeiten sind sicher gespeichert.
+          </span>
+          <button type="button" onClick={onSenden} className="mt-2 text-[14px] font-semibold underline">Jetzt senden</button>
+        </Banner>
+      ) : null}
+      {abgelehnt.map((e) => (
+        <Banner key={e.clientId} tone="danger">
+          <span className="block">
+            Stempelung vom {new Date(e.clientTime).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} Uhr ({actionLabel(e.action)}) wurde nicht angenommen: {e.fehler}
+          </span>
+          <span className="block">Bitte im Büro melden, damit die Zeit nachgetragen wird.</span>
+          <button type="button" onClick={() => onVerwerfen(e.clientId)} className="mt-2 text-[14px] font-semibold underline">Verstanden</button>
+        </Banner>
+      ))}
+      {info ? <Banner tone="success">{info}</Banner> : null}
+    </div>
+  );
+}
+
 export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId = "", initialAction = "stempeln" }: { initialTab?: string; initialWorkSiteId?: string; initialAction?: "stempeln" | "material" }) {
   const [active, setActive] = useState<Tab>(() => tabFromProp(initialTab));
   const [siteHinweis, setSiteHinweis] = useState("");
@@ -4863,7 +4972,13 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   const [autoStempeln, setAutoStempeln] = useState(false);
   // Der Zeitpunkt des Scans muss den Wechsel zwischen den Reitern überleben.
   const nfcScanZeit = useRef(Date.now());
-  const [data, setData] = useState<AppData | null>(null);
+  const [rohData, setData] = useState<AppData | null>(null);
+  // Noch nicht übertragene Stempelungen (siehe lib/offlineStempel.ts).
+  const [warteschlange, setWarteschlange] = useState<WarteStempel[]>([]);
+  // true, solange die angezeigten Daten aus dem Gerätespeicher stammen.
+  const [offlineModus, setOfflineModus] = useState(false);
+  const [abbildStand, setAbbildStand] = useState<string | null>(null);
+  const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -4898,6 +5013,40 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   }, [authToken]);
 
   /**
+   * Angezeigte Daten = Stand vom Server + noch wartende Stempelungen.
+   *
+   * So zeigt die Stempeluhr auch ohne Netz sofort "In Arbeit" bzw. "Pause",
+   * und die Zeiten des Tages stimmen, bevor etwas übertragen wurde.
+   */
+  const data = useMemo<AppData | null>(() => {
+    if (!rohData) return rohData;
+    const wartend = warteschlange.filter((e) => e.status === "wartet" && e.employeeName === rohData.employee?.name);
+    if (!wartend.length) return rohData;
+    const vorlaeufig: RawTimeEntry[] = wartend.map((e) => ({
+      id: `offline-${e.clientId}`,
+      task_id: e.taskId,
+      employee_name: e.employeeName,
+      employee_id: e.employeeId,
+      work_site_id: e.workSiteId,
+      work_site_name: e.siteName,
+      action: e.action,
+      success: true,
+      created_at: e.clientTime,
+      error_message: "Ohne Netz gespeichert, wird übertragen."
+    }));
+    return { ...rohData, timeEntries: [...(rohData.timeEntries || []), ...vorlaeufig] };
+  }, [rohData, warteschlange]);
+
+  /** Warteschlange laden und bei jeder Änderung neu lesen. */
+  useEffect(() => {
+    let aktiv = true;
+    const lesen = () => { warteschlangeLaden().then((liste) => { if (aktiv) setWarteschlange(liste); }); };
+    lesen();
+    const abmelden = warteschlangeAbonnieren(lesen);
+    return () => { aktiv = false; abmelden(); };
+  }, []);
+
+  /**
    * Daten holen. Mit silent bleibt der Bildschirm stehen und wird im
    * Hintergrund aktualisiert. Ohne silent erscheint die Ladeanzeige, das ist
    * nur beim ersten Aufbau und nach einem Fehler sinnvoll.
@@ -4921,17 +5070,38 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       // es in der Auswahl und der Aufkleber zeigt auf ein leeres Feld.
       if (initialWorkSiteId) teile.push(`site=${encodeURIComponent(initialWorkSiteId)}`);
       const query = teile.length ? `?${teile.join("&")}` : "";
-      const response = await fetch(`/api/mobile/bootstrap${query}`, {
+      const response = await fetchMitZeitlimit(`/api/mobile/bootstrap${query}`, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${token}` }
-      });
+      }, 15000);
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Supabase konnte nicht geladen werden.");
       setData(result);
+      setOfflineModus(false);
+      setAbbildStand(null);
+      // Für den Betrieb ohne Netz auf dem Gerät ablegen.
+      abbildSpeichern(result, token).catch(() => null);
+      nfcSeitenVorladen((result.tasks || []).map((task: RawTask) => String(task.work_site_id || "")));
       const selectedName = result.employee?.name || result.employees?.[0]?.name || "";
       setEmployeeName(selectedName);
       if (selectedName && typeof window !== "undefined") window.localStorage.setItem("cleantrack-employee-name", selectedName);
     } catch (loadError) {
+      // Kein Netz: mit dem zuletzt geladenen Stand weiterarbeiten, damit
+      // Einsätze sichtbar bleiben und gestempelt werden kann.
+      if (istNetzFehler(loadError)) {
+        setOfflineModus(true);
+        if (!silent) {
+          const abbild = await abbildLaden();
+          if (abbild?.data) {
+            setData(abbild.data as AppData);
+            setAbbildStand(abbild.gespeichertAm);
+            setError(null);
+            return;
+          }
+          setError("Keine Verbindung und noch keine gespeicherten Daten. Bitte einmal mit Empfang öffnen.");
+        }
+        return;
+      }
       setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
     } finally {
       setLoading(false);
@@ -4942,6 +5112,57 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
   const refreshData = useCallback(async (name?: string) => {
     await loadData(name || employeeName, undefined, true);
   }, [employeeName, loadData]);
+
+  /** Frische Anmeldung holen; ohne Netz die letzte bekannte nehmen. */
+  const tokenHolen = useCallback(async () => {
+    try {
+      const { data: sessionData } = await getSupabaseBrowser().auth.getSession();
+      const frisch = sessionData.session?.access_token;
+      if (frisch) return frisch;
+    } catch {
+      /* weiter unten */
+    }
+    return authToken;
+  }, [authToken]);
+
+  const wartendeAnzahl = warteschlange.filter((e) => e.status === "wartet").length;
+  const wartendeRef = useRef(0);
+  wartendeRef.current = wartendeAnzahl;
+  const offlineRef = useRef(false);
+  offlineRef.current = offlineModus;
+
+  /** Wartende Stempelungen übertragen und danach die Daten auffrischen. */
+  const jetztSenden = useCallback(async () => {
+    if (!authToken) return;
+    if (wartendeRef.current > 0) {
+      const ergebnis = await warteschlangeSenden(tokenHolen);
+      if (ergebnis.gesendet > 0) {
+        setSyncInfo(ergebnis.gesendet === 1 ? "Eine Stempelung wurde übertragen." : `${ergebnis.gesendet} Stempelungen wurden übertragen.`);
+        setTimeout(() => setSyncInfo(null), 7000);
+      }
+    }
+    // Daten auch auffrischen, wenn nur der Offline-Stand angezeigt wurde.
+    if (offlineRef.current || wartendeRef.current > 0) await loadData(undefined, undefined, true);
+  }, [authToken, tokenHolen, loadData]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    const anstossen = () => { jetztSenden(); };
+    anstossen();
+    window.addEventListener("online", anstossen);
+    const sichtbar = () => { if (document.visibilityState === "visible") anstossen(); };
+    document.addEventListener("visibilitychange", sichtbar);
+    // Empfang kommt und geht leise: alle 20 Sekunden erneut versuchen.
+    const takt = setInterval(() => {
+      if (wartendeRef.current > 0 || offlineRef.current) anstossen();
+    }, 20000);
+    return () => {
+      window.removeEventListener("online", anstossen);
+      document.removeEventListener("visibilitychange", sichtbar);
+      clearInterval(takt);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken]);
 
   /**
    * Service Worker beim Start anmelden, nicht erst beim Einschalten der
@@ -4958,8 +5179,25 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     async function initAuth() {
       try {
         const supabase = getSupabaseBrowser();
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData.session?.access_token || "";
+        let sessionData: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"] | null = null;
+        let sessionFehler: unknown = null;
+        try {
+          const antwort = await supabase.auth.getSession();
+          sessionData = antwort.data;
+          sessionFehler = antwort.error;
+        } catch (e) {
+          sessionFehler = e;
+        }
+        let token = sessionData?.session?.access_token || "";
+        if (!token) {
+          // Ohne Netz lässt sich eine abgelaufene Anmeldung nicht erneuern.
+          // Dann mit der zuletzt gespeicherten weiterarbeiten, damit die App
+          // im Objekt trotzdem aufgeht. Wirklich abgemeldet: Abbild löschen.
+          const abbild = await abbildLaden();
+          const keinNetz = Boolean(sessionFehler) || (typeof navigator !== "undefined" && navigator.onLine === false);
+          if (abbild?.token && keinNetz) token = abbild.token;
+          else if (!sessionFehler) await abbildLoeschen();
+        }
         if (!mounted) return;
         setAuthToken(token);
         setAuthLoading(false);
@@ -5068,6 +5306,9 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
     const supabase = getSupabaseBrowser();
     await supabase.auth.signOut();
     if (typeof window !== "undefined") window.localStorage.removeItem("cleantrack-employee-name");
+    // Noch nicht übertragene Stempelungen bleiben bewusst erhalten, sie gehen
+    // beim nächsten Login automatisch raus.
+    await abbildLoeschen();
     setAuthToken("");
     setEmployeeName("");
     setData(null);
@@ -5141,6 +5382,14 @@ export default function MitarbeiterApp({ initialTab = "home", initialWorkSiteId 
       isAdmin={Boolean(data?.isAdmin)}
       onOpenMenu={() => setActive("menu")}
     >
+      <OfflineStatus
+        offline={offlineModus}
+        stand={abbildStand}
+        warteschlange={warteschlange}
+        info={syncInfo}
+        onSenden={() => { jetztSenden(); }}
+        onVerwerfen={(id) => { stempelVerwerfen(id); }}
+      />
       {loading && <LoadingScreen />}
       {!loading && error && <ErrorScreen error={error} onRetry={() => loadData()} />}
       {!loading && !error && active === "home" ? <InstallHinweis /> : null}

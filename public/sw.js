@@ -9,7 +9,7 @@
 // Aufrufe zu fremden Adressen (Supabase) gehen immer ins Netz. Sonst würden
 // Stempelzeiten oder Einsatzpläne veraltet angezeigt.
 
-const VERSION = "schichtklar-v1";
+const VERSION = "schichtklar-v2";
 const HUELLE = `${VERSION}-huelle`;
 
 // Wird beim Einrichten geladen. Bewusst kurz gehalten.
@@ -66,28 +66,48 @@ self.addEventListener("fetch", (event) => {
   // Daten immer frisch.
   if (url.pathname.startsWith("/api/")) return;
 
-  // Seitenaufrufe: erst Netz, bei Ausfall der zuletzt bekannte Stand.
+  // Seitenaufrufe. Ohne Empfang hängt ein Abruf oft minutenlang, statt sofort
+  // zu scheitern. Deshalb: Ist die Seite schon gespeichert, bekommt das Netz
+  // drei Sekunden, danach öffnet der gespeicherte Stand. Die frische Seite wird
+  // im Hintergrund trotzdem noch geholt und für das nächste Mal abgelegt.
   if (anfrage.mode === "navigate") {
     event.respondWith(
       (async () => {
-        try {
-          const antwort = await fetch(anfrage);
-          const speicher = await caches.open(HUELLE);
-          speicher.put(anfrage, antwort.clone()).catch(() => null);
+        const speicher = await caches.open(HUELLE);
+        const optionen = { ignoreSearch: true, ignoreVary: true };
+        const gespeichert = await speicher.match(anfrage.url, optionen);
+
+        const netz = fetch(anfrage).then((antwort) => {
+          if (antwort && antwort.ok && !antwort.redirected) {
+            speicher.put(anfrage.url, antwort.clone()).catch(() => null);
+          }
           return antwort;
+        });
+
+        if (!gespeichert) {
+          try {
+            return await netz;
+          } catch (fehler) {
+            const huelle = await speicher.match("/mitarbeiter", optionen);
+            if (huelle) return huelle;
+            return new Response(
+              "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Offline</title>" +
+                "<div style=\"font-family:system-ui;padding:2rem;color:#1f2937\">" +
+                "<h1 style='font-size:1.25rem'>Keine Verbindung</h1>" +
+                "<p>Die App war noch nie mit Netz geöffnet. Bitte einmal mit Empfang öffnen, danach funktioniert sie auch ohne.</p></div>",
+              { headers: { "Content-Type": "text/html; charset=utf-8" }, status: 503 }
+            );
+          }
+        }
+
+        try {
+          return await Promise.race([
+            netz,
+            new Promise((_, ablehnen) => setTimeout(() => ablehnen(new Error("zeit")), 3000))
+          ]);
         } catch (fehler) {
-          const speicher = await caches.open(HUELLE);
-          const gespeichert = await speicher.match(anfrage);
-          if (gespeichert) return gespeichert;
-          const huelle = await speicher.match("/mitarbeiter");
-          if (huelle) return huelle;
-          return new Response(
-            "<!doctype html><meta charset='utf-8'><title>Offline</title>" +
-              "<div style=\"font-family:system-ui;padding:2rem;color:#1f2937\">" +
-              "<h1 style='font-size:1.25rem'>Keine Verbindung</h1>" +
-              "<p>Die App ist gerade offline. Sobald wieder Empfang da ist, lädt sie von selbst.</p></div>",
-            { headers: { "Content-Type": "text/html; charset=utf-8" }, status: 503 }
-          );
+          netz.catch(() => null);
+          return gespeichert;
         }
       })()
     );
